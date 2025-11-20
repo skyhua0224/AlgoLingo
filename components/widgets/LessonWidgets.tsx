@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Widget, UserPreferences } from '../../types';
-import { Bot, User, Lightbulb, Zap, Info, GripVertical, ArrowDown, ArrowUp, Play, Terminal, MousePointerClick, ListOrdered, Check, Eye, Sparkles, ThumbsUp, ThumbsDown, XCircle, FileText, Code } from 'lucide-react';
+import { Bot, User, Lightbulb, Zap, Info, GripVertical, ArrowDown, ArrowUp, Play, Terminal, MousePointerClick, ListOrdered, Check, Eye, Sparkles, ThumbsUp, ThumbsDown, XCircle } from 'lucide-react';
 import { validateUserCode } from '../../services/geminiService';
 import { Button } from '../Button';
 
@@ -523,7 +522,7 @@ export const CalloutWidget: React.FC<{ widget: Widget }> = ({ widget }) => {
   );
 };
 
-// --- 8. Code Editor Widget (Redesigned LeetCode Style) ---
+// --- 8. Code Editor Widget ---
 interface CodeEditorProps {
     widget: Widget;
     onUpdateStatus: (status: 'idle' | 'running' | 'success' | 'error') => void;
@@ -532,20 +531,18 @@ interface CodeEditorProps {
 
 export const CodeEditorWidget: React.FC<CodeEditorProps> = ({ widget, onUpdateStatus, preferences }) => {
     if (!widget.codeEditor) return null;
-    const { initialCode, problemDescription, title, examples, constraints } = widget.codeEditor;
-    const [activeTab, setActiveTab] = useState<'desc' | 'code'>('desc');
-    const [code, setCode] = useState(initialCode);
+    const { solutionTemplate, problemDescription } = widget.codeEditor;
+    const [code, setCode] = useState(solutionTemplate);
     const [output, setOutput] = useState("");
     const [isRunning, setIsRunning] = useState(false);
     
     // Reset state when widget content changes
     useEffect(() => {
-        setCode(initialCode);
+        setCode(solutionTemplate);
         setOutput("");
         setIsRunning(false);
         onUpdateStatus('idle');
-        setActiveTab('desc'); // Default to description to read the problem first
-    }, [widget.id, initialCode]);
+    }, [widget.id, solutionTemplate]);
 
     const handleRun = async () => {
         setIsRunning(true);
@@ -565,99 +562,32 @@ export const CodeEditorWidget: React.FC<CodeEditorProps> = ({ widget, onUpdateSt
     };
 
     return (
-        <div className="mb-6 w-full bg-white dark:bg-dark-card rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden h-[600px] flex flex-col">
-            {/* Tabs Header */}
-            <div className="flex border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-                <button 
-                    onClick={() => setActiveTab('desc')}
-                    className={`px-6 py-3 text-sm font-bold flex items-center gap-2 transition-colors ${activeTab === 'desc' ? 'bg-white dark:bg-dark-card border-t-2 border-brand text-brand' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-                >
-                    <FileText size={16}/> Problem
-                </button>
-                <button 
-                    onClick={() => setActiveTab('code')}
-                    className={`px-6 py-3 text-sm font-bold flex items-center gap-2 transition-colors ${activeTab === 'code' ? 'bg-white dark:bg-dark-card border-t-2 border-brand text-brand' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-                >
-                    <Code size={16}/> Code
-                </button>
-            </div>
-
-            {/* Content Area */}
-            <div className="flex-1 overflow-hidden relative">
-                
-                {/* TAB 1: Description (LeetCode Style) */}
-                <div className={`absolute inset-0 overflow-y-auto p-6 custom-scrollbar ${activeTab === 'desc' ? 'block' : 'hidden'}`}>
-                    <h2 className="text-2xl font-extrabold text-gray-800 dark:text-white mb-4">{title || "Problem Statement"}</h2>
-                    
-                    <div className="prose dark:prose-invert text-sm text-gray-700 dark:text-gray-300 mb-8 leading-relaxed">
-                        {problemDescription}
+        <div className="mb-6 w-full">
+            <div className="bg-[#1e1e1e] rounded-xl shadow-2xl overflow-hidden border-2 border-gray-700 max-w-[calc(100vw-3rem)] md:max-w-full mx-auto">
+                <div className="bg-[#252526] px-3 py-2 flex items-center justify-between border-b border-gray-700">
+                    <div className="flex items-center gap-2 text-gray-400 text-xs">
+                        <Terminal size={14} />
+                        <span>Solution.py</span>
                     </div>
-
-                    <div className="space-y-6 mb-8">
-                        {examples?.map((ex, i) => (
-                            <div key={i}>
-                                <h4 className="text-xs font-bold text-gray-900 dark:text-white mb-2 uppercase tracking-wide">Example {i + 1}:</h4>
-                                <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-4 border-l-4 border-gray-300 dark:border-gray-600 font-mono text-sm">
-                                    <div className="mb-1">
-                                        <span className="font-bold text-gray-600 dark:text-gray-400">Input: </span>
-                                        <span className="text-gray-800 dark:text-gray-200">{ex.input}</span>
-                                    </div>
-                                    <div className="mb-1">
-                                        <span className="font-bold text-gray-600 dark:text-gray-400">Output: </span>
-                                        <span className="text-gray-800 dark:text-gray-200">{ex.output}</span>
-                                    </div>
-                                    {ex.explanation && (
-                                        <div>
-                                            <span className="font-bold text-gray-600 dark:text-gray-400">Explanation: </span>
-                                            <span className="text-gray-600 dark:text-gray-400 italic">{ex.explanation}</span>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-
-                    {constraints && constraints.length > 0 && (
-                        <div className="mb-4">
-                            <h4 className="text-xs font-bold text-gray-900 dark:text-white mb-2 uppercase tracking-wide">Constraints:</h4>
-                            <ul className="list-disc pl-5 space-y-1">
-                                {constraints.map((c, i) => (
-                                    <li key={i} className="text-sm font-mono bg-gray-50 dark:bg-gray-800/50 inline-block px-2 py-0.5 rounded text-gray-700 dark:text-gray-300 mr-2 mb-1">
-                                        {c}
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    )}
+                    <button 
+                        onClick={handleRun} 
+                        disabled={isRunning}
+                        className={`flex items-center gap-1 px-3 py-1 rounded bg-green-600 text-white text-xs font-bold hover:bg-green-500 transition-colors ${isRunning ? 'opacity-50' : ''}`}
+                    >
+                        <Play size={12} fill="currentColor"/> {isRunning ? '...' : 'Run'}
+                    </button>
                 </div>
-
-                {/* TAB 2: Code Editor */}
-                <div className={`absolute inset-0 flex flex-col ${activeTab === 'code' ? 'block' : 'hidden'}`}>
-                    <div className="bg-[#252526] px-3 py-2 flex items-center justify-between border-b border-gray-700 shrink-0">
-                        <div className="flex items-center gap-2 text-gray-400 text-xs">
-                            <Terminal size={14} />
-                            <span>Solution.py</span>
-                        </div>
-                        <button 
-                            onClick={handleRun} 
-                            disabled={isRunning}
-                            className={`flex items-center gap-1 px-4 py-1.5 rounded bg-green-600 text-white text-xs font-bold hover:bg-green-500 transition-colors ${isRunning ? 'opacity-50' : ''}`}
-                        >
-                            <Play size={12} fill="currentColor"/> {isRunning ? 'Running...' : 'Run Code'}
-                        </button>
-                    </div>
-                    <textarea
-                        value={code}
-                        onChange={(e) => setCode(e.target.value)}
-                        className="flex-1 w-full bg-[#1e1e1e] text-gray-300 font-mono text-sm p-4 focus:outline-none resize-none leading-relaxed"
-                        spellCheck={false}
-                    />
-                    <div className="bg-[#1e1e1e] border-t border-gray-700 p-3 font-mono text-xs h-32 overflow-y-auto shrink-0">
-                        <span className="text-gray-500 block mb-1 font-bold uppercase">Console Output:</span>
-                        <pre className={`${output.includes('Error') ? 'text-red-400' : 'text-green-400'} whitespace-pre-wrap`}>
-                            {output || "Ready to run..."}
-                        </pre>
-                    </div>
+                <textarea
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    className="w-full h-48 bg-[#1e1e1e] text-gray-300 font-mono text-sm p-4 focus:outline-none resize-none leading-relaxed"
+                    spellCheck={false}
+                />
+                <div className="bg-[#1e1e1e] border-t border-gray-700 p-3 font-mono text-xs h-32 overflow-y-auto">
+                    <span className="text-gray-500 block mb-1">Console:</span>
+                    <pre className={`${output.includes('Error') ? 'text-red-400' : 'text-green-400'} whitespace-pre-wrap`}>
+                        {output || "Waiting..."}
+                    </pre>
                 </div>
             </div>
         </div>

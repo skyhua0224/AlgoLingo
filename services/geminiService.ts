@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Schema, Type } from "@google/genai";
 import { LessonPlan, MistakeRecord, UserPreferences, LessonScreen, Widget, SavedLesson, ApiConfig } from "../types";
 
@@ -42,21 +41,10 @@ const stepsListSchema = {
 const codeEditorSchema = {
     type: Type.OBJECT,
     properties: {
-        title: { type: Type.STRING, description: "e.g. '1. Two Sum'" },
-        initialCode: { type: Type.STRING, description: "ONLY the function signature/boilerplate. NO implementation logic." },
-        problemDescription: { type: Type.STRING, description: "The full problem text description." },
-        examples: { 
-            type: Type.ARRAY,
-            items: {
-                type: Type.OBJECT,
-                properties: {
-                    input: { type: Type.STRING },
-                    output: { type: Type.STRING },
-                    explanation: { type: Type.STRING }
-                }
-            }
-        },
-        constraints: { type: Type.ARRAY, items: { type: Type.STRING } },
+        initialCode: { type: Type.STRING },
+        problemDescription: { type: Type.STRING },
+        expectedOutputDescription: { type: Type.STRING },
+        solutionTemplate: { type: Type.STRING },
         hints: { type: Type.ARRAY, items: { type: Type.STRING } }
     }
 };
@@ -146,37 +134,38 @@ Target Lang: **${prefs.targetLanguage}** | Instruction Lang: **${prefs.spokenLan
    - BEFORE any 'quiz', 'fill-in', or 'code-editor', you MUST provide a 'flipcard' or 'callout' explaining the exact syntax or concept.
    - Users are beginners in this language. Do not assume they know the syntax.
 
-2. **CODE EDITOR RULES (CRITICAL):**
-   - When using 'code-editor', the \`initialCode\` MUST ONLY BE THE FUNCTION SIGNATURE/BOILERPLATE.
-   - **DO NOT IMPLEMENT THE SOLUTION** in \`initialCode\`. The user must write it.
-   - Example \`initialCode\` for Python Two Sum:
-     \`class Solution:\n    def twoSum(self, nums: List[int], target: int) -> List[int]:\n        pass\`
-   - Provide rich details for \`examples\` (Input, Output, Explanation) and \`constraints\` so it looks exactly like a LeetCode problem.
-
-3. **WIDGET USAGE BY PHASE:**
+2. **WIDGET USAGE BY PHASE:**
    - **Phase 0 (Concept):** 
-     - Screen 4: 'interactive-code' showing the FULL algorithm.
-     - USE: 'quiz', 'fill-in' (InputMode: 'select').
-     - FORBIDDEN: 'code-editor'.
+     - **MANDATORY:** Screen 4 MUST be 'interactive-code'. Show the FULL algorithm implementation so the user gets familiar with the structure immediately.
+     - USE: 'quiz' (Multiple Choice), 'fill-in' (InputMode: 'select'), 'flipcard'.
+     - **Parsons:** Generally reserved for Phase 1, BUT allowed in Screens 16-17 if the user has practiced enough.
+     - **FORBIDDEN:** 'code-editor', 'fill-in' (InputMode: 'type'). 
    - **Phase 1 (Basics):** 
-     - USE: 'parsons', 'fill-in' (select).
-     - FORBIDDEN: 'code-editor'.
+     - **CORE:** Use 'parsons' (Logic Sorting) heavily here (Screens 5-10).
+     - USE: 'fill-in' (InputMode: 'select').
+     - **FORBIDDEN:** 'code-editor', 'fill-in' (InputMode: 'type').
    - **Phase 2 (Code):** 
-     - USE: 'fill-in' (type).
-     - Screen 16-17: You MAY use 'code-editor' for the final challenge.
+     - Introduce 'fill-in' (InputMode: 'type') sparingly.
    - **Phase 3+ (Optimize/Boss):** 
-     - USE: 'code-editor' frequently.
+     - You may use 'code-editor' and 'type' mode.
+
+3. **VISUAL AIDS:**
+   - Use 'callout' (variant: 'tip' or 'info') liberally to act as "Cheat Sheets" or "Memory Cards" before a question.
+   - E.g., "Tip: In Python, use \`len(arr)\` to get length." -> THEN ask a question about length.
 
 4. **CONTENT RULES:**
    - **EXACTLY 17 SCREENS.**
    - **PARSONS:** Min 5 lines. 
-   - **CODE:** Valid ${prefs.targetLanguage}.
+   - **PARSONS FORMATTING:** For languages with curly braces (Java, C++, C, JS), do NOT create separate lines for opening or closing braces. Attach them to the statement line (e.g., "if (x) {" or "} else {"). This prevents single-character sorting items.
+   - **CODE:** Valid ${prefs.targetLanguage} only. No pseudo-code in code blocks.
+   - **NO MARKDOWN** in dialogue/callouts.
 `;
 
 const sanitizePlan = (plan: LessonPlan): LessonPlan => {
     const validScreens = plan.screens.filter(screen => {
         if (!screen.widgets || screen.widgets.length === 0) return false;
         
+        // Check for broken specific widgets
         const hasBrokenWidgets = screen.widgets.some(w => {
             if (w.type === 'flipcard' && (!w.flipcard || !w.flipcard.front)) return true;
             if (w.type === 'quiz' && (!w.quiz || !w.quiz.options || w.quiz.options.length < 2 || !w.quiz.question)) return true;
@@ -186,13 +175,16 @@ const sanitizePlan = (plan: LessonPlan): LessonPlan => {
         });
         if (hasBrokenWidgets) return false;
 
+        // Fix: Check for Fill-in widgets missing options
         screen.widgets.forEach(w => {
             if (w.type === 'fill-in' && w.fillIn) {
+                // Logic: If options provided, force select. If no options, allow type.
+                // But per user request, we prefer select.
                 if (!w.fillIn.options || w.fillIn.options.length === 0) {
                     w.fillIn.inputMode = 'type';
                     w.fillIn.options = []; 
                 } else {
-                    w.fillIn.inputMode = 'select';
+                    w.fillIn.inputMode = 'select'; // Enforce select if options exist
                 }
             }
         });
@@ -353,14 +345,14 @@ export const generateLessonPlan = async (
   1: Dialogue.
   2-8: Fill-in (InputMode: 'select').
   9-14: Parsons Problems (Complex).
-  15-17: **Code Editor** (Full challenge).
+  15-17: Advanced Fill-in (InputMode: 'type' allowed for final test) OR Code Editor (Only for final).
   `;
   
   // NODE 3: OPTIMIZE
   const blueprintNode3 = `
   **PHASE 3: OPTIMIZATION (17 Screens)**
   Focus on Time/Space complexity.
-  Use **Code Editor** frequently for full implementation.
+  Code Editor allowed.
   `;
 
   let selectedBlueprint = blueprintNode0;
@@ -373,8 +365,7 @@ export const generateLessonPlan = async (
   ${selectedBlueprint}
   ${prevReport ? `REPORT: ${prevReport.mistakeCount} mistakes in previous phase.` : ""}
   
-  CRITICAL: For 'code-editor', ensure \`initialCode\` is ONLY the boilerplate (signature). 
-  Provide full LeetCode-style 'problemDescription', 'examples', and 'constraints'.
+  CRITICAL: Ensure every 'fill-in' or 'code-editor' is preceded by a 'callout' or 'flipcard' that explains the exact syntax needed.
   Output JSON only.
   `;
 
@@ -435,7 +426,7 @@ export const generateSyntaxClinicPlan = async (
     1: Dialogue.
     2-8: Flipcards & Callouts (Teach the syntax explicitly).
     9-14: Quiz & Fill-in (Mode: 'select').
-    15-17: Code Editor (Write a simple function using the syntax).
+    15-17: Fill-in (Mode: 'type' - Final check).
     `;
 
     try {

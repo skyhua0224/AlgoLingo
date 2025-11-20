@@ -117,16 +117,11 @@ export interface Widget {
   };
 
   codeEditor?: {
-      title?: string; // LeetCode Title e.g. "1. Two Sum"
-      initialCode: string; // The boilerplate e.g. "class Solution: def..."
-      problemDescription: string; // The main text
-      examples: {
-          input: string;
-          output: string;
-          explanation?: string;
-      }[];
-      constraints: string[];
-      hints?: string[];
+      initialCode: string;
+      problemDescription: string;
+      expectedOutputDescription: string;
+      solutionTemplate: string; // The function signature
+      hints: string[];
   };
 
   callout?: {
