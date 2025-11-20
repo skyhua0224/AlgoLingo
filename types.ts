@@ -19,17 +19,17 @@ export interface UserStats {
 export type ApiProvider = 'gemini-official' | 'gemini-custom' | 'openai';
 
 export interface ApiConfig {
-    provider: ApiProvider;
-    gemini: {
-        model: string;
-        apiKey?: string;
-        baseUrl?: string; // For proxy
-    };
-    openai: {
-        baseUrl: string;
-        apiKey: string;
-        model: string;
-    };
+  provider: ApiProvider;
+  gemini: {
+    model: string;
+    apiKey?: string;
+    baseUrl?: string; // For proxy
+  };
+  openai: {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+  };
 }
 
 export type AppTheme = 'light' | 'dark' | 'system';
@@ -40,48 +40,49 @@ export interface UserPreferences {
   targetLanguage: 'Python' | 'Java' | 'C++' | 'C' | 'JavaScript';
   spokenLanguage: 'Chinese' | 'English';
   apiConfig: ApiConfig;
-  theme: AppTheme; 
+  theme: AppTheme;
   failedSkips?: Record<string, boolean>; // New: Track failed skip attempts per problem (Problem Name -> Boolean)
 }
 
 // --- NEW WIDGET TYPES ---
 
-export type WidgetType = 
-    | 'dialogue' 
-    | 'flipcard' 
-    | 'quiz' 
-    | 'code' 
-    | 'interactive-code'
-    | 'parsons'
-    | 'fill-in'
-    | 'code-editor' // New: Full code simulation
-    | 'steps-list'  // New: Algorithm steps
-    | 'callout';
+export type WidgetType =
+  | 'dialogue'
+  | 'flipcard'
+  | 'quiz'
+  | 'code'
+  | 'interactive-code'
+  | 'parsons'
+  | 'fill-in'
+  | 'code-editor'
+  | 'steps-list'
+  | 'solution-display' // New: For showing full solution
+  | 'callout';
 
 export interface Widget {
   id: string;
   type: WidgetType;
-  
+
   dialogue?: {
     text: string;
     speaker: 'coach' | 'user';
     emotion?: 'neutral' | 'happy' | 'thinking' | 'excited';
   };
-  
+
   flipcard?: {
     front: string;
     back: string;
     hint?: string;
     mode?: 'learn' | 'assessment'; // Assessment adds "Got it / Forgot" buttons
   };
-  
+
   quiz?: {
     question: string;
     options: string[];
     correctIndex: number;
     explanation: string;
   };
-  
+
   code?: {
     content: string;
     language: string;
@@ -89,40 +90,40 @@ export interface Widget {
   };
 
   interactiveCode?: {
-      language: string;
-      lines: {
-          code: string;
-          explanation: string;
-      }[];
-      caption?: string;
+    language: string;
+    lines: {
+      code: string;
+      explanation: string;
+    }[];
+    caption?: string;
   };
 
   parsons?: {
-      lines: string[]; // Scrambled lines
-      explanation?: string;
+    lines: string[]; // Scrambled lines
+    explanation?: string;
   };
 
   // New Widget Data
   stepsList?: {
-      items: string[]; // The steps text
-      mode: 'static' | 'interactive'; // Static display or sortable
-      correctOrder?: string[]; // For interactive mode validation
+    items: string[]; // The steps text
+    mode: 'static' | 'interactive'; // Static display or sortable
+    correctOrder?: string[]; // For interactive mode validation
   };
 
   fillIn?: {
-      code: string; // Contains __BLANK__
-      options?: string[]; // Correct and distractors (Optional if mode is text)
-      correctValues: string[]; // Order of correct values
-      explanation?: string;
-      inputMode?: 'select' | 'type'; // New: Select from options or Type manually
+    code: string; // Contains __BLANK__
+    options?: string[]; // Correct and distractors (Optional if mode is text)
+    correctValues: string[]; // Order of correct values
+    explanation?: string;
+    inputMode?: 'select' | 'type'; // New: Select from options or Type manually
   };
 
   codeEditor?: {
-      initialCode: string;
-      problemDescription: string;
-      expectedOutputDescription: string;
-      solutionTemplate: string; // The function signature
-      hints: string[];
+    initialCode: string;
+    problemDescription: string;
+    expectedOutputDescription: string;
+    solutionTemplate: string; // The function signature
+    hints: string[];
   };
 
   callout?: {
@@ -130,13 +131,15 @@ export interface Widget {
     text: string;
     variant: 'info' | 'warning' | 'success' | 'tip';
   };
+
+  solutionDisplay?: SolutionDisplay;
 }
 
 export interface LessonScreen {
-    id: string;
-    header?: string; // Title of the screen (e.g. "Concept: Hash Maps")
-    widgets: Widget[];
-    isRetry?: boolean; // New: Marks if this screen is a mistake remediation
+  id: string;
+  header?: string; // Title of the screen (e.g. "Concept: Hash Maps")
+  widgets: Widget[];
+  isRetry?: boolean; // New: Marks if this screen is a mistake remediation
 }
 
 export interface LessonPlan {
@@ -168,27 +171,48 @@ export interface MistakeRecord {
 }
 
 export interface GameContent {
-    // Legacy support
-    levelTitle: string;
-    
-    // FillInGame properties
-    missingWords?: string[];
-    codeSnippet?: string;
+  // Legacy support
+  levelTitle: string;
 
-    // ParsonsGame properties
-    scrambledLines?: string[];
+  // FillInGame properties
+  missingWords?: string[];
+  codeSnippet?: string;
 
-    // TheoryGame properties
-    levelType?: 'syntax' | 'concept' | string;
-    theory?: {
-        analogy: string;
-        concept: string;
-        explanation: string;
-    };
-    quiz?: {
-        question: string;
-        options: string[];
-        correctIndex: number;
-        explanation?: string;
-    };
+  // ParsonsGame properties
+  scrambledLines?: string[];
+
+  // TheoryGame properties
+  levelType?: 'syntax' | 'concept' | string;
+  theory?: {
+    analogy: string;
+    concept: string;
+    explanation: string;
+  };
+  quiz?: {
+    question: string;
+    options: string[];
+    correctIndex: number;
+    explanation?: string;
+  };
+}
+
+
+// New types for our widgets
+export interface LessonState {
+  [key: string]: any;
+}
+
+export interface WidgetProps {
+  widgetData: any; // Can be specified more narrowly in each component
+  onComplete: (success: boolean, data?: any) => void;
+  lessonState: LessonState;
+  updateLessonState: (key: string, value: any) => void;
+}
+
+export interface SolutionDisplay {
+  fullCode: string;
+  explanation: {
+    lineNumber: string;
+    explanation: string;
+  }[];
 }
