@@ -1,3 +1,4 @@
+
 /**
  * This file contains all the prompt engineering logic for generating AlgoLingo lessons.
  * It's the "brain" that instructs the AI on how to structure the educational content.
@@ -107,14 +108,19 @@ export const getSystemInstruction = (params: SystemInstructionParams): string =>
 
     # WIDGET-SPECIFIC RULES
 
+    -   **'parsons' (Code Ordering)**:
+        -   **MINIMUM LENGTH**: The 'lines' array MUST contain at least 5 lines of code.
+        -   **NO TRIVIALITY**: Do NOT generate short 2-3 line sorting tasks. They are meaningless. If the code is short, break it down further or include surrounding context lines to make it at least 5 lines.
+
+    -   **'fill-in' (Code Completion)**:
+        -   **PURE CODE ONLY**: The 'code' property must contain ONLY valid code syntax with \`__BLANK__\` placeholders.
+        -   **NO TEXT**: Do NOT include instructions like "Fill in the blank:" inside the code block. 
+        -   **INSTRUCTION STRATEGY**: You MUST use a separate 'dialogue' or 'callout' widget immediately BEFORE the 'fill-in' widget to provide instructions or context.
+
     -   **'flipcard'**:
         -   mode='learn': For Stage 1. Simple front/back knowledge.
         -   mode='assessment': For Stages 2+. Includes "Forgot/Got It" interaction.
-    -   **'fill-in'**:
-        -   inputMode='select': For Stages 1-2. User chooses from options.
-        -   inputMode='type': For Stages 3+. User types the answer.
-    -   **'code-editor'**:
-        -   RESTRICTED: ONLY allowed in Stage 6, and ONLY on Screen 17.
+    
     -   **'solution-display' (NEW & IMPORTANT)**:
         -   **PURPOSE**: This widget is for the "View Solution & Explanation" feature.
         -   **REQUIREMENT**: For stages 1 through 5, AFTER any screen that contains a 'parsons' or 'fill-in' puzzle, the VERY NEXT screen should often contain a 'solution-display' widget. This provides immediate feedback.

@@ -55,7 +55,7 @@ const codeEditorSchema = {
 const parsonsSchema = {
     type: Type.OBJECT,
     properties: {
-        lines: { type: Type.ARRAY, items: { type: Type.STRING }, description: "MUST CONTAIN AT LEAST 5 LINES OF CODE. DO NOT MAKE IT SHORT." },
+        lines: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Code lines for the puzzle. Aim for 5-8 lines. Combine short lines if needed." },
         explanation: { type: Type.STRING }
     }
 };
@@ -63,7 +63,7 @@ const parsonsSchema = {
 const fillInSchema = {
     type: Type.OBJECT,
     properties: {
-        code: { type: Type.STRING, description: "Code with __BLANK__ placeholders." },
+        code: { type: Type.STRING, description: "PURE CODE ONLY with __BLANK__ placeholders. NO instructions or text allowed in this string." },
         options: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Optional options for select mode. MUST BE PROVIDED for Phase 0 and 1." },
         correctValues: { type: Type.ARRAY, items: { type: Type.STRING } },
         explanation: { type: Type.STRING },
@@ -166,10 +166,20 @@ export const generateLessonPlan = async (
     phaseIndex: number,
     preferences: UserPreferences,
     mistakes: MistakeRecord[] = [],
-    history: SavedLesson[] = []
+    history: SavedLesson[] = [],
+    onDebug?: (msg: string) => void
 ): Promise<LessonPlan> => {
+    const log = (msg: string) => {
+        console.log(`[GeminiService] ${msg}`);
+        if (onDebug) onDebug(msg);
+    };
+
+    log("Initializing generation request...");
     const client = getGeminiClient(preferences);
     const modelId = preferences.apiConfig.gemini.model || 'gemini-2.5-flash';
+
+    log(`Model: ${modelId}`);
+    log(`Phase: ${phaseIndex}, Language: ${preferences.targetLanguage}`);
 
     const systemInstruction = getSystemInstruction({
         problemName,
@@ -178,10 +188,14 @@ export const generateLessonPlan = async (
         mistakes,
     });
 
+    log(`System Prompt Length: ${systemInstruction.length} chars`);
+
     const userPrompt = `Generate the lesson plan for Phase ${phaseIndex + 1} of ${problemName}. Remember: 17 Screens.`;
+    log(`User Prompt: ${userPrompt}`);
 
     try {
-        const TIMEOUT_MS = 60000; // 60-second timeout
+        const TIMEOUT_MS = 90000; // Increased to 90 seconds
+        log(`Sending request to Gemini API (Timeout: ${TIMEOUT_MS/1000}s)...`);
 
         const apiCall = client.models.generateContent({
             model: modelId,
@@ -190,7 +204,7 @@ export const generateLessonPlan = async (
                 systemInstruction: systemInstruction,
                 responseMimeType: "application/json",
                 responseSchema: lessonPlanSchema,
-                temperature: 0.4,
+                temperature: 0.2, // Lower temperature for more stability
             },
         });
 
@@ -201,28 +215,55 @@ export const generateLessonPlan = async (
         // Race the API call against the timeout
         const response = (await Promise.race([apiCall, timeoutPromise])) as GenerateContentResponse;
 
+        log("Response received!");
+        
         const text = response.text;
-        if (!text) throw new Error("Empty response");
+        if (!text) {
+            log("Error: Empty response text from API");
+            throw new Error("Empty response");
+        }
+        
+        log(`Response text length: ${text.length}`);
+        log("Parsing JSON...");
 
-        let plan: LessonPlan = JSON.parse(text);
-
-        // --- VALIDATION & SANITIZATION ---
-        const validationResult = validateLessonPlan(plan);
-        if (!validationResult.isValid) {
-            console.error("AI Response Validation Failed:", validationResult.errors);
-            throw new Error(`AI response failed validation: ${validationResult.errors.join(', ')}`);
+        let plan: LessonPlan;
+        try {
+            plan = JSON.parse(text);
+        } catch (jsonError) {
+            log("Error: Failed to parse JSON. Response might be malformed or incomplete.");
+            // Log partial text for debugging
+            log(`Partial Response: ${text.substring(0, 500)}...`);
+            throw new Error("Invalid JSON received from AI");
         }
 
+        // --- VALIDATION & SANITIZATION ---
+        log("Validating Lesson Plan schema...");
+        const validationResult = validateLessonPlan(plan);
+        if (!validationResult.isValid) {
+            const errors = validationResult.errors.join(', ');
+            log(`Validation Failed: ${errors}`);
+            console.error("AI Response Validation Failed:", validationResult.errors);
+            throw new Error(`AI response failed validation: ${errors}`);
+        }
+
+        log("Validation Successful. Lesson Plan ready.");
         return validationResult.sanitizedPlan!;
 
-    } catch (error) {
+    } catch (error: any) {
+        log(`Gemini API Error: ${error.message}`);
         console.error("Gemini API Error:", error);
         throw error;
     }
 };
 
 // --- REVIEW GENERATION (Simplified) ---
-export const generateReviewLesson = async (mistakes: MistakeRecord[], preferences: UserPreferences): Promise<LessonPlan> => {
+export const generateReviewLesson = async (
+    mistakes: MistakeRecord[], 
+    preferences: UserPreferences,
+    onDebug?: (msg: string) => void
+): Promise<LessonPlan> => {
+    if (onDebug) onDebug("Generating Review Lesson (Local + AI wrapper)...");
+    
     return {
         title: preferences.spokenLanguage === 'Chinese' ? "智能复习" : "Smart Review",
         description: "AI generated review based on your mistakes.",
@@ -265,8 +306,8 @@ export const validateUserCode = async (code: string, problemDesc: string, prefer
     }
 }
 
-export const generateSyntaxClinicPlan = async (preferences: UserPreferences): Promise<LessonPlan> => {
-    return generateLessonPlan("Syntax Clinic", 1, preferences);
+export const generateSyntaxClinicPlan = async (preferences: UserPreferences, onDebug?: (msg: string) => void): Promise<LessonPlan> => {
+    return generateLessonPlan("Syntax Clinic", 1, preferences, [], [], onDebug);
 }
 
 export const generateAiAssistance = async (context: string, userQuery: string, preferences: UserPreferences, model: string) => {

@@ -8,6 +8,7 @@ import { ReviewHub } from './components/ReviewHub';
 import { LoadingScreen } from './components/LoadingScreen';
 import { ProfileView } from './components/ProfileView';
 import { Onboarding } from './components/Onboarding';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { generateLessonPlan, generateReviewLesson, generateSyntaxClinicPlan } from './services/geminiService';
 import { UserStats, LessonPlan, SavedLesson, MistakeRecord, UserPreferences, ProgressMap, Widget } from './types';
 import { INITIAL_STATS, DEFAULT_API_CONFIG, PROBLEM_CATEGORIES } from './constants';
@@ -42,6 +43,8 @@ export default function App() {
 
   // Track what we are loading to support retry
   const [loadingContext, setLoadingContext] = useState<'lesson' | 'review' | 'clinic'>('lesson');
+  const [generationLogs, setGenerationLogs] = useState<string[]>([]);
+  const [loadingError, setLoadingError] = useState<string | null>(null);
 
   // Theme Effect
   useEffect(() => {
@@ -160,6 +163,10 @@ export default function App() {
     setView('unit-map');
   };
 
+  const handleLog = (msg: string) => {
+      setGenerationLogs(prev => [...prev, msg]);
+  };
+
   // --- MAIN ENTRY: Start a Node ---
   const handleStartNode = async (nodeIndex: number, isSkip: boolean = false) => {
     if (!activeProblem) return;
@@ -167,28 +174,30 @@ export default function App() {
     setIsSkipAttempt(isSkip); // Set skip flag
     setActiveNodeIndex(nodeIndex);
     setLoadingContext('lesson');
+    setGenerationLogs([]);
+    setLoadingError(null);
     setView('loading');
 
     try {
       const problemMistakes = mistakes.filter(m => m.problemName === activeProblem.name || m.problemName.includes(activeProblem.name));
-      const plan = await generateLessonPlan(activeProblem.name, nodeIndex, preferences, problemMistakes, savedLessons);
+      const plan = await generateLessonPlan(activeProblem.name, nodeIndex, preferences, problemMistakes, savedLessons, handleLog);
       setCurrentLessonPlan(plan);
       setView('runner');
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      setView('unit-map'); 
+      setLoadingError(e.message || "Failed to generate lesson.");
+      // We stay on loading screen to show error
     }
   };
 
   // --- START REVIEW LOGIC ---
   const handleStartReview = async (isUnitContext: boolean = false, strategy: 'ai' | 'all' | 'due' = 'ai') => {
     setLoadingContext('review');
-    // ... (Review logic mostly same, abbreviated for clarity as main changes are in handleStartNode/handleLessonComplete)
-    // But needed to ensure 'failedSkips' logic is sound.
-    
+    setGenerationLogs([]);
+    setLoadingError(null);
+
     if (strategy === 'all' || strategy === 'due') {
         const candidates = mistakes.filter(m => m.widget);
-        // ... filtering logic ...
         if (candidates.length === 0) {
             alert(preferences.spokenLanguage === 'Chinese' ? "暂无错题" : "No mistakes found.");
             setView(activeTab === 'review' ? 'dashboard' : 'unit-map');
@@ -212,23 +221,27 @@ export default function App() {
 
     setView('loading');
     try {
-        const plan = await generateReviewLesson(mistakes, preferences);
+        const plan = await generateReviewLesson(mistakes, preferences, handleLog);
         setCurrentLessonPlan(plan);
         setView('runner');
-    } catch (e) {
-        setView(isUnitContext ? 'unit-map' : 'dashboard'); 
+    } catch (e: any) {
+        console.error(e);
+        setLoadingError(e.message || "Failed to generate review.");
     }
   };
 
   const handleStartSyntaxClinic = async () => {
       setLoadingContext('clinic');
+      setGenerationLogs([]);
+      setLoadingError(null);
       setView('loading');
       try {
-          const plan = await generateSyntaxClinicPlan(preferences);
+          const plan = await generateSyntaxClinicPlan(preferences, handleLog);
           setCurrentLessonPlan(plan);
           setView('runner');
-      } catch (e) {
-          setView('dashboard');
+      } catch (e: any) {
+          console.error(e);
+          setLoadingError(e.message || "Failed to generate clinic.");
       }
   }
 
@@ -329,23 +342,28 @@ export default function App() {
                 phase={activeNodeIndex} 
                 language={preferences.spokenLanguage} 
                 onRetry={handleRetryLoading}
+                error={loadingError}
+                debugLogs={generationLogs}
+                onBack={() => setView(activeTab === 'review' ? 'dashboard' : 'unit-map')}
             />
         );
     }
     
     if (view === 'runner' && currentLessonPlan) {
         return (
-            <LessonRunner 
-                plan={currentLessonPlan}
-                nodeIndex={activeNodeIndex}
-                onComplete={handleLessonComplete}
-                onExit={() => setView(activeTab === 'review' ? 'dashboard' : 'unit-map')}
-                onRegenerate={handleRetryLoading}
-                language={preferences.spokenLanguage}
-                preferences={preferences}
-                isReviewMode={loadingContext === 'review'}
-                isSkipAttempt={isSkipAttempt}
-            />
+            <ErrorBoundary onRetry={handleRetryLoading}>
+                <LessonRunner 
+                    plan={currentLessonPlan}
+                    nodeIndex={activeNodeIndex}
+                    onComplete={handleLessonComplete}
+                    onExit={() => setView(activeTab === 'review' ? 'dashboard' : 'unit-map')}
+                    onRegenerate={handleRetryLoading}
+                    language={preferences.spokenLanguage}
+                    preferences={preferences}
+                    isReviewMode={loadingContext === 'review'}
+                    isSkipAttempt={isSkipAttempt}
+                />
+            </ErrorBoundary>
         );
     }
     if (activeTab === 'profile') return <ProfileView stats={stats} language={preferences.spokenLanguage} preferences={preferences} onUpdateName={(name) => updatePreferences({userName: name})} />;

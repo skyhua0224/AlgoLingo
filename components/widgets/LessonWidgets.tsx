@@ -23,7 +23,7 @@ import {
 } from 'lucide-react'
 import React, { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import Editor from "@monaco-editor/react"
+import Editor, { loader } from "@monaco-editor/react"
 import { validateUserCode } from '../../services/geminiService'
 import {
   SolutionDisplay,
@@ -32,6 +32,12 @@ import {
   WidgetProps,
 } from '../../types'
 import { Button } from '../Button'
+
+// --- MONACO EDITOR CONFIGURATION ---
+// This fixes the "black screen" / worker loading issue in CDN environments
+loader.config({
+  paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.46.0/min/vs" }
+});
 
 // Helper to strip markdown ticks for cleaner dialogue. Safe against undefined.
 const formatText = (text: string | undefined | null) => {
@@ -696,7 +702,9 @@ export const CodeEditorWidget: React.FC<CodeEditorProps> = ({
   preferences,
 }) => {
   if (!widget.codeEditor) return null
-  const { solutionTemplate, problemDescription } = widget.codeEditor
+  // Fallback defaults to prevent undefined crashes
+  const { solutionTemplate = '', problemDescription = '' } = widget.codeEditor
+  
   const [code, setCode] = useState(solutionTemplate)
   const [output, setOutput] = useState('')
   const [isRunning, setIsRunning] = useState(false)
@@ -754,9 +762,13 @@ export const CodeEditorWidget: React.FC<CodeEditorProps> = ({
 
   const ProblemPanel = () => (
       <div className="p-5 h-full overflow-y-auto custom-scrollbar bg-[#1e1e1e]">
-          <ReactMarkdown components={markdownComponents}>
-            {problemDescription}
-          </ReactMarkdown>
+          {problemDescription ? (
+              <ReactMarkdown components={markdownComponents}>
+                {problemDescription}
+              </ReactMarkdown>
+          ) : (
+              <div className="text-gray-400 italic">No problem description available.</div>
+          )}
       </div>
   );
 
