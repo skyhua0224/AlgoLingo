@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { Code2, BookOpen, RotateCcw, Settings, User, X, Globe, Terminal, Save, Download, Upload, Trash2, Cpu, Link, Key, RefreshCw, Moon, Sun, Monitor } from 'lucide-react';
+import { Code2, BookOpen, RotateCcw, Settings, User, X, Globe, Terminal, Save, Download, Upload, Trash2, Cpu, Link, Key, RefreshCw, Moon, Sun, Monitor, ChevronLeft, ChevronRight } from 'lucide-react';
 import { UserPreferences, ApiConfig } from '../types';
 import { GEMINI_MODELS } from '../constants';
 
@@ -75,6 +75,7 @@ const TRANSLATIONS = {
 
 export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, preferences, onUpdatePreferences, onExportData, onImportData, onResetData, hideMobileNav }) => {
   const [showSettings, setShowSettings] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const t = TRANSLATIONS[preferences.spokenLanguage];
   
@@ -118,47 +119,60 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-dark-bg flex text-gray-900 dark:text-dark-text font-sans transition-colors">
       {/* Desktop Sidebar */}
-      <aside className="hidden md:flex flex-col w-72 bg-white dark:bg-dark-card border-r border-gray-200 dark:border-gray-800 fixed h-full z-20 p-6 shadow-sm">
-        <div className="flex items-center gap-3 mb-10 text-brand-dark dark:text-brand-light cursor-pointer hover:opacity-80 transition-opacity">
-          <Code2 size={32} className="fill-current" />
-          <span className="text-2xl font-extrabold tracking-tight">AlgoLingo</span>
+      <aside className={`hidden md:flex flex-col ${sidebarCollapsed ? 'w-20' : 'w-72'} bg-white dark:bg-dark-card border-r border-gray-200 dark:border-gray-800 fixed h-full z-20 p-4 shadow-sm transition-all duration-300`}>
+        
+        <div className={`flex items-center ${sidebarCollapsed ? 'justify-center' : 'gap-3 px-2'} mb-8 mt-2 text-brand-dark dark:text-brand-light cursor-pointer hover:opacity-80 transition-all relative`}>
+          <Code2 size={32} className="fill-current shrink-0" />
+          {!sidebarCollapsed && <span className="text-2xl font-extrabold tracking-tight overflow-hidden whitespace-nowrap">AlgoLingo</span>}
         </div>
 
-        <nav className="flex-1 space-y-4">
+        {/* Toggle Button */}
+        <button 
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            className="absolute -right-3 top-12 bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-700 shadow-md rounded-full p-1 text-gray-500 hover:text-brand transition-colors z-30"
+        >
+            {sidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+        </button>
+
+        <nav className="flex-1 space-y-2">
           <SidebarItem 
             icon={<BookOpen size={20} />} 
             label={t.learn} 
             active={activeTab === 'learn'} 
             onClick={() => onTabChange('learn')}
+            collapsed={sidebarCollapsed}
           />
           <SidebarItem 
             icon={<RotateCcw size={20} />} 
             label={t.review} 
             active={activeTab === 'review'} 
             onClick={() => onTabChange('review')}
+            collapsed={sidebarCollapsed}
           />
           <SidebarItem 
             icon={<User size={20} />} 
             label={t.profile} 
             active={activeTab === 'profile'} 
             onClick={() => onTabChange('profile')}
+            collapsed={sidebarCollapsed}
           />
         </nav>
 
-        <div className="pt-6 border-t border-gray-100 dark:border-gray-700">
+        <div className="pt-4 border-t border-gray-100 dark:border-gray-700">
            <button 
                 onClick={() => { setTempApiConfig(preferences.apiConfig); setShowSettings(true); }}
-                className="flex items-center gap-3 text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white font-bold px-4 py-3 w-full text-left rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                className={`flex items-center ${sidebarCollapsed ? 'justify-center' : 'gap-3 px-4'} text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white font-bold py-3 w-full rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors`}
+                title={t.settings}
             >
              <Settings size={20} />
-             <span>{t.settings}</span>
+             {!sidebarCollapsed && <span>{t.settings}</span>}
            </button>
         </div>
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 md:ml-72 flex flex-col min-h-screen transition-all duration-300">
-        <div className="flex-1 w-full max-w-4xl mx-auto p-4 md:p-8 pb-24 md:pb-8">
+      <main className={`flex-1 ${sidebarCollapsed ? 'md:ml-20' : 'md:ml-72'} flex flex-col min-h-screen transition-all duration-300`}>
+        <div className="flex-1 w-full mx-auto p-0 md:p-0">
           {children}
         </div>
       </main>
@@ -456,17 +470,18 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
   );
 };
 
-const SidebarItem = ({ icon, label, active, onClick }: any) => (
+const SidebarItem = ({ icon, label, active, onClick, collapsed }: any) => (
   <button 
     onClick={onClick}
-    className={`flex items-center gap-4 w-full px-6 py-4 rounded-2xl font-bold transition-all uppercase tracking-wide text-sm mb-2
+    className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-4 px-6'} py-4 rounded-2xl font-bold transition-all uppercase tracking-wide text-sm mb-2 w-full
       ${active 
         ? 'bg-brand-bg dark:bg-brand/20 text-brand border-2 border-brand' 
         : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 border-2 border-transparent'
       }`}
+    title={collapsed ? label : undefined}
   >
     {icon}
-    <span>{label}</span>
+    {!collapsed && <span>{label}</span>}
   </button>
 );
 

@@ -242,7 +242,7 @@ export default function App() {
       }
   };
 
-  const handleLessonComplete = (result: { xp: number; streak: number }, shouldSave: boolean, newMistakes: MistakeRecord[]) => {
+  const handleLessonComplete = (result: { xp: number; streak: number }, shouldSave: boolean, newMistakes: MistakeRecord[], failedSkip: boolean = false) => {
     const today = new Date().toISOString().split('T')[0];
     const currentHistory = stats.history || {};
     const newHistory = { ...currentHistory, [today]: (currentHistory[today] || 0) + result.xp };
@@ -273,15 +273,15 @@ export default function App() {
         if (shouldSave) {
              if (isSkipAttempt && activeNodeIndex === 5) {
                 // SKIP LOGIC
-                if (newMistakes.length <= 2) {
+                if (!failedSkip) {
                     // Passed Skip
                     saveProgressForCurrentLang({ ...currentLangProg, [activeProblem.id]: 6 }); // Mark all done (0-5 passed, so level is 6)
                     alert(preferences.spokenLanguage === 'Chinese' ? "挑战成功！该单元已精通。" : "Challenge Accepted! Unit Mastered.");
                 } else {
-                    // Failed Skip
+                    // Failed Skip (Now handled via flag from LessonRunner)
                     const existingFails = preferences.failedSkips || {};
                     updatePreferences({ failedSkips: { ...existingFails, [activeProblem.name]: true } });
-                    alert(preferences.spokenLanguage === 'Chinese' ? "挑战失败。错误超过2次，跳级功能已锁定。" : "Challenge Failed. Too many mistakes. Skip locked.");
+                    // Alert handled in LessonRunner already
                 }
             } else {
                 // Normal Progression
@@ -344,6 +344,7 @@ export default function App() {
                 language={preferences.spokenLanguage}
                 preferences={preferences}
                 isReviewMode={loadingContext === 'review'}
+                isSkipAttempt={isSkipAttempt}
             />
         );
     }

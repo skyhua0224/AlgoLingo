@@ -4,21 +4,22 @@ import { LessonPlan, LessonScreen, Widget, MistakeRecord, UserPreferences } from
 import { Button } from './Button';
 import { 
   DialogueWidget, FlipCardWidget, CalloutWidget, InteractiveCodeWidget,
-  ParsonsWidget, FillInWidget, QuizWidgetPresenter, CodeEditorWidget, StepsWidget
+  ParsonsWidget, FillInWidget, QuizWidgetPresenter, CodeEditorWidget, StepsWidget, ViewSolutionWidget
 } from './widgets/LessonWidgets';
-import { X, CheckCircle, Flame, AlertCircle, MessageSquarePlus, Send, Sparkles, RotateCcw, ArrowRight, ThumbsUp, ThumbsDown, HelpCircle, SkipForward, LogOut, History } from 'lucide-react';
+import { X, CheckCircle, Flame, AlertCircle, MessageSquarePlus, Send, Sparkles, RotateCcw, ArrowRight, ThumbsUp, ThumbsDown, HelpCircle, SkipForward, LogOut, History, Clock, Heart, ShieldAlert, Skull } from 'lucide-react';
 import { generateAiAssistance } from '../services/geminiService';
 import { GEMINI_MODELS } from '../constants';
 
 interface LessonRunnerProps {
   plan: LessonPlan;
   nodeIndex: number; // New prop to track phase
-  onComplete: (stats: { xp: number; streak: number }, shouldSave: boolean, mistakes: MistakeRecord[]) => void;
+  onComplete: (stats: { xp: number; streak: number }, shouldSave: boolean, mistakes: MistakeRecord[], failedSkip?: boolean) => void;
   onExit: () => void;
   onRegenerate?: () => void; // New: Regen callback
   language: 'Chinese' | 'English';
   preferences: UserPreferences;
   isReviewMode?: boolean;
+  isSkipAttempt?: boolean; // New prop to identify skip mode
 }
 
 type ScreenStatus = 'idle' | 'correct' | 'wrong';
@@ -50,7 +51,15 @@ const LOCALE = {
         leaveConfirmTitle: "确定要离开吗？",
         leaveConfirmDesc: "再坚持一下，还有几道题就完成了！现在退出将无法保存本次进度。",
         skipConfirmTitle: "确定要跳过吗？",
-        skipConfirmDesc: "建议询问 AI 助手帮助理解，直接跳过将无法巩固知识点。"
+        skipConfirmDesc: "建议询问 AI 助手帮助理解，直接跳过将无法巩固知识点。",
+        skipFailTitle: "跳级挑战失败",
+        skipFailDesc: "你的错误次数已超过限制（>2次），无法直接精通该单元。该单元的跳级功能将被锁定。",
+        skipFailContinue: "转为练习模式继续",
+        skipFailReturn: "放弃并返回",
+        lives: "生命值",
+        mistakes: "错题",
+        practiceMode: "练习模式",
+        bossMode: "跳级挑战",
     },
     English: {
         incorrect: "Incorrect",
@@ -78,7 +87,15 @@ const LOCALE = {
         leaveConfirmTitle: "Are you sure?",
         leaveConfirmDesc: "You're almost there! Exiting now will lose your current progress.",
         skipConfirmTitle: "Skip this problem?",
-        skipConfirmDesc: "We recommend asking the AI for help. Skipping might affect your mastery."
+        skipConfirmDesc: "We recommend asking the AI for help. Skipping might affect your mastery.",
+        skipFailTitle: "Skip Challenge Failed",
+        skipFailDesc: "You have exceeded the mistake limit (>2). You cannot skip to mastery directly. Skip feature for this unit will be locked.",
+        skipFailContinue: "Continue as Practice",
+        skipFailReturn: "Return",
+        lives: "Lives",
+        mistakes: "Mistakes",
+        practiceMode: "Practice Mode",
+        bossMode: "Boss Challenge",
     }
 };
 
@@ -89,7 +106,7 @@ const cleanCodeLine = (line: string) => {
 
 const stripMarkdown = (text: string) => text ? text.replace(/\*\*/g, '') : '';
 
-export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onComplete, onExit, onRegenerate, language, preferences, isReviewMode = false }) => {
+export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onComplete, onExit, onRegenerate, language, preferences, isReviewMode = false, isSkipAttempt: initialSkipAttempt = false }) => {
   // Lesson State
   const [screens, setScreens] = useState<LessonScreen[]>(plan.screens || []);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -98,7 +115,16 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
   const [showFeedback, setShowFeedback] = useState(false);
   const [showExitModal, setShowExitModal] = useState(false);
   const [showSkipModal, setShowSkipModal] = useState(false);
+  const [showSkipFailModal, setShowSkipFailModal] = useState(false);
   
+  // State that can change from props
+  const [isSkipAttempt, setIsSkipAttempt] = useState(initialSkipAttempt);
+  const [isPracticeMode, setIsPracticeMode] = useState(false);
+
+  // Skip Logic Counter
+  const [skipMistakeCount, setSkipMistakeCount] = useState(0);
+  const MAX_SKIP_MISTAKES = 2;
+
   const currentScreen = screens[currentIndex];
   
   const [status, setStatus] = useState<ScreenStatus>('idle');
@@ -106,6 +132,10 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
   const [xpGained, setXpGained] = useState(0);
   const [sessionMistakes, setSessionMistakes] = useState<MistakeRecord[]>([]);
   
+  // Timer State
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [showStreakAnim, setShowStreakAnim] = useState(false);
+
   const t = LOCALE[language];
 
   // Interaction States
@@ -135,6 +165,29 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
       setChatMessages([]); 
   }, [currentScreen?.id]);
 
+  // Timer Effect
+  useEffect(() => {
+      const timer = setInterval(() => {
+          setElapsedSeconds(s => s + 1);
+      }, 1000);
+      return () => clearInterval(timer);
+  }, []);
+
+  // Streak Animation Effect
+  useEffect(() => {
+      if (streak > 0 && streak % 5 === 0) {
+          setShowStreakAnim(true);
+          const t = setTimeout(() => setShowStreakAnim(false), 2000);
+          return () => clearTimeout(t);
+      }
+  }, [streak]);
+
+  const formatTime = (secs: number) => {
+      const m = Math.floor(secs / 60);
+      const s = secs % 60;
+      return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
   const resetInteractions = () => {
       setQuizSelection(null);
       setParsonsOrder([]); // Widget will re-shuffle via key
@@ -152,6 +205,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
       if (w.type === 'code-editor') return true;
       if (w.type === 'steps-list' && w.stepsList?.mode === 'interactive') return true;
       if (w.type === 'flipcard' && w.flipcard?.mode === 'assessment') return true;
+      // 'solution-display' is considered non-interactive in terms of scoring, handled separately
       return false;
   });
 
@@ -214,6 +268,17 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
               widget: interactiveWidget // Capture FULL widget state for faithful replay
           };
           setSessionMistakes(p => [...p, newMistake]);
+
+          // --- SKIP LOGIC CHECK ---
+          if (isSkipAttempt) {
+              const newCount = skipMistakeCount + 1;
+              setSkipMistakeCount(newCount);
+              if (newCount > MAX_SKIP_MISTAKES) {
+                  // Show Failure Modal instead of Alert
+                  setShowSkipFailModal(true);
+                  return;
+              }
+          }
       }
   };
 
@@ -221,7 +286,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
       if (currentIndex < screens.length - 1) {
           setCurrentIndex(p => p + 1);
       } else {
-          if (sessionMistakes.length > 0 && !isInMistakeLoop && !isReviewMode) {
+          if (sessionMistakes.length > 0 && !isInMistakeLoop && !isReviewMode && !isSkipAttempt && !isPracticeMode) {
               setShowReviewIntro(true);
           } else {
               setShowFeedback(true);
@@ -240,9 +305,22 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
       handleNext();
   };
 
+  const handleSkipFailContinue = () => {
+      // Continue as Practice Mode
+      // NOTE: We pass 'failedSkip=true' effectively by ensuring 'isSkipAttempt' becomes false here
+      // but we still track the failure so 'onComplete' knows not to award mastery.
+      setIsSkipAttempt(false);
+      setIsPracticeMode(true);
+      setShowSkipFailModal(false);
+      
+      // We mark the skip as failed in the preferences immediately via callback if possible,
+      // or wait until the end. To be safe, let's rely on the final callback.
+  };
+
   const handleFeedback = (good: boolean) => {
       if (good) {
-          onComplete({ xp: xpGained, streak }, true, sessionMistakes);
+          // If we are in Practice Mode (after skip fail), we pass failedSkip=true
+          onComplete({ xp: xpGained, streak }, true, sessionMistakes, isPracticeMode);
       } else {
           if (onRegenerate) {
               onRegenerate(); // Trigger Regen
@@ -361,6 +439,16 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
     // Full Screen Override on Mobile using fixed inset-0 z-[60]
     <div className="fixed inset-0 z-[60] bg-white dark:bg-dark-bg flex flex-col md:relative md:z-0 md:inset-auto md:h-[calc(100vh-6rem)] md:rounded-3xl md:overflow-hidden md:border border-gray-200 dark:border-gray-700 shadow-2xl max-w-4xl mx-auto">
       
+      {/* Streak Animation Overlay */}
+      {showStreakAnim && (
+          <div className="absolute inset-0 z-[90] pointer-events-none flex items-start justify-center pt-16">
+             <div className="bg-orange-500 text-white px-6 py-2 rounded-full shadow-xl animate-fade-in-down flex items-center gap-2 border-4 border-orange-200">
+                 <Flame size={24} className="animate-pulse fill-current" />
+                 <span className="text-lg font-black uppercase italic">{streak} Streak!</span>
+             </div>
+          </div>
+      )}
+
       {/* Exit Modal */}
       {showExitModal && (
           <div className="absolute inset-0 z-[80] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
@@ -401,16 +489,83 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
               </div>
           </div>
       )}
+      
+      {/* Skip Failure Modal */}
+      {showSkipFailModal && (
+           <div className="absolute inset-0 z-[80] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6">
+               <div className="bg-white dark:bg-dark-card rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl border-4 border-red-100 dark:border-red-900 animate-scale-in">
+                    <div className="mb-4 bg-red-100 dark:bg-red-900/30 w-16 h-16 rounded-full flex items-center justify-center mx-auto relative">
+                          <ShieldAlert className="text-red-500" size={32} />
+                          <div className="absolute -bottom-1 -right-1 bg-red-500 text-white rounded-full p-1 border-2 border-white">
+                              <X size={12} strokeWidth={4} />
+                          </div>
+                    </div>
+                    <h3 className="text-xl font-extrabold text-gray-800 dark:text-white mb-2">{t.skipFailTitle}</h3>
+                    <p className="text-gray-500 dark:text-gray-400 mb-6 text-sm leading-relaxed">{t.skipFailDesc}</p>
+                    
+                    <div className="flex flex-col gap-3">
+                        <Button variant="secondary" onClick={handleSkipFailContinue} className="border-brand text-brand">
+                            {t.skipFailContinue}
+                        </Button>
+                        <button onClick={onExit} className="text-gray-400 text-sm font-bold hover:text-gray-600 py-2">
+                            {t.skipFailReturn}
+                        </button>
+                    </div>
+               </div>
+           </div>
+      )}
 
 
-      {/* Header */}
-      <div className={`px-6 py-4 backdrop-blur-sm flex items-center gap-4 border-b border-gray-100 dark:border-gray-800 z-10 sticky top-0 ${isReviewing ? 'bg-orange-50/80 dark:bg-orange-900/20' : 'bg-white/80 dark:bg-dark-bg/80'}`}>
-        <button onClick={handleExitClick} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"><X size={24} /></button>
-        <div className="flex-1 h-3 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden relative">
-            <div className={`absolute h-full transition-all duration-700 ease-out rounded-full ${isReviewing ? 'bg-orange-500' : 'bg-brand'}`} style={{ width: `${progress}%` }} />
-        </div>
-        <div className="flex items-center text-orange-500 font-bold gap-1">
-            <Flame size={20} className={`fill-current ${streak > 0 ? 'animate-pulse-soft' : ''}`}/> {streak}
+      {/* Enhanced Header */}
+      <div className={`px-4 py-3 backdrop-blur-md border-b border-gray-100 dark:border-gray-800 z-10 sticky top-0 transition-colors duration-300
+        ${isReviewing ? 'bg-orange-50/90 dark:bg-orange-900/20' : 
+          isSkipAttempt ? 'bg-purple-50/90 dark:bg-purple-900/20' : 'bg-white/90 dark:bg-dark-bg/90'}`}>
+        
+        <div className="flex items-center justify-between gap-3">
+            <button onClick={handleExitClick} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"><X size={24} /></button>
+            
+            {/* Central Progress Bar */}
+            <div className="flex-1 flex flex-col justify-center gap-1">
+                 <div className="h-3 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden relative shadow-inner">
+                    <div 
+                        className={`absolute h-full transition-all duration-700 ease-out rounded-full 
+                            ${isReviewing ? 'bg-orange-500' : isSkipAttempt ? 'bg-purple-500' : 'bg-brand'}`} 
+                        style={{ width: `${progress}%` }} 
+                    />
+                     {/* Subtle shimmer on progress bar */}
+                     <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.15)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.15)_50%,rgba(255,255,255,0.15)_75%,transparent_75%,transparent)] bg-[length:1rem_1rem] opacity-50" style={{ width: `${progress}%` }}></div>
+                </div>
+            </div>
+
+            {/* Stats Area */}
+            <div className="flex items-center gap-3">
+                 {/* Timer */}
+                 <div className="hidden md:flex items-center gap-1 text-gray-400 text-xs font-mono font-bold">
+                     <Clock size={14} />
+                     {formatTime(elapsedSeconds)}
+                 </div>
+
+                 {/* Mode Specific Stats */}
+                 {isSkipAttempt ? (
+                     <div className="flex items-center gap-1 px-2 py-1 bg-purple-100 dark:bg-purple-900/40 rounded-lg text-purple-600 dark:text-purple-300 font-bold text-xs">
+                         <Heart size={14} className="fill-current" />
+                         <span>{Math.max(0, MAX_SKIP_MISTAKES - skipMistakeCount + 1)}</span>
+                     </div>
+                 ) : (
+                     sessionMistakes.length > 0 && (
+                         <div className="flex items-center gap-1 px-2 py-1 bg-red-100 dark:bg-red-900/40 rounded-lg text-red-500 font-bold text-xs">
+                             <Skull size={14} />
+                             <span>{sessionMistakes.length}</span>
+                         </div>
+                     )
+                 )}
+
+                 {/* Streak */}
+                 <div className={`flex items-center text-orange-500 font-bold gap-1 transition-transform ${streak > 0 && streak % 5 === 0 ? 'scale-110' : ''}`}>
+                    <Flame size={20} className={`fill-current ${streak > 0 ? 'animate-pulse-soft' : ''}`}/> 
+                    <span>{streak}</span>
+                </div>
+            </div>
         </div>
       </div>
 
@@ -421,6 +576,9 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
               {/* Screen Header */}
               <div className="mb-6 text-center">
                  {isReviewing && <div className="inline-block px-3 py-1 bg-orange-100 dark:bg-orange-900/40 text-orange-600 dark:text-orange-400 rounded-full text-xs font-bold uppercase tracking-wider mb-2">{t.mistakeLabel}</div>}
+                 {isSkipAttempt && <div className="inline-block px-3 py-1 bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 rounded-full text-xs font-bold uppercase tracking-wider mb-2">{t.bossMode}</div>}
+                 {isPracticeMode && <div className="inline-block px-3 py-1 bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 rounded-full text-xs font-bold uppercase tracking-wider mb-2">{t.practiceMode}</div>}
+                 
                  {currentScreen.header && <h3 className="text-sm font-bold text-brand uppercase tracking-widest mb-1">{currentScreen.header}</h3>}
                  {currentIndex === 0 && !isReviewing && <h2 className="text-2xl font-extrabold text-gray-800 dark:text-white">{stripMarkdown(plan.title)}</h2>}
               </div>
@@ -479,6 +637,14 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
                         )}
                         {widget.type === 'code-editor' && (
                             <CodeEditorWidget widget={widget} onUpdateStatus={setCodeEditorStatus} preferences={preferences} />
+                        )}
+                        {widget.type === 'solution-display' && (
+                            <ViewSolutionWidget 
+                                widgetData={widget.solutionDisplay} 
+                                onComplete={() => handleNext()} 
+                                lessonState={{}} 
+                                updateLessonState={() => {}}
+                            />
                         )}
                     </div>
                 )
@@ -601,8 +767,8 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
               
               {/* Action Buttons */}
               <div className="flex gap-3 ml-auto">
-                  {/* Skip Button (Visible only when wrong in review mode) */}
-                  {status === 'wrong' && isReviewing && (
+                  {/* Skip Button (Visible only when wrong in review mode or general lesson, NOT in Skip Attempt) */}
+                  {status === 'wrong' && !isSkipAttempt && (
                        <button 
                            onClick={() => setShowSkipModal(true)}
                            className="px-4 py-3 font-bold text-gray-400 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors flex items-center gap-2 text-sm"
@@ -611,7 +777,16 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
                        </button>
                   )}
 
-                  {!(interactiveWidget?.type === 'flipcard' && interactiveWidget.flipcard?.mode === 'assessment') && (
+                  {/* "Solution Display" Widget is purely informational, so the button just says Continue */}
+                  {interactiveWidget?.type === 'solution-display' ? (
+                        <Button 
+                            onClick={() => handleNext()}
+                            variant="primary"
+                            className="w-32 md:w-40 shadow-lg"
+                        >
+                            {t.continue}
+                        </Button>
+                  ) : !(interactiveWidget?.type === 'flipcard' && interactiveWidget.flipcard?.mode === 'assessment') && (
                       <Button 
                         onClick={() => {
                             if (status === 'idle') {

@@ -1,7 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Terminal, Zap, Brain, ChevronDown, ChevronUp, Sparkles, AlertCircle, RotateCcw, Clock, Loader2 } from 'lucide-react';
-import { Button } from './Button';
 
 interface LoadingScreenProps {
     problemName?: string;
@@ -143,13 +142,8 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
   const showRetry = elapsedSeconds > 8; // Show after 8 seconds
 
   return (
-    <div className="fixed inset-0 z-[60] bg-gray-50 dark:bg-dark-bg flex flex-col items-center justify-center p-6 relative overflow-hidden md:relative md:z-0 md:inset-auto md:min-h-screen">
-      {/* Background Ambience */}
-      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
-         <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-brand/10 dark:bg-brand/5 rounded-full blur-3xl animate-pulse-soft"></div>
-         <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-blue-500/10 dark:bg-blue-500/5 rounded-full blur-3xl animate-pulse-soft delay-700"></div>
-      </div>
-
+    <div className="fixed inset-0 z-[100] w-full h-full bg-gray-50 dark:bg-dark-bg flex flex-col items-center justify-center p-6 transition-colors">
+      
       <div className="max-w-md w-full relative z-10">
         <div className="bg-white dark:bg-dark-card rounded-3xl shadow-2xl border border-white/50 dark:border-white/5 p-8 text-center backdrop-blur-xl mb-6 transition-colors">
             

@@ -1,3 +1,4 @@
+
 import {
   ArrowDown,
   ArrowUp,
@@ -17,10 +18,12 @@ import {
   User,
   XCircle,
   Zap,
+  LayoutTemplate,
+  Code2
 } from 'lucide-react'
 import React, { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import MonacoEditor from 'react-monaco-editor'
+import Editor from "@monaco-editor/react"
 import { validateUserCode } from '../../services/geminiService'
 import {
   SolutionDisplay,
@@ -253,7 +256,7 @@ export const InteractiveCodeWidget: React.FC<{ widget: Widget }> = ({
   )
 }
 
-// --- 4. Steps Widget (Improved) ---
+// --- 4. Steps Widget ---
 interface StepsWidgetProps {
   widget: Widget
   onUpdateOrder?: (newOrder: string[]) => void
@@ -327,7 +330,6 @@ export const StepsWidget: React.FC<StepsWidgetProps> = ({
     )
   }
 
-  // Interactive Mode
   return (
     <div className="space-y-3 mb-6">
       <div className="flex items-center gap-2 mb-2 p-3 bg-orange-50 dark:bg-orange-900/20 rounded-xl border border-orange-100 dark:border-orange-900/50 text-orange-800 dark:text-orange-400">
@@ -369,7 +371,7 @@ export const StepsWidget: React.FC<StepsWidgetProps> = ({
   )
 }
 
-// --- 5. Parsons Puzzle Widget (Overhauled) ---
+// --- 5. Parsons Puzzle Widget ---
 interface ParsonsProps {
   widget: Widget
   onUpdateOrder: (newOrder: string[]) => void
@@ -533,7 +535,7 @@ export const ParsonsWidget: React.FC<ParsonsProps> = ({
   )
 }
 
-// --- 6. Fill-In Widget (Enhanced with Type Mode) ---
+// --- 6. Fill-In Widget ---
 interface FillInProps {
   widget: Widget
   onUpdateAnswers: (answers: string[]) => void
@@ -634,7 +636,7 @@ export const FillInWidget: React.FC<FillInProps> = ({
   )
 }
 
-// --- 7. Callout Widget (Redesigned as Chat Bubble) ---
+// --- 7. Callout Widget ---
 export const CalloutWidget: React.FC<{ widget: Widget }> = ({ widget }) => {
   if (!widget.callout) return null
   const { title, text, variant } = widget.callout
@@ -679,12 +681,14 @@ export const CalloutWidget: React.FC<{ widget: Widget }> = ({ widget }) => {
   )
 }
 
-// --- 8. Code Editor Widget ---
+// --- 8. Code Editor Widget (Enhanced with 3 Layouts) ---
 interface CodeEditorProps {
   widget: Widget
   onUpdateStatus: (status: 'idle' | 'running' | 'success' | 'error') => void
   preferences: UserPreferences
 }
+
+type LayoutMode = 'vertical' | 'tabs' | 'leetcode';
 
 export const CodeEditorWidget: React.FC<CodeEditorProps> = ({
   widget,
@@ -696,8 +700,22 @@ export const CodeEditorWidget: React.FC<CodeEditorProps> = ({
   const [code, setCode] = useState(solutionTemplate)
   const [output, setOutput] = useState('')
   const [isRunning, setIsRunning] = useState(false)
-  const [viewMode, setViewMode] = useState<'vertical' | 'tabs'>('vertical')
+  const [layout, setLayout] = useState<LayoutMode>('vertical')
   const [activeTab, setActiveTab] = useState<'problem' | 'code'>('problem')
+  
+  // Ref to ensure editor container has size before mount
+  const editorContainerRef = useRef<HTMLDivElement>(null);
+
+  // Force 'leetcode' layout on large screens initially
+  useEffect(() => {
+      const checkScreen = () => {
+          if (window.innerWidth >= 1024) setLayout('leetcode');
+          else setLayout('vertical');
+      };
+      checkScreen();
+      window.addEventListener('resize', checkScreen);
+      return () => window.removeEventListener('resize', checkScreen);
+  }, []);
 
   useEffect(() => {
     setCode(solutionTemplate)
@@ -724,180 +742,121 @@ export const CodeEditorWidget: React.FC<CodeEditorProps> = ({
   }
 
   const markdownComponents = {
-    h1: (props: any) => (
-      <h1
-        className="text-2xl font-bold mb-4 text-white"
-        {...props}
-      />
-    ),
-    h2: (props: any) => (
-      <h2
-        className="text-xl font-bold mb-3 text-gray-200"
-        {...props}
-      />
-    ),
-    h3: (props: any) => (
-      <h3
-        className="text-lg font-bold mb-2 text-gray-300"
-        {...props}
-      />
-    ),
-    p: (props: any) => (
-      <p
-        className="mb-4 text-gray-300"
-        {...props}
-      />
-    ),
-    ul: (props: any) => (
-      <ul
-        className="list-disc list-inside mb-4 text-gray-300"
-        {...props}
-      />
-    ),
-    li: (props: any) => (
-      <li
-        className="mb-1"
-        {...props}
-      />
-    ),
-    code: (props: any) => (
-      <code
-        className="bg-gray-700 text-sm rounded px-1 py-0.5 font-mono text-brand-light"
-        {...props}
-      />
-    ),
+    h1: (props: any) => <h1 className="text-2xl font-bold mb-4 text-white" {...props} />,
+    h2: (props: any) => <h2 className="text-xl font-bold mb-3 text-gray-200" {...props} />,
+    h3: (props: any) => <h3 className="text-lg font-bold mb-2 text-gray-300" {...props} />,
+    p: (props: any) => <p className="mb-4 text-gray-300 leading-relaxed" {...props} />,
+    ul: (props: any) => <ul className="list-disc list-inside mb-4 text-gray-300" {...props} />,
+    li: (props: any) => <li className="mb-1" {...props} />,
+    code: (props: any) => <code className="bg-gray-700 text-sm rounded px-1 py-0.5 font-mono text-brand-light" {...props} />,
+    pre: (props: any) => <pre className="bg-gray-800 p-3 rounded-lg mb-4 overflow-x-auto" {...props} />,
   }
 
-  const problemView = (
-    <div className="p-4 overflow-y-auto custom-scrollbar">
-      <ReactMarkdown components={markdownComponents}>
-        {problemDescription}
-      </ReactMarkdown>
-    </div>
-  )
+  const ProblemPanel = () => (
+      <div className="p-5 h-full overflow-y-auto custom-scrollbar bg-[#1e1e1e]">
+          <ReactMarkdown components={markdownComponents}>
+            {problemDescription}
+          </ReactMarkdown>
+      </div>
+  );
 
-  const editorView = (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 bg-[#1e1e1e] text-left">
-        <MonacoEditor
-          height="100%"
-          language={preferences.targetLanguage.toLowerCase()}
-          theme="vs-dark"
-          value={code}
-          options={{
-            selectOnLineNumbers: true,
-            minimap: { enabled: false },
-            fontSize: 14,
-            wordWrap: 'on',
-            scrollBeyondLastLine: false,
-          }}
-          onChange={(newValue) => setCode(newValue)}
-          editorDidMount={(editor) => editor.focus()}
-        />
-      </div>
-      <div className="bg-[#1e1e1e] border-t border-gray-700 p-3 font-mono text-xs h-32 overflow-y-auto">
-        <span className="text-gray-500 block mb-1">Console:</span>
-        <pre
-          className={`${
-            output.includes('Error') ? 'text-red-400' : 'text-green-400'
-          } whitespace-pre-wrap`}
-        >
-          {output || 'Waiting...'}
-        </pre>
-      </div>
+  const EditorPanel = () => (
+    <div className="flex flex-col h-full bg-[#1e1e1e] relative">
+       <div className="flex-1 relative" ref={editorContainerRef}>
+            <Editor
+                height="100%"
+                defaultLanguage={preferences.targetLanguage.toLowerCase()}
+                theme="vs-dark"
+                value={code}
+                options={{
+                    minimap: { enabled: false },
+                    fontSize: 14,
+                    wordWrap: 'on',
+                    scrollBeyondLastLine: false,
+                    automaticLayout: true, // Critical for preventing freeze/layout issues
+                    padding: { top: 10 }
+                }}
+                onChange={(newValue) => setCode(newValue || '')}
+            />
+       </div>
+       <div className={`bg-[#1e1e1e] border-t border-gray-700 p-3 font-mono text-xs overflow-y-auto custom-scrollbar flex flex-col ${layout === 'leetcode' ? 'h-[30%]' : 'h-32'}`}>
+            <div className="flex justify-between items-center mb-2 text-gray-500 font-bold uppercase tracking-wider">
+                <span>Console Output</span>
+                {isRunning && <span className="animate-pulse text-brand">Running...</span>}
+            </div>
+            <pre className={`${output.includes('Error') ? 'text-red-400' : 'text-green-400'} whitespace-pre-wrap flex-1`}>
+              {output || 'Ready to run...'}
+            </pre>
+       </div>
     </div>
-  )
+  );
 
   return (
-    <div className="mb-6 w-full">
-      <div className="bg-[#252526] rounded-xl shadow-2xl overflow-hidden border-2 border-gray-700 max-w-[calc(100vw-3rem)] md:max-w-full mx-auto">
-        {/* Header */}
-        <div className="px-3 py-2 flex items-center justify-between border-b border-gray-700">
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1 bg-gray-900/50 p-1 rounded-md">
-              <button
-                aria-label="Set vertical layout"
-                onClick={() => setViewMode('vertical')}
-                className={`p-1 rounded ${
-                  viewMode === 'vertical' ? 'bg-brand' : 'hover:bg-gray-700'
-                }`}
-              >
-                <Rows size={14} />
+    <div className="mb-6 w-full h-[80vh] max-h-[800px]">
+      <div className="bg-[#252526] rounded-xl shadow-2xl overflow-hidden border-2 border-gray-700 w-full h-full flex flex-col">
+        
+        {/* Toolbar */}
+        <div className="bg-[#333333] px-3 py-2 flex items-center justify-between border-b border-gray-700 shrink-0">
+          <div className="flex items-center gap-3">
+             {/* Layout Switcher (Visible on all screens for preference override) */}
+            <div className="flex bg-gray-900/50 p-1 rounded-lg">
+              <button onClick={() => setLayout('vertical')} className={`p-1.5 rounded-md transition-colors ${layout === 'vertical' ? 'bg-gray-600 text-white' : 'text-gray-400 hover:text-white'}`} title="Vertical">
+                  <Rows size={14} />
               </button>
-              <button
-                aria-label="Set tabs layout"
-                onClick={() => setViewMode('tabs')}
-                className={`p-1 rounded ${
-                  viewMode === 'tabs' ? 'bg-brand' : 'hover:bg-gray-700'
-                }`}
-              >
-                <Columns size={14} />
+              <button onClick={() => setLayout('tabs')} className={`p-1.5 rounded-md transition-colors ${layout === 'tabs' ? 'bg-gray-600 text-white' : 'text-gray-400 hover:text-white'}`} title="Tabs">
+                  <Columns size={14} />
+              </button>
+              <button onClick={() => setLayout('leetcode')} className={`hidden lg:block p-1.5 rounded-md transition-colors ${layout === 'leetcode' ? 'bg-gray-600 text-white' : 'text-gray-400 hover:text-white'}`} title="Side-by-Side">
+                  <LayoutTemplate size={14} />
               </button>
             </div>
-            {viewMode === 'tabs' && (
-              <div className="flex items-center gap-1 bg-gray-900/50 p-1 rounded-md">
-                <button
-                  onClick={() => setActiveTab('problem')}
-                  className={`px-2 py-0.5 text-xs rounded ${
-                    activeTab === 'problem'
-                      ? 'bg-gray-600'
-                      : 'hover:bg-gray-700'
-                  }`}
-                >
-                  Problem
-                </button>
-                <button
-                  onClick={() => setActiveTab('code')}
-                  className={`px-2 py-0.5 text-xs rounded ${
-                    activeTab === 'code' ? 'bg-gray-600' : 'hover:bg-gray-700'
-                  }`}
-                >
-                  Code
-                </button>
-              </div>
+            
+            {layout === 'tabs' && (
+                <div className="flex bg-gray-900/50 p-1 rounded-lg text-xs font-bold">
+                    <button onClick={() => setActiveTab('problem')} className={`px-3 py-1 rounded ${activeTab === 'problem' ? 'bg-gray-600 text-white' : 'text-gray-400'}`}>Problem</button>
+                    <button onClick={() => setActiveTab('code')} className={`px-3 py-1 rounded ${activeTab === 'code' ? 'bg-gray-600 text-white' : 'text-gray-400'}`}>Code</button>
+                </div>
             )}
           </div>
+
           <button
             onClick={handleRun}
             disabled={isRunning}
-            className={`flex items-center gap-1 px-3 py-1 rounded bg-green-600 text-white text-xs font-bold hover:bg-green-500 transition-colors ${
-              isRunning ? 'opacity-50' : ''
-            }`}
+            className={`flex items-center gap-2 px-4 py-1.5 rounded-lg bg-green-600 text-white text-xs font-bold hover:bg-green-500 transition-all active:scale-95 ${isRunning ? 'opacity-50 cursor-wait' : ''}`}
           >
-            <Play
-              size={12}
-              fill="currentColor"
-            />{' '}
-            {isRunning ? '...' : 'Run'}
+            <Play size={14} fill="currentColor" />
+            {isRunning ? 'Running...' : 'Run Code'}
           </button>
         </div>
 
-        {/* Content Area */}
-        <div
-          className={`flex ${
-            viewMode === 'vertical' ? 'flex-col' : 'flex-row'
-          } h-[450px]`}
-        >
-          {viewMode === 'vertical' && (
-            <>
-              <div className="flex-1 h-1/2">{problemView}</div>
-              <div className="flex-1 h-1/2 border-t-2 border-gray-700">
-                {editorView}
-              </div>
-            </>
-          )}
-          {viewMode === 'tabs' && (
-            <div className="w-full h-full">
-              {activeTab === 'problem' ? problemView : editorView}
-            </div>
-          )}
+        {/* Layout Rendering */}
+        <div className="flex-1 overflow-hidden relative">
+            {layout === 'vertical' && (
+                <div className="flex flex-col h-full">
+                    <div className="h-1/2 border-b border-gray-700 overflow-hidden"><ProblemPanel /></div>
+                    <div className="h-1/2 overflow-hidden"><EditorPanel /></div>
+                </div>
+            )}
+
+            {layout === 'tabs' && (
+                <div className="h-full w-full">
+                    {activeTab === 'problem' ? <ProblemPanel /> : <EditorPanel />}
+                </div>
+            )}
+
+            {layout === 'leetcode' && (
+                <div className="flex h-full w-full">
+                    <div className="w-1/2 border-r border-gray-700 overflow-hidden"><ProblemPanel /></div>
+                    <div className="w-1/2 overflow-hidden"><EditorPanel /></div>
+                </div>
+            )}
         </div>
       </div>
     </div>
   )
 }
 
-// --- 9. Quiz Presenter ---
+// --- 9. Quiz Presenter (Styled) ---
 export const QuizWidgetPresenter: React.FC<{
   widget: Widget
   selectedIdx: number | null
@@ -916,26 +875,36 @@ export const QuizWidgetPresenter: React.FC<{
         </div>
       </div>
 
-      <div className="pl-14 space-y-2">
+      <div className="pl-14 space-y-3">
         {(widget.quiz.options || []).map((opt, idx) => {
           let style =
             'border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600 text-gray-600 dark:text-gray-400'
+          
+          // Selected State (Idle)
           if (status === 'idle' && selectedIdx === idx)
             style =
-              'border-brand bg-brand-bg dark:bg-brand/20 text-brand-dark dark:text-brand-light ring-2 ring-brand ring-offset-1 dark:ring-offset-dark-bg'
+              'border-brand bg-brand-bg dark:bg-brand/20 text-brand-dark dark:text-brand-light ring-2 ring-brand ring-offset-1 dark:ring-offset-dark-bg shadow-md'
+          
+          // Correct State
           if (status === 'correct' && idx === widget.quiz!.correctIndex)
             style =
-              'border-green-500 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200'
+              'border-green-500 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 ring-2 ring-green-500'
+          
+          // Wrong State
           if (status === 'wrong' && idx === selectedIdx)
             style =
-              'border-red-500 bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200'
+              'border-red-500 bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200 ring-2 ring-red-500'
 
           return (
             <button
               key={idx}
               onClick={() => status === 'idle' && onSelect(idx)}
-              className={`w-full text-left p-4 rounded-xl border-2 ${style} transition-all text-sm font-bold shadow-sm active:scale-[0.99]`}
+              className={`w-full text-left p-5 rounded-2xl border-2 ${style} transition-all text-sm font-bold shadow-sm active:scale-[0.99] flex items-center gap-3`}
             >
+               <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs 
+                   ${selectedIdx === idx || (status !== 'idle' && idx === widget.quiz!.correctIndex) ? 'border-current' : 'border-gray-300 text-gray-400'}`}>
+                   {String.fromCharCode(65+idx)}
+               </div>
               {formatText(opt)}
             </button>
           )
@@ -945,96 +914,84 @@ export const QuizWidgetPresenter: React.FC<{
   )
 }
 
-//
-// 任务 3.4: 新增 ViewSolutionWidget 组件
-// -----------------------------------------
-
-interface ViewSolutionProps extends WidgetProps {
-  widgetData: SolutionDisplay
+// --- 10. View Solution Widget ---
+interface ViewSolutionProps extends Omit<WidgetProps, 'widgetData'> {
+    widgetData?: SolutionDisplay; // Make optional to handle safe access
 }
 
-export const ViewSolutionWidget: React.FC<ViewSolutionProps> = ({
-  widgetData,
-  onComplete,
-  lessonState,
-}) => {
-  const [activeTab, setActiveTab] = useState<'code' | 'explanation'>('code')
-  const { fullCode, explanation } = widgetData
+export const ViewSolutionWidget: React.FC<ViewSolutionProps> = ({ widgetData, onComplete }) => {
+    if (!widgetData) return null;
+    const { fullCode, explanation } = widgetData;
+    const [activeTab, setActiveTab] = useState<'code' | 'explain'>('code');
 
-  const codeView = (
-    <div className="h-full bg-[#1e1e1e]">
-      <MonacoEditor
-        height="100%"
-        language="typescript" // 我们稍后可以根据题目类型动态设置
-        theme="vs-dark"
-        value={fullCode}
-        options={{
-          readOnly: true,
-          minimap: { enabled: false },
-          scrollBeyondLastLine: false,
-          fontSize: 14,
-        }}
-      />
-    </div>
-  )
+    return (
+        <div className="mb-6 w-full max-w-4xl mx-auto">
+            <div className="bg-[#252526] rounded-xl shadow-2xl border-2 border-gray-700 overflow-hidden flex flex-col h-[500px]">
+                 {/* Header / Tabs */}
+                 <div className="bg-[#333333] px-4 py-3 border-b border-gray-700 flex justify-between items-center">
+                      <div className="flex gap-2">
+                          <div className="flex bg-gray-900/50 p-1 rounded-lg text-xs font-bold">
+                              <button 
+                                onClick={() => setActiveTab('code')}
+                                className={`px-4 py-1.5 rounded-md transition-all flex items-center gap-2 ${activeTab === 'code' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+                              >
+                                  <Code2 size={14} /> Code
+                              </button>
+                              <button 
+                                onClick={() => setActiveTab('explain')}
+                                className={`px-4 py-1.5 rounded-md transition-all flex items-center gap-2 ${activeTab === 'explain' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+                              >
+                                  <ListOrdered size={14} /> Breakdown
+                              </button>
+                          </div>
+                      </div>
+                      <div className="text-xs text-gray-500 font-mono uppercase tracking-wider font-bold">Solution View</div>
+                 </div>
 
-  const explanationView = (
-    <div className="p-4 overflow-y-auto custom-scrollbar h-full">
-      <h3 className="text-lg font-bold mb-4 text-gray-200">代码逐行解析</h3>
-      <ul className="space-y-3">
-        {explanation.map((item, index) => (
-          <li
-            key={index}
-            className="bg-gray-800/50 p-3 rounded-lg flex items-start"
-          >
-            <span className="text-sm font-mono text-blue-400 mr-4 w-12">
-              L{item.lineNumber}
-            </span>
-            <span className="text-gray-300">{item.explanation}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-
-  return (
-    <div className="mb-6 w-full">
-      <div className="bg-[#252526] rounded-xl shadow-lg flex flex-col h-[450px]">
-        {/* Tab切换栏 */}
-        <div className="flex items-center justify-between p-2 bg-[#333333] rounded-t-xl border-b border-gray-700">
-          <div className="flex space-x-1">
-            <button
-              onClick={() => setActiveTab('code')}
-              className={`px-4 py-1.5 text-sm rounded-md transition-colors duration-200 ${
-                activeTab === 'code'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-transparent text-gray-400 hover:bg-gray-700'
-              }`}
-            >
-              完整代码
-            </button>
-            <button
-              onClick={() => setActiveTab('explanation')}
-              className={`px-4 py-1.5 text-sm rounded-md transition-colors duration-200 ${
-                activeTab === 'explanation'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-transparent text-gray-400 hover:bg-gray-700'
-              }`}
-            >
-              逐行解析
-            </button>
-          </div>
-          <div /> {/* 占位符 */}
+                 {/* Content */}
+                 <div className="flex-1 overflow-hidden relative">
+                     {activeTab === 'code' && (
+                         <Editor
+                            height="100%"
+                            defaultLanguage="python" // Defaulting to python, could be dynamic
+                            theme="vs-dark"
+                            value={fullCode}
+                            options={{
+                                readOnly: true,
+                                minimap: { enabled: false },
+                                fontSize: 14,
+                                automaticLayout: true,
+                                scrollBeyondLastLine: false,
+                                padding: { top: 16 }
+                            }}
+                         />
+                     )}
+                     
+                     {activeTab === 'explain' && (
+                         <div className="h-full overflow-y-auto custom-scrollbar p-6 bg-[#1e1e1e]">
+                             <h3 className="text-lg font-bold text-white mb-4">Line-by-Line Explanation</h3>
+                             <div className="space-y-4">
+                                 {explanation.map((item, idx) => (
+                                     <div key={idx} className="flex gap-4 group">
+                                         <div className="w-12 pt-1 text-right font-mono text-sm text-blue-400 font-bold shrink-0 group-hover:text-blue-300">
+                                             L{item.lineNumber}
+                                         </div>
+                                         <div className="flex-1 text-gray-300 text-sm leading-relaxed border-l-2 border-gray-700 pl-4 py-1 group-hover:border-blue-500 transition-colors">
+                                             {item.explanation}
+                                         </div>
+                                     </div>
+                                 ))}
+                             </div>
+                         </div>
+                     )}
+                 </div>
+            </div>
+            
+            <div className="mt-6 flex justify-end">
+                 <Button onClick={() => onComplete(true)} variant="primary" className="shadow-lg">
+                     I Understand, Continue
+                 </Button>
+            </div>
         </div>
-
-        {/* 内容区域 */}
-        <div className="flex-grow overflow-hidden">
-          {activeTab === 'code' ? codeView : explanationView}
-        </div>
-      </div>
-      <div className="mt-4 flex justify-end">
-        <Button onClick={() => onComplete(true)}>我明白了，继续</Button>
-      </div>
-    </div>
-  )
+    );
 }
