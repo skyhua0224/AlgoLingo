@@ -388,7 +388,13 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
                   <h3 className="text-xl font-extrabold text-gray-800 dark:text-white mb-2">{t.skipConfirmTitle}</h3>
                   <p className="text-gray-500 dark:text-gray-400 mb-6 text-sm">{t.skipConfirmDesc}</p>
                   <div className="flex flex-col gap-3">
-                      <Button variant="secondary" onClick={() => { setShowSkipModal(false); setShowChat(true); }} icon={<Sparkles size={16}/>}>{t.askAi}</Button>
+                      <Button 
+                        variant="secondary" 
+                        onClick={() => { setShowSkipModal(false); setShowChat(true); }} 
+                        className="flex items-center justify-center gap-2"
+                      >
+                        <Sparkles size={16}/> {t.askAi}
+                      </Button>
                       <button onClick={handleSkipConfirm} className="text-gray-400 text-sm font-bold hover:text-gray-600 py-2">{t.skip}</button>
                       <button onClick={() => setShowSkipModal(false)} className="text-brand text-sm font-bold py-2">Cancel</button>
                   </div>

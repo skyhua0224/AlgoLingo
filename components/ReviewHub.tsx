@@ -7,7 +7,7 @@ import { MistakeRecord } from '../types';
 interface ReviewHubProps {
     mistakeCount: number;
     onStartReview: () => void;
-    onStartMistakePractice: (strategy: 'all' | 'due') => void; // Changed arg type
+    onStartMistakePractice: (strategy: 'all' | 'due') => void; 
     onStartSyntaxClinic: () => void; 
     onBack: () => void;
     targetLanguage: string;
@@ -18,16 +18,16 @@ export const ReviewHub: React.FC<ReviewHubProps> = ({ mistakeCount, onStartRevie
     const [showPracticeModal, setShowPracticeModal] = useState(false);
 
     return (
-        <div className="bg-gray-50 dark:bg-dark-bg min-h-screen flex flex-col">
-            <div className="bg-white dark:bg-dark-card p-4 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10">
+        <div className="bg-gray-50 dark:bg-dark-bg min-h-screen flex flex-col w-full max-w-md mx-auto md:max-w-2xl">
+            <div className="bg-white dark:bg-dark-card p-4 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10 shadow-sm">
                 <h1 className="text-xl font-extrabold text-gray-800 dark:text-dark-text">复习中心</h1>
                 <p className="text-gray-500 dark:text-gray-400 text-sm">根据艾宾浩斯曲线推荐</p>
             </div>
 
-            <div className="p-4 space-y-6">
+            <div className="p-4 flex flex-col gap-6">
                 
                 {/* 1. Smart Repair (Standard Review - AI) */}
-                <div className="bg-white dark:bg-dark-card p-6 rounded-2xl border-2 border-gray-100 dark:border-gray-700 shadow-sm">
+                <div className="bg-white dark:bg-dark-card p-6 rounded-2xl border-2 border-gray-100 dark:border-gray-700 shadow-sm w-full">
                     <div className="flex items-center gap-3 mb-4">
                         <div className={`p-2 rounded-lg bg-green-100 dark:bg-green-900/30 text-green-500`}>
                              <Zap size={24} />
@@ -49,7 +49,7 @@ export const ReviewHub: React.FC<ReviewHubProps> = ({ mistakeCount, onStartRevie
                 </div>
 
                 {/* 2. Mistake Practice (Local Replay) */}
-                <div className="bg-white dark:bg-dark-card p-6 rounded-2xl border-2 border-red-100 dark:border-red-900/30 shadow-sm">
+                <div className="bg-white dark:bg-dark-card p-6 rounded-2xl border-2 border-red-100 dark:border-red-900/30 shadow-sm w-full">
                     <div className="flex items-center gap-3 mb-4">
                         <div className={`p-2 rounded-lg bg-red-100 dark:bg-red-900/30 text-red-500`}>
                             <RotateCcw size={24} />
@@ -95,7 +95,7 @@ export const ReviewHub: React.FC<ReviewHubProps> = ({ mistakeCount, onStartRevie
                 </div>
 
                 {/* Weakness Targeting */}
-                <div className="bg-brand-bg dark:bg-brand/10 p-6 rounded-2xl border-2 border-brand dark:border-brand/50 shadow-sm">
+                <div className="bg-brand-bg dark:bg-brand/10 p-6 rounded-2xl border-2 border-brand dark:border-brand/50 shadow-sm w-full">
                      <div className="flex items-center gap-3 mb-4">
                         <div className="bg-brand p-2 rounded-lg text-white">
                             <Brain size={24} />

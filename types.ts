@@ -41,6 +41,7 @@ export interface UserPreferences {
   spokenLanguage: 'Chinese' | 'English';
   apiConfig: ApiConfig;
   theme: AppTheme; 
+  failedSkips?: Record<string, boolean>; // New: Track failed skip attempts per problem (Problem Name -> Boolean)
 }
 
 // --- NEW WIDGET TYPES ---
