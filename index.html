@@ -1,0 +1,153 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AlgoLingo - Sky Hua Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['"Noto Sans SC"', 'Inter', 'sans-serif'],
+              mono: ['JetBrains Mono', 'monospace'],
+            },
+            colors: {
+              brand: {
+                light: '#84cc16', // lime-500
+                DEFAULT: '#65a30d', // lime-600
+                dark: '#4d7c0f', // lime-700
+                bg: '#f0fdf4',
+              },
+              dark: {
+                bg: '#0f172a', // slate-900
+                card: '#1e293b', // slate-800
+                text: '#f8fafc', // slate-50
+                muted: '#94a3b8', // slate-400
+              }
+            },
+            boxShadow: {
+              '3d': '0 4px 0 0 rgba(0, 0, 0, 0.1)',
+              '3d-active': '0 0 0 0 rgba(0, 0, 0, 0)',
+              'glass': '0 8px 32px 0 rgba(31, 38, 135, 0.1)',
+            },
+            animation: {
+                'fade-in-up': 'fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both',
+                'fade-in-down': 'fadeInDown 0.4s cubic-bezier(0.16, 1, 0.3, 1) both',
+                'slide-in-bottom': 'slideInBottom 0.5s cubic-bezier(0.16, 1, 0.3, 1) both',
+                'scale-in': 'scaleIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both',
+                'pulse-soft': 'pulseSoft 2s infinite',
+            },
+            keyframes: {
+                fadeInUp: {
+                    '0%': { opacity: 0, transform: 'translateY(20px)' },
+                    '100%': { opacity: 1, transform: 'translateY(0)' }
+                },
+                fadeInDown: {
+                    '0%': { opacity: 0, transform: 'translateY(-10px)' },
+                    '100%': { opacity: 1, transform: 'translateY(0)' }
+                },
+                slideInBottom: {
+                    '0%': { transform: 'translateY(100%)', opacity: 0 },
+                    '100%': { transform: 'translateY(0)', opacity: 1 }
+                },
+                scaleIn: {
+                   '0%': { opacity: 0, transform: 'scale(0.95)' },
+                   '100%': { opacity: 1, transform: 'scale(1)' }
+                },
+                pulseSoft: {
+                    '0%, 100%': { opacity: 1 },
+                    '50%': { opacity: 0.7 }
+                }
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar {
+        width: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #e2e8f0; 
+        border-radius: 4px;
+      }
+      .dark ::-webkit-scrollbar-thumb {
+        background: #475569; 
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #cbd5e1; 
+      }
+      .dark ::-webkit-scrollbar-thumb:hover {
+        background: #64748b; 
+      }
+
+      /* Flip Card Styles */
+      .perspective-1000 {
+        perspective: 1000px;
+      }
+      .transform-style-3d {
+        transform-style: preserve-3d;
+      }
+      .backface-hidden {
+        backface-visibility: hidden;
+      }
+      .rotate-y-180 {
+        transform: rotateY(180deg);
+      }
+      
+      /* Staggered Animation Delays for list items */
+      .delay-100 { animation-delay: 100ms; }
+      .delay-200 { animation-delay: 200ms; }
+      .delay-300 { animation-delay: 300ms; }
+      .delay-400 { animation-delay: 400ms; }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "react-dom/client": "https://aistudiocdn.com/react-dom@^19.2.0/client",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+    <script>
+        // Dark Mode Initialization
+        const getTheme = () => {
+            const prefs = localStorage.getItem('algolingo_prefs');
+            if (prefs) {
+                try {
+                    const p = JSON.parse(prefs);
+                    if (p.theme) return p.theme;
+                } catch(e) {}
+            }
+            return 'system';
+        };
+
+        const applyTheme = () => {
+            const theme = getTheme();
+            const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+            if (isDark) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        };
+        applyTheme();
+    </script>
+  </body>
+</html>

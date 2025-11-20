@@ -1,0 +1,5 @@
+{
+  "name": "AlgoLingo",
+  "description": "A Duolingo-style algorithm coach for senior engineers. Gamifies LeetCode Top 100 with Python syntax training and business logic analogies.",
+  "requestFramePermissions": []
+}
