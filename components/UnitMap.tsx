@@ -1,14 +1,13 @@
 
-import React, { useState } from 'react';
-import { Lock, Check, Star, ArrowLeft, History, PlayCircle, Gift, Crown, BookOpenCheck, ChevronRight, AlertTriangle } from 'lucide-react';
+import React from 'react';
+import { Lock, Check, Star, ArrowLeft, History, PlayCircle, Gift, Crown, BookOpenCheck } from 'lucide-react';
 import { SavedLesson } from '../types';
-import { Button } from './Button';
 
 interface UnitMapProps {
   problemName: string;
-  currentLevel: number; // 0-6 based on new logic
+  currentLevel: number; // 0-6
   savedLessons: SavedLesson[];
-  onStartLevel: (level: number, isSkipChallenge?: boolean) => void;
+  onStartLevel: (level: number) => void;
   onLoadSaved: (lesson: SavedLesson) => void;
   onBack: () => void;
   language: 'Chinese' | 'English';
@@ -21,17 +20,12 @@ const LOCALE = {
         review: "复习",
         challenge: "挑战",
         saved: "已保存课程",
-        concept: "概念引入",
-        basics: "基础构建",
-        reviewPhase: "复习巩固",
-        opt1: "进阶优化 I",
-        opt2: "进阶优化 II",
-        mastery: "精通 (Boss)",
-        skipTitle: "跳过至精通",
-        skipDesc: "你确定要跳过前面的阶段直接挑战 BOSS 吗？",
-        skipWarning: "挑战成功（错误 < 2）将直接标记本题全部完成。挑战失败将无法再次跳过。",
-        confirmSkip: "确认跳过",
-        cancel: "取消"
+        checkpoint: "复习",
+        intro: "概念",
+        basics: "基础",
+        code: "实现",
+        optimize: "优化",
+        boss: "精通"
     },
     English: {
         unit: "Problem",
@@ -39,217 +33,147 @@ const LOCALE = {
         review: "Review",
         challenge: "Challenge",
         saved: "Saved Lessons",
-        concept: "Concept",
+        checkpoint: "Review",
+        intro: "Intro",
         basics: "Basics",
-        reviewPhase: "Review",
-        opt1: "Optimization I",
-        opt2: "Optimization II",
-        mastery: "Mastery (Boss)",
-        skipTitle: "Skip to Mastery",
-        skipDesc: "Are you sure you want to skip previous phases and challenge the BOSS directly?",
-        skipWarning: "Success (< 2 mistakes) will mark all phases complete. Failure disables this skip option.",
-        confirmSkip: "Confirm Skip",
-        cancel: "Cancel"
+        code: "Code",
+        optimize: "Optimize",
+        boss: "Mastery"
     }
 };
 
 export const UnitMap: React.FC<UnitMapProps> = ({ problemName, currentLevel, savedLessons, onStartLevel, onLoadSaved, onBack, language }) => {
-  const [showSkipModal, setShowSkipModal] = useState(false);
+  
   const t = LOCALE[language];
 
-  // Check if skip is failed previously (stored in localStorage)
-  const skipFailedKey = `skip_failed_${problemName}`;
-  const isSkipDisabled = localStorage.getItem(skipFailedKey) === 'true';
-
-  const handleSkipClick = () => {
-      if (isSkipDisabled) return;
-      setShowSkipModal(true);
-  }
-
-  const confirmSkip = () => {
-      setShowSkipModal(false);
-      onStartLevel(5, true); // Start Level 5 (Mastery) with skip flag
-  }
-
-  // 6 Phases: 0, 1, 2, 3, 4, 5
+  // Explicit path with Review Checkpoints injected
   const pathNodes = [
-      { id: 0, type: 'lesson', icon: <Star size={20} />, label: t.concept },
-      { id: 1, type: 'lesson', icon: <Star size={20} />, label: t.basics },
-      { id: 2, type: 'review', icon: <BookOpenCheck size={20} />, label: t.reviewPhase }, 
-      { id: 3, type: 'lesson', icon: <Star size={20} />, label: t.opt1 },
-      { id: 4, type: 'lesson', icon: <Star size={20} />, label: t.opt2 },
-      { id: 5, type: 'boss', icon: <Crown size={28} />, label: t.mastery },
+      { id: 0, type: 'lesson', icon: <Star size={24} />, label: t.intro },
+      { id: 1, type: 'lesson', icon: <Star size={24} />, label: t.basics },
+      { id: 99, type: 'review', icon: <BookOpenCheck size={24} />, label: t.checkpoint }, // Interstitial
+      { id: 2, type: 'lesson', icon: <Star size={24} />, label: t.code },
+      { id: 98, type: 'review', icon: <BookOpenCheck size={24} />, label: t.checkpoint }, // Interstitial
+      { id: 3, type: 'lesson', icon: <Star size={24} />, label: t.optimize },
+      { id: 4, type: 'boss', icon: <Crown size={28} />, label: t.boss },
   ];
 
   return (
-    <div className="flex flex-col min-h-full relative bg-gray-50 dark:bg-dark-bg">
-      
-      {/* Floating Header (Rounded Island) */}
-      <div className="fixed top-6 left-4 right-4 z-30 flex justify-center pointer-events-none">
-          <div className="bg-white/95 dark:bg-dark-card/95 backdrop-blur-md p-4 rounded-3xl shadow-xl border border-gray-100 dark:border-gray-700 flex items-center gap-4 w-full max-w-2xl pointer-events-auto">
-            <button 
-                onClick={onBack} 
-                className="shrink-0 w-10 h-10 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-            >
-                <ArrowLeft size={20} />
+    <div className="flex flex-col min-h-full">
+      {/* Header */}
+      <div className="bg-white/80 dark:bg-dark-card/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800 p-4 sticky top-0 z-10 flex items-center justify-between rounded-b-2xl shadow-sm md:rounded-none">
+        <div className="flex items-center">
+            <button onClick={onBack} className="text-gray-400 hover:text-gray-700 dark:hover:text-white mr-4 p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                <ArrowLeft size={24} />
             </button>
-            <div className="min-w-0 flex-1">
-                <h1 className="text-lg font-extrabold text-gray-800 dark:text-white truncate leading-tight">{problemName}</h1>
-                <p className="text-gray-400 text-[10px] font-bold uppercase tracking-widest">{t.unit}</p>
+            <div>
+                <h1 className="text-xl font-extrabold text-gray-800 dark:text-white tracking-tight">{problemName}</h1>
+                <p className="text-gray-400 text-xs font-bold uppercase tracking-wide">{t.unit}</p>
             </div>
-            <div className="shrink-0 flex gap-1">
-                 <div className={`h-2 rounded-full bg-gray-200 dark:bg-gray-700 w-20 overflow-hidden`}>
-                     <div className="h-full bg-brand" style={{ width: `${Math.min(100, (currentLevel / 6) * 100)}%` }}></div>
-                 </div>
-            </div>
-          </div>
+        </div>
       </div>
 
       {/* Path Container */}
-      <div className="flex-1 pt-40 pb-20 flex flex-col items-center relative">
+      <div className="flex-1 p-8 flex flex-col items-center">
         
-        {/* Background Decorative Line */}
-        <div className="absolute top-40 bottom-20 left-1/2 w-3 bg-gray-200 dark:bg-gray-800 -translate-x-1/2 rounded-full -z-10"></div>
-
         {pathNodes.map((node, index) => {
-            const isLocked = node.id > currentLevel;
-            const isCompleted = node.id < currentLevel;
-            const isCurrent = node.id === currentLevel;
+            let isLocked = true;
+            let isCompleted = false;
+
+            if (node.type === 'review') {
+                // Unlocked if previous lesson is done
+                const prevNodeIndex = index - 1;
+                const prevNodeId = pathNodes[prevNodeIndex].id;
+                isLocked = currentLevel < (prevNodeId + 1);
+                isCompleted = currentLevel > (prevNodeId + 1);
+            } else {
+                isLocked = node.id > currentLevel;
+                isCompleted = node.id < currentLevel;
+            }
             
-            // Review nodes are playable if unlocked (<= currentLevel)
-            // Lesson nodes are playable if <= currentLevel (completed ones can be replayed)
-            const isPlayable = node.id <= currentLevel;
+            // If it's a review node and currentLevel is exactly at the point where it should be active
+            // Review 99 is between 1 and 2. So if Level is 2, 99 is "completed" or "available to review again".
+            // Let's make reviews always clickable if unlocked.
+            const isCurrent = !isLocked && (node.type === 'review' ? !isCompleted : !isCompleted);
 
-            // Special handling for Mastery Skip
-            const isMasterySkipAvailable = node.id === 5 && isLocked && !isSkipDisabled;
-
-            // Zigzag layout
-            const zigzag = index % 2 === 0 ? 'translate-x-0' : index % 4 === 1 ? '-translate-x-12' : 'translate-x-12';
+            const offset = index % 2 === 0 ? '0px' : index % 4 === 1 ? '-40px' : '40px';
             
-            let baseColor = 'bg-brand';
-            let shadowColor = 'shadow-brand/40';
-            if (node.type === 'review') { baseColor = 'bg-purple-500'; shadowColor = 'shadow-purple-500/40'; }
-            if (node.type === 'boss') { baseColor = 'bg-orange-500'; shadowColor = 'shadow-orange-500/40'; }
-
-            const nodeSize = node.type === 'boss' ? 'w-24 h-24' : node.type === 'review' ? 'w-16 h-16' : 'w-20 h-20';
+            let bgClass = 'bg-brand';
+            if (node.type === 'review') bgClass = 'bg-purple-500';
+            if (node.type === 'boss') bgClass = 'bg-orange-500';
+            
+            const finalBg = isCompleted ? bgClass : isCurrent ? bgClass : 'bg-gray-200 dark:bg-gray-700';
 
             return (
-            <div key={index} className={`relative flex flex-col items-center mb-16 transition-transform duration-500 ${zigzag} z-0`}>
+            <div key={index} className="relative flex flex-col items-center mb-8 w-full max-w-xs" style={{ transform: `translateX(${offset})` }}>
               
-              {/* Node Button */}
+              {/* Connecting Line */}
+              {index < pathNodes.length - 1 && (
+                <div className={`absolute top-10 left-1/2 transform -translate-x-1/2 w-3 h-24 -z-10 rounded-full ${
+                   isCompleted ? bgClass : 'bg-gray-200 dark:bg-gray-700'
+                }`} style={{ opacity: 0.5 }} />
+              )}
+
+              {/* Node Circle */}
               <button
-                onClick={() => {
-                    if (isPlayable) onStartLevel(node.id);
-                    else if (isMasterySkipAvailable) handleSkipClick();
-                }}
-                disabled={!isPlayable && !isMasterySkipAvailable}
+                onClick={() => !isLocked && onStartLevel(node.id)}
+                disabled={isLocked}
                 className={`
-                  relative flex items-center justify-center rounded-[2rem]
-                  transition-all duration-300 group
-                  ${nodeSize}
-                  ${isLocked 
-                    ? isMasterySkipAvailable 
-                        ? 'bg-gray-200 dark:bg-gray-800 border-4 border-orange-400 border-dashed cursor-pointer hover:scale-110' // Skip Mode Style
-                        : 'bg-gray-200 dark:bg-gray-800 text-gray-400 dark:text-gray-600 cursor-not-allowed shadow-inner' 
-                    : `${baseColor} text-white shadow-lg ${shadowColor} hover:scale-105 active:scale-95 active:shadow-none`
-                   }
-                  ${isCurrent ? 'ring-8 ring-brand/20 dark:ring-brand/10 animate-pulse-soft' : ''}
+                  relative flex items-center justify-center shadow-[0_6px_0_0_rgba(0,0,0,0.2)]
+                  transition-all duration-200 active:translate-y-[6px] active:shadow-none
+                  ${node.type === 'boss' ? 'w-24 h-24 rounded-3xl' : node.type === 'review' ? 'w-16 h-16 rounded-2xl' : 'w-20 h-20 rounded-full'}
+                  ${finalBg} text-white border-4 border-white/20
+                  ${isCurrent ? 'ring-4 ring-offset-4 ring-brand/20 dark:ring-brand/10 scale-110 z-10' : ''}
+                  ${isLocked ? '!bg-gray-200 dark:!bg-gray-800 !text-gray-400 dark:!text-gray-600 !shadow-none cursor-not-allowed' : ''}
                 `}
               >
-                {/* Icon */}
-                {isCompleted ? (
-                    <div className="bg-white/20 p-2 rounded-full">
-                        <Check size={node.type === 'review' ? 16 : 24} strokeWidth={4} />
-                    </div>
-                ) : isLocked ? (
-                    isMasterySkipAvailable ? <Crown size={24} className="text-orange-400 animate-bounce" /> : <Lock size={20} />
-                ) : (
-                    <div className="drop-shadow-md">{node.icon}</div>
-                )}
-
-                {/* Stars for Completed Lessons */}
-                {isCompleted && node.type === 'lesson' && (
-                    <div className="absolute -bottom-3 flex gap-1 bg-white dark:bg-dark-card px-2 py-0.5 rounded-full shadow-sm border border-gray-100 dark:border-gray-700">
-                        <Star size={10} className="fill-yellow-400 text-yellow-400" />
-                        <Star size={10} className="fill-yellow-400 text-yellow-400" />
-                        <Star size={10} className="fill-yellow-400 text-yellow-400" />
-                    </div>
-                )}
+                {isCompleted ? <Check size={node.type === 'review' ? 20 : 32} strokeWidth={4} /> : isLocked ? <Lock size={20} /> : node.icon}
               </button>
               
-              {/* Label Badge */}
-              <div className={`
-                mt-4 px-4 py-1.5 rounded-xl font-bold text-xs uppercase tracking-wider shadow-sm border-2 transition-all
-                ${isCurrent 
-                    ? 'bg-white dark:bg-dark-card border-brand text-brand scale-110' 
-                    : isLocked && !isMasterySkipAvailable
-                        ? 'bg-transparent border-transparent text-gray-400 dark:text-gray-600' 
-                        : 'bg-white dark:bg-dark-card border-gray-100 dark:border-gray-700 text-gray-600 dark:text-gray-300'
-                }
-              `}>
-                {node.label}
-              </div>
-
-              {/* Skip Tooltip */}
-              {isMasterySkipAvailable && (
-                  <div className="absolute -right-32 top-0 w-28 bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 text-[10px] font-bold p-2 rounded-xl border border-orange-200 dark:border-orange-800 shadow-sm hidden md:block">
-                      Click to Skip Challenge
-                  </div>
+              {/* Current Label */}
+              {isCurrent && (
+                <div className="mt-3 text-center bg-white dark:bg-dark-card py-1.5 px-4 rounded-xl shadow-lg border-2 border-brand animate-bounce">
+                    <h3 className="font-extrabold text-brand text-xs uppercase tracking-widest">{t.start}</h3>
+                    <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white dark:bg-dark-card border-t-2 border-l-2 border-brand rotate-45"></div>
+                </div>
+              )}
+              
+              {!isCurrent && (
+                   <div className="mt-2 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">{node.label}</div>
               )}
             </div>
           );
         })}
 
-        {/* Saved Lessons */}
         {savedLessons.length > 0 && (
-            <div className="w-full max-w-md mt-4 px-4 animate-fade-in-up mb-12">
-                <div className="bg-white dark:bg-dark-card rounded-3xl p-4 border-2 border-gray-100 dark:border-gray-700 shadow-sm">
-                    <div className="flex items-center gap-2 mb-3 text-gray-400 text-xs font-bold uppercase tracking-wider">
-                        <History size={14} />
-                        <span>{t.saved}</span>
-                    </div>
-                    <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-2">
-                        {savedLessons.map(lesson => (
-                            <button 
-                                key={lesson.id}
-                                onClick={() => onLoadSaved(lesson)}
-                                className="w-full p-3 rounded-2xl bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center justify-between group text-left border border-transparent hover:border-brand/30"
-                            >
-                                <div>
-                                    <div className="font-bold text-gray-700 dark:text-gray-200 text-xs mb-0.5">{lesson.plan.title}</div>
-                                    <div className="text-[10px] text-gray-400">{new Date(lesson.timestamp).toLocaleDateString()}</div>
+            <div className="w-full max-w-md mt-16 bg-white dark:bg-dark-card rounded-3xl p-6 border-2 border-gray-100 dark:border-gray-700 shadow-sm">
+                <div className="flex items-center justify-center gap-2 text-gray-400 mb-6 font-bold text-xs uppercase tracking-wider">
+                    <History size={16} />
+                    <span>{t.saved}</span>
+                </div>
+                <div className="space-y-3">
+                    {savedLessons.map(lesson => (
+                        <button 
+                            key={lesson.id}
+                            onClick={() => onLoadSaved(lesson)}
+                            className="w-full p-4 rounded-2xl border-2 border-gray-100 dark:border-gray-700 hover:border-brand hover:bg-brand-bg/20 dark:hover:bg-brand/10 transition-all flex items-center justify-between group text-left"
+                        >
+                            <div>
+                                <h4 className="font-bold text-gray-800 dark:text-gray-200 text-sm mb-1">{lesson.plan.title}</h4>
+                                <div className="flex items-center gap-2">
+                                    <span className="bg-gray-100 dark:bg-gray-800 text-gray-500 text-[10px] font-bold px-2 py-0.5 rounded-md">
+                                        {lesson.language}
+                                    </span>
+                                    <p className="text-xs text-gray-400">{new Date(lesson.timestamp).toLocaleDateString()}</p>
                                 </div>
-                                <ChevronRight size={16} className="text-gray-300 group-hover:text-brand transition-colors" />
-                            </button>
-                        ))}
-                    </div>
+                            </div>
+                            <PlayCircle className="text-gray-300 dark:text-gray-600 group-hover:text-brand transition-colors" size={28} />
+                        </button>
+                    ))}
                 </div>
             </div>
         )}
+
       </div>
-
-      {/* Skip Modal */}
-      {showSkipModal && (
-          <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
-              <div className="bg-white dark:bg-dark-card rounded-3xl p-8 w-full max-w-md text-center shadow-2xl border-2 border-gray-100 dark:border-gray-700 animate-scale-in">
-                  <div className="mb-6 bg-orange-100 dark:bg-orange-900/30 w-20 h-20 rounded-full flex items-center justify-center mx-auto border-4 border-white dark:border-dark-card shadow-lg">
-                        <Crown className="text-orange-500" size={40} />
-                  </div>
-                  <h3 className="text-2xl font-extrabold text-gray-800 dark:text-white mb-3">{t.skipTitle}</h3>
-                  <p className="text-gray-500 dark:text-gray-400 mb-4 text-sm leading-relaxed">{t.skipDesc}</p>
-                  
-                  <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-xl border border-red-100 dark:border-red-900/50 mb-8 flex items-start gap-3 text-left">
-                      <AlertTriangle size={20} className="text-red-500 shrink-0 mt-0.5"/>
-                      <p className="text-xs text-red-600 dark:text-red-400 font-bold leading-relaxed">{t.skipWarning}</p>
-                  </div>
-
-                  <div className="flex flex-col gap-3">
-                      <Button variant="primary" onClick={confirmSkip} className="bg-orange-500 border-orange-600 hover:bg-orange-400">{t.confirmSkip}</Button>
-                      <button onClick={() => setShowSkipModal(false)} className="text-gray-400 text-sm font-bold hover:text-gray-600 py-3">{t.cancel}</button>
-                  </div>
-              </div>
-          </div>
-      )}
     </div>
   );
 };

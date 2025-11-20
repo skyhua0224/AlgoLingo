@@ -141,27 +141,36 @@ const getSystemPrompt = (prefs: UserPreferences) => `
 You are "AlgoLingo", a Senior Tech Interview Coach.
 Target Lang: **${prefs.targetLanguage}** | Instruction Lang: **${prefs.spokenLanguage}**.
 
-**CRITICAL RULES:**
-1. **ONE INTERACTIVE WIDGET PER SCREEN:**
-   - A screen must contain **EXACTLY ONE** Interactive Widget.
-   - **Interactive Widgets:** 'quiz', 'fill-in', 'parsons', 'code-editor', 'flipcard' (mode='assessment'), 'steps-list' (mode='interactive').
-   - **Context Widgets (Allowed Multiple):** 'dialogue', 'callout', 'flipcard' (mode='learn'), 'interactive-code'.
-   - **NEVER** put two interactive widgets on the same screen.
-   - **NEVER** put a 'flipcard' (assessment) with a 'quiz' or 'parsons'.
+**MANDATORY PEDAGOGY RULES:**
+1. **SCAFFOLDING FIRST:** NEVER ask the user to write code (Code Editor) or fill in a blank without teaching it first.
+   - BEFORE any 'quiz', 'fill-in', or 'code-editor', you MUST provide a 'flipcard' or 'callout' explaining the exact syntax or concept.
+   - Users are beginners in this language. Do not assume they know the syntax.
 
-2. **PHASE PROGRESSION (6 PHASES):**
-   You are generating content for a specific phase of learning a LeetCode problem.
-   
-   - **Phase 0 (Concept):** Intro. Use 'dialogue', 'flipcard' (learn), 'quiz', 'fill-in' (select). **NO** 'parsons', **NO** 'assessment flipcard'.
-   - **Phase 1 (Basics):** Logic building. Introduce 'flipcard' (assessment) and 'parsons'.
-   - **Phase 2 (Review):** Reinforcement. Review concepts. Introduce 'fill-in' (type).
-   - **Phase 3 & 4 (Optimization):** Advanced logic. Heavy use of 'parsons' and 'fill-in' (type).
-   - **Phase 5 (Mastery):** Full implementation.
-     - **MUST** end with a 'code-editor' widget as the 17th screen.
+2. **CODE EDITOR RULES (CRITICAL):**
+   - When using 'code-editor', the \`initialCode\` MUST ONLY BE THE FUNCTION SIGNATURE/BOILERPLATE.
+   - **DO NOT IMPLEMENT THE SOLUTION** in \`initialCode\`. The user must write it.
+   - Example \`initialCode\` for Python Two Sum:
+     \`class Solution:\n    def twoSum(self, nums: List[int], target: int) -> List[int]:\n        pass\`
+   - Provide rich details for \`examples\` (Input, Output, Explanation) and \`constraints\` so it looks exactly like a LeetCode problem.
 
-3. **CONTENT:**
-   - **EXACTLY 17 SCREENS** per lesson.
-   - Ensure the content is technically accurate for ${prefs.targetLanguage}.
+3. **WIDGET USAGE BY PHASE:**
+   - **Phase 0 (Concept):** 
+     - Screen 4: 'interactive-code' showing the FULL algorithm.
+     - USE: 'quiz', 'fill-in' (InputMode: 'select').
+     - FORBIDDEN: 'code-editor'.
+   - **Phase 1 (Basics):** 
+     - USE: 'parsons', 'fill-in' (select).
+     - FORBIDDEN: 'code-editor'.
+   - **Phase 2 (Code):** 
+     - USE: 'fill-in' (type).
+     - Screen 16-17: You MAY use 'code-editor' for the final challenge.
+   - **Phase 3+ (Optimize/Boss):** 
+     - USE: 'code-editor' frequently.
+
+4. **CONTENT RULES:**
+   - **EXACTLY 17 SCREENS.**
+   - **PARSONS:** Min 5 lines. 
+   - **CODE:** Valid ${prefs.targetLanguage}.
 `;
 
 const sanitizePlan = (plan: LessonPlan): LessonPlan => {
@@ -177,31 +186,24 @@ const sanitizePlan = (plan: LessonPlan): LessonPlan => {
         });
         if (hasBrokenWidgets) return false;
 
-        // Sanitize Fill-In
         screen.widgets.forEach(w => {
             if (w.type === 'fill-in' && w.fillIn) {
                 if (!w.fillIn.options || w.fillIn.options.length === 0) {
                     w.fillIn.inputMode = 'type';
                     w.fillIn.options = []; 
                 } else {
-                    if (!w.fillIn.inputMode) w.fillIn.inputMode = 'select';
+                    w.fillIn.inputMode = 'select';
                 }
             }
         });
 
-        // Sanitize Interactive Validation
-        // Ensure strictly one interactive widget if multiple are present (rare if prompt follows rules, but safety first)
-        const interactiveWidgets = screen.widgets.filter(w => ['quiz', 'parsons', 'fill-in', 'steps-list', 'code-editor'].includes(w.type) || (w.type === 'flipcard' && w.flipcard?.mode === 'assessment'));
-        
-        if (interactiveWidgets.length > 1) {
-            // Keep only the first interactive widget, remove others
-            const firstId = interactiveWidgets[0].id;
-            screen.widgets = screen.widgets.filter(w => {
-                const isInteractive = ['quiz', 'parsons', 'fill-in', 'steps-list', 'code-editor'].includes(w.type) || (w.type === 'flipcard' && w.flipcard?.mode === 'assessment');
-                return !isInteractive || w.id === firstId;
-            });
+        const interactive = screen.widgets.find(w => ['quiz', 'parsons', 'fill-in', 'steps-list'].includes(w.type));
+        if (interactive) {
+            if (interactive.type === 'fill-in' && interactive.fillIn) {
+                if (!interactive.fillIn.code) return false;
+            }
+            if (interactive.type === 'steps-list' && interactive.stepsList?.mode === 'interactive' && !interactive.stepsList.correctOrder) return false;
         }
-        
         return true;
     });
     
@@ -211,7 +213,9 @@ const sanitizePlan = (plan: LessonPlan): LessonPlan => {
 // Helper to get previous phase data
 const getPreviousPhaseReport = (savedLessons: SavedLesson[], mistakesHistory: MistakeRecord[], nodeIndex: number, problemName: string) => {
     if (nodeIndex === 0) return null;
+    
     const previousNodeIndex = nodeIndex - 1;
+    
     const relevantMistakes = mistakesHistory.filter(m => {
         const matchesProblem = m.problemName === problemName || m.problemName.includes(problemName);
         const matchesPhase = m.nodeIndex !== undefined ? m.nodeIndex === previousNodeIndex : true;
@@ -219,7 +223,7 @@ const getPreviousPhaseReport = (savedLessons: SavedLesson[], mistakesHistory: Mi
     });
 
     return {
-        phaseName: `Phase ${previousNodeIndex}`,
+        phaseName: previousNodeIndex === 0 ? "Concept (Intro)" : previousNodeIndex === 1 ? "Basics" : "Previous",
         mistakeCount: relevantMistakes.length,
         mistakeTopics: relevantMistakes.slice(0, 3).map(m => m.context),
         wasPerfect: relevantMistakes.length === 0
@@ -239,51 +243,22 @@ class LLMClient {
         return this.config.gemini.apiKey || process.env.API_KEY;
     }
 
-    async generate(systemPrompt: string, userPrompt: string, schema?: Schema, onStream?: (text: string) => void): Promise<string> {
+    async generate(systemPrompt: string, userPrompt: string, schema?: Schema): Promise<string> {
         const provider = this.config.provider;
 
         if (provider === 'gemini-official') {
             const ai = new GoogleGenAI({ apiKey: this.getGeminiKey() });
-            
-            if (onStream) {
-                // Streaming mode for visualization
-                try {
-                    const responseStream = await ai.models.generateContentStream({
-                        model: this.config.gemini.model,
-                        contents: userPrompt,
-                        config: {
-                            systemInstruction: systemPrompt,
-                            responseMimeType: schema ? "application/json" : "text/plain",
-                            responseSchema: schema,
-                            thinkingConfig: { thinkingBudget: 2048 } 
-                        }
-                    });
-                    let fullText = "";
-                    for await (const chunk of responseStream) {
-                        const text = chunk.text;
-                        if (text) {
-                            fullText += text;
-                            onStream(text);
-                        }
-                    }
-                    return fullText || "{}";
-                } catch (e) {
-                    // Fallback to non-streaming on error if needed, or just throw
-                    throw e;
+            const response = await ai.models.generateContent({
+                model: this.config.gemini.model,
+                contents: userPrompt,
+                config: {
+                    systemInstruction: systemPrompt,
+                    responseMimeType: schema ? "application/json" : "text/plain",
+                    responseSchema: schema,
+                    thinkingConfig: { thinkingBudget: 2048 } 
                 }
-            } else {
-                const response = await ai.models.generateContent({
-                    model: this.config.gemini.model,
-                    contents: userPrompt,
-                    config: {
-                        systemInstruction: systemPrompt,
-                        responseMimeType: schema ? "application/json" : "text/plain",
-                        responseSchema: schema,
-                        thinkingConfig: { thinkingBudget: 2048 } 
-                    }
-                });
-                return response.text || "{}";
-            }
+            });
+            return response.text || "{}";
         }
 
         if (provider === 'gemini-custom') {
@@ -303,9 +278,7 @@ class LLMClient {
             });
             if (!res.ok) throw new Error(`Gemini API Error: ${res.statusText}`);
             const data = await res.json();
-            const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-            if (onStream) onStream(text); // Simulate single chunk stream
-            return text;
+            return data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
         }
 
         if (provider === 'openai') {
@@ -336,9 +309,7 @@ class LLMClient {
             });
             if (!res.ok) throw new Error(await res.text());
             const data = await res.json();
-            const text = data.choices?.[0]?.message?.content || "{}";
-            if (onStream) onStream(text); // Simulate single chunk stream
-            return text;
+            return data.choices?.[0]?.message?.content || "{}";
         }
         throw new Error("Unknown provider");
     }
@@ -351,58 +322,64 @@ export const generateLessonPlan = async (
   nodeIndex: number,
   prefs: UserPreferences,
   mistakesHistory: MistakeRecord[] = [],
-  savedLessons: SavedLesson[] = [],
-  onUpdate?: (log: string) => void
+  savedLessons: SavedLesson[] = []
 ): Promise<LessonPlan> => {
   const client = new LLMClient(prefs.apiConfig);
   const prevReport = getPreviousPhaseReport(savedLessons, mistakesHistory, nodeIndex, problemName);
   
-  const blueprints = [
-      // Phase 0: Concept
-      `**PHASE 0: CONCEPT (17 Screens)**
-       Focus: Intro, Syntax, Basic Logic.
-       Widgets: 'dialogue', 'flipcard' (Learn Mode), 'quiz', 'fill-in' (Select Mode).
-       RESTRICTIONS: NO 'parsons', NO 'flipcard' (Assessment), NO 'code-editor'.`,
+  // NODE 0: CONCEPT (NO HANDWRITING)
+  const blueprintNode0 = `
+  **PHASE 0: CONCEPT (17 Screens)**
+  1-3: Analogy (Real world).
+  4: **Interactive Code** (Full Algorithm Preview - Explain line by line).
+  5-10: Logic Quiz (Multiple Choice Only).
+  11-15: Flipcards (Syntax Rules) & Simple Fill-in (Select Mode).
+  16-17: Parsons Problem (Simple Logic Sort) OR Fill-in (Select).
+  `;
 
-      // Phase 1: Basics
-      `**PHASE 1: BASICS (17 Screens)**
-       Focus: Logic ordering, basic patterns.
-       Widgets: Introduce 'parsons' & 'flipcard' (Assessment Mode).
-       Mix with 'quiz' and 'fill-in' (Select).`,
+  // NODE 1: BASICS (NO HANDWRITING)
+  const blueprintNode1 = `
+  **PHASE 1: BASICS (17 Screens)**
+  CONTEXT: User finished Phase 0.
+  1: Dialogue (Review).
+  2-4: Flipcards (Assessment Mode - Syntax Drill).
+  5-10: Parsons Problems (Logic ordering - Critical for this phase).
+  11-17: Fill-in-the-blanks (InputMode: 'select' ONLY. Provide options for every blank).
+  `;
 
-      // Phase 2: Review
-      `**PHASE 2: REVIEW & REINFORCEMENT (17 Screens)**
-       Focus: Review Phase 0 & 1 concepts. Introduce 'fill-in' (Type Mode).
-       Mistake Integration: If report exists, generate variations of failed questions.`,
+  // NODE 2: CODE (INTRO HANDWRITING SPARINGLY)
+  const blueprintNode2 = `
+  **PHASE 2: IMPLEMENTATION (17 Screens)**
+  1: Dialogue.
+  2-8: Fill-in (InputMode: 'select').
+  9-14: Parsons Problems (Complex).
+  15-17: **Code Editor** (Full challenge).
+  `;
+  
+  // NODE 3: OPTIMIZE
+  const blueprintNode3 = `
+  **PHASE 3: OPTIMIZATION (17 Screens)**
+  Focus on Time/Space complexity.
+  Use **Code Editor** frequently for full implementation.
+  `;
 
-      // Phase 3: Optimization I
-      `**PHASE 3: OPTIMIZATION I (17 Screens)**
-       Focus: Efficiency, Time Complexity.
-       Widgets: Heavy 'parsons' (complex logic), 'fill-in' (Type).`,
-
-      // Phase 4: Optimization II
-      `**PHASE 4: OPTIMIZATION II (17 Screens)**
-       Focus: Edge cases, advanced patterns.
-       Widgets: 'parsons', 'fill-in' (Type), 'quiz' (Edge cases).`,
-
-      // Phase 5: Mastery
-      `**PHASE 5: MASTERY (17 Screens)**
-       Screens 1-16: Advanced mix of all interactive widgets.
-       Screen 17: **MUST** be a 'code-editor' widget. Full LeetCode style implementation.`
-  ];
-
-  const selectedBlueprint = blueprints[Math.min(nodeIndex, 5)];
+  let selectedBlueprint = blueprintNode0;
+  if (nodeIndex === 1) selectedBlueprint = blueprintNode1;
+  if (nodeIndex === 2) selectedBlueprint = blueprintNode2;
+  if (nodeIndex >= 3) selectedBlueprint = blueprintNode3;
 
   const prompt = `
-  Generate a lesson plan for: ${problemName} (Phase Index: ${nodeIndex}).
+  Generate a lesson plan for: ${problemName} (Node Index: ${nodeIndex}).
   ${selectedBlueprint}
-  ${prevReport ? `PREVIOUS PHASE REPORT: ${prevReport.mistakeCount} mistakes on topics: ${prevReport.mistakeTopics.join(', ')}. EMPHASIZE THESE TOPICS.` : ""}
+  ${prevReport ? `REPORT: ${prevReport.mistakeCount} mistakes in previous phase.` : ""}
   
+  CRITICAL: For 'code-editor', ensure \`initialCode\` is ONLY the boilerplate (signature). 
+  Provide full LeetCode-style 'problemDescription', 'examples', and 'constraints'.
   Output JSON only.
   `;
 
   try {
-    const text = await client.generate(getSystemPrompt(prefs), prompt, lessonPlanSchema, onUpdate);
+    const text = await client.generate(getSystemPrompt(prefs), prompt, lessonPlanSchema);
     const cleanText = text.replace(/```json\n?|\n?```/g, '').trim();
     return sanitizePlan(JSON.parse(cleanText) as LessonPlan);
   } catch (error) {
@@ -414,8 +391,7 @@ export const generateLessonPlan = async (
 export const generateReviewLesson = async (
   mistakes: MistakeRecord[],
   prefs: UserPreferences,
-  topics: string[] = [],
-  onUpdate?: (log: string) => void
+  topics: string[] = []
 ): Promise<LessonPlan> => {
   const client = new LLMClient(prefs.apiConfig);
   
@@ -428,13 +404,16 @@ export const generateReviewLesson = async (
   **TARGET TOPICS:** ${focusTopics || "General Algorithms"}
   
   **INSTRUCTIONS:**
-  - Use 'code-editor' for at least 2 screens to verify mastery.
-  - Mix 'parsons', 'fill-in' (Type & Select), 'quiz', 'flipcard' (Assessment).
-  - Structure: 1-5 Recall, 6-12 Application, 13-17 Coding.
+  - Focus on Scaffolding.
+  - Structure:
+    1-5: Flipcards (Memory recall)
+    6-10: Parsons Problems (Logic)
+    11-15: Fill-in-the-blanks (InputMode: 'select' - Provide Options)
+    16-17: Challenge (InputMode: 'type' allowed here).
   `;
 
   try {
-    const text = await client.generate(getSystemPrompt(prefs), prompt, lessonPlanSchema, onUpdate);
+    const text = await client.generate(getSystemPrompt(prefs), prompt, lessonPlanSchema);
     const cleanText = text.replace(/```json\n?|\n?```/g, '').trim();
     return sanitizePlan(JSON.parse(cleanText) as LessonPlan);
   } catch (error) {
@@ -443,25 +422,24 @@ export const generateReviewLesson = async (
 };
 
 export const generateSyntaxClinicPlan = async (
-    prefs: UserPreferences,
-    onUpdate?: (log: string) => void
+    prefs: UserPreferences
 ): Promise<LessonPlan> => {
     const client = new LLMClient(prefs.apiConfig);
     
     const prompt = `
-    Task: Create a **17-Screen Syntax Clinic** for **${prefs.targetLanguage}**.
+    Task: Create a **17-Screen Syntax Clinic** specifically for **${prefs.targetLanguage}**.
     
-    **GOAL:** Drill syntax patterns.
+    **GOAL:** Drill specific syntax (e.g. List Comprehensions, Iterators).
     
     **STRUCTURE:**
     1: Dialogue.
-    2-8: 'flipcard' (Learn & Assessment) & 'callout'.
-    9-14: 'fill-in' (Select & Type).
-    15-17: 'code-editor' (Simple functions).
+    2-8: Flipcards & Callouts (Teach the syntax explicitly).
+    9-14: Quiz & Fill-in (Mode: 'select').
+    15-17: Code Editor (Write a simple function using the syntax).
     `;
 
     try {
-        const text = await client.generate(getSystemPrompt(prefs), prompt, lessonPlanSchema, onUpdate);
+        const text = await client.generate(getSystemPrompt(prefs), prompt, lessonPlanSchema);
         const cleanText = text.replace(/```json\n?|\n?```/g, '').trim();
         return sanitizePlan(JSON.parse(cleanText) as LessonPlan);
     } catch (error) {

@@ -200,7 +200,7 @@ export const INITIAL_STATS = {
 export const DEFAULT_API_CONFIG: ApiConfig = {
     provider: 'gemini-official',
     gemini: {
-        model: 'gemini-2.5-pro',
+        model: 'gemini-2.5-flash',
     },
     openai: {
         baseUrl: 'https://api.openai.com/v1',

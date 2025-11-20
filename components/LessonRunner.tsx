@@ -50,8 +50,7 @@ const LOCALE = {
         leaveConfirmTitle: "确定要离开吗？",
         leaveConfirmDesc: "再坚持一下，还有几道题就完成了！现在退出将无法保存本次进度。",
         skipConfirmTitle: "确定要跳过吗？",
-        skipConfirmDesc: "建议询问 AI 助手帮助理解，直接跳过将无法巩固知识点。",
-        skipChallengeFail: "错误太多 (>2)。挑战失败。"
+        skipConfirmDesc: "建议询问 AI 助手帮助理解，直接跳过将无法巩固知识点。"
     },
     English: {
         incorrect: "Incorrect",
@@ -79,8 +78,7 @@ const LOCALE = {
         leaveConfirmTitle: "Are you sure?",
         leaveConfirmDesc: "You're almost there! Exiting now will lose your current progress.",
         skipConfirmTitle: "Skip this problem?",
-        skipConfirmDesc: "We recommend asking the AI for help. Skipping might affect your mastery.",
-        skipChallengeFail: "Too many errors (>2). Challenge failed."
+        skipConfirmDesc: "We recommend asking the AI for help. Skipping might affect your mastery."
     }
 };
 
@@ -223,12 +221,10 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
       if (currentIndex < screens.length - 1) {
           setCurrentIndex(p => p + 1);
       } else {
-          // End of Lesson
-          // If in Skip Challenge mode, skip review intro and go straight to feedback/complete
-          if (plan.isSkipChallenge || (sessionMistakes.length === 0) || isInMistakeLoop || isReviewMode) {
-              setShowFeedback(true);
-          } else {
+          if (sessionMistakes.length > 0 && !isInMistakeLoop && !isReviewMode) {
               setShowReviewIntro(true);
+          } else {
+              setShowFeedback(true);
           }
       }
   };
@@ -266,6 +262,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
       });
 
       if (uniqueMistakes.length === 0) {
+          // Should normally be caught by handleNext check, but safe fallback
           setShowFeedback(true);
           return;
       }
@@ -381,7 +378,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
           </div>
       )}
 
-       {/* Skip Question Modal */}
+       {/* Skip Modal */}
        {showSkipModal && (
           <div className="absolute inset-0 z-[80] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
               <div className="bg-white dark:bg-dark-card rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl border-2 border-gray-100 dark:border-gray-700 animate-scale-in">
@@ -418,7 +415,6 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
               {/* Screen Header */}
               <div className="mb-6 text-center">
                  {isReviewing && <div className="inline-block px-3 py-1 bg-orange-100 dark:bg-orange-900/40 text-orange-600 dark:text-orange-400 rounded-full text-xs font-bold uppercase tracking-wider mb-2">{t.mistakeLabel}</div>}
-                 {plan.isSkipChallenge && <div className="inline-block px-3 py-1 bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 rounded-full text-xs font-bold uppercase tracking-wider mb-2 animate-pulse">SKIP CHALLENGE</div>}
                  {currentScreen.header && <h3 className="text-sm font-bold text-brand uppercase tracking-widest mb-1">{currentScreen.header}</h3>}
                  {currentIndex === 0 && !isReviewing && <h2 className="text-2xl font-extrabold text-gray-800 dark:text-white">{stripMarkdown(plan.title)}</h2>}
               </div>
@@ -571,10 +567,10 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
                       <div className="bg-red-100 dark:bg-red-800/50 p-2 rounded-full shrink-0"><AlertCircle size={24}/></div>
                       <div className="min-w-0">
                           <div className="font-extrabold text-lg leading-none mb-1">{t.incorrect}</div>
-                          {isReviewing || plan.isSkipChallenge ? (
-                               // In Review Mode OR Skip Challenge, don't show answer immediately.
+                          {isReviewing ? (
+                               // In Review Mode, don't show answer immediately. Prompt retry.
                                <div className="text-xs opacity-90 font-medium text-red-700 dark:text-red-300">
-                                   {plan.isSkipChallenge && sessionMistakes.length > 2 ? t.skipChallengeFail : "Keep trying!"}
+                                   Keep trying!
                                </div>
                           ) : (
                                <div className="text-xs opacity-90 font-medium truncate text-red-700 dark:text-red-300">
@@ -614,7 +610,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
                         onClick={() => {
                             if (status === 'idle') {
                                 interactiveWidget ? handleCheck() : handleNext();
-                            } else if (status === 'wrong' && (isReviewing || plan.isSkipChallenge)) {
+                            } else if (status === 'wrong' && isReviewing) {
                                 handleTryAgain();
                             } else {
                                 handleNext();
@@ -625,7 +621,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
                       >
                           {status === 'idle' 
                              ? (interactiveWidget ? t.check : t.next) 
-                             : (status === 'wrong' && (isReviewing || plan.isSkipChallenge) ? t.tryAgain : t.continue)
+                             : (status === 'wrong' && isReviewing ? t.tryAgain : t.continue)
                           }
                       </Button>
                   )}

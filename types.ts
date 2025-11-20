@@ -150,7 +150,6 @@ export interface LessonPlan {
   screens: LessonScreen[];
   suggestedQuestions: string[]; // New: 5 suggestions for AI chat
   isLocalReplay?: boolean; // New: Marks if this is a purely local review (no AI)
-  isSkipChallenge?: boolean; // New: Marks if this is a mastery skip test
 }
 
 export interface SavedLesson {

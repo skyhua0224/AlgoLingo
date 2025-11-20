@@ -38,9 +38,6 @@ export default function App() {
 
   // Track what we are loading to support retry
   const [loadingContext, setLoadingContext] = useState<'lesson' | 'review' | 'clinic'>('lesson');
-  
-  // New: State for Real-Time Streaming Logs
-  const [streamingLog, setStreamingLog] = useState<string>("");
 
   // Theme Effect
   useEffect(() => {
@@ -181,30 +178,47 @@ export default function App() {
   };
 
   // --- MAIN ENTRY: Start a Node ---
-  const handleStartNode = async (nodeIndex: number, isSkipChallenge: boolean = false) => {
+  const handleStartNode = async (nodeIndex: number) => {
     if (!activeProblem) return;
     
+    // --- Checkpoint Logic (Nodes 90+) ---
+    if (nodeIndex >= 90) {
+        const unit = PROBLEM_CATEGORIES.find(u => u.problems.includes(activeProblem.id));
+        if (unit) {
+            const relevantMistakes = mistakes.filter(m => m.problemName === activeProblem.name && m.widget);
+            const dueMistakes = getDueMistakes(relevantMistakes);
+            
+            if (dueMistakes.length > 0) {
+                 const manualPlan: LessonPlan = {
+                     title: preferences.spokenLanguage === 'Chinese' ? "单元复习 (错题)" : "Unit Review (Mistakes)",
+                     description: "Memory Curve Review",
+                     suggestedQuestions: ["Why is this correct?"],
+                     isLocalReplay: true,
+                     screens: dueMistakes.map((m, i) => ({
+                         id: `replay_${i}`,
+                         header: `${m.problemName} - ${new Date(m.timestamp).toLocaleDateString()}`,
+                         widgets: [m.widget as Widget],
+                         isRetry: true
+                     }))
+                 };
+                 setCurrentLessonPlan(manualPlan);
+                 setLoadingContext('review');
+                 setView('runner');
+                 return;
+            }
+        }
+        
+        handleStartReview(true, 'ai'); 
+        return;
+    }
+
     setActiveNodeIndex(nodeIndex);
     setLoadingContext('lesson');
-    setStreamingLog(""); // Reset log
     setView('loading');
 
     try {
       const problemMistakes = mistakes.filter(m => m.problemName === activeProblem.name || m.problemName.includes(activeProblem.name));
-      const plan = await generateLessonPlan(
-          activeProblem.name, 
-          nodeIndex, 
-          preferences, 
-          problemMistakes, 
-          savedLessons, 
-          (chunk) => setStreamingLog(prev => prev + chunk) // Stream update
-      );
-      
-      if (isSkipChallenge) {
-          plan.isSkipChallenge = true;
-          plan.title += " (Skip Challenge)";
-      }
-
+      const plan = await generateLessonPlan(activeProblem.name, nodeIndex, preferences, problemMistakes, savedLessons);
       setCurrentLessonPlan(plan);
       setView('runner');
     } catch (e) {
@@ -216,7 +230,6 @@ export default function App() {
   // --- START REVIEW LOGIC ---
   const handleStartReview = async (isUnitContext: boolean = false, strategy: 'ai' | 'all' | 'due' = 'ai') => {
     setLoadingContext('review');
-    setStreamingLog("");
 
     if (strategy === 'all' || strategy === 'due') {
         let candidates = mistakes.filter(m => m.widget);
@@ -263,12 +276,7 @@ export default function App() {
             subsetMistakes = mistakes.filter(m => m.problemName === activeProblem.name);
         }
         
-        const plan = await generateReviewLesson(
-            subsetMistakes, 
-            preferences, 
-            [], 
-            (chunk) => setStreamingLog(prev => prev + chunk)
-        );
+        const plan = await generateReviewLesson(subsetMistakes, preferences);
         setCurrentLessonPlan(plan);
         setView('runner');
     } catch (e) {
@@ -279,13 +287,9 @@ export default function App() {
 
   const handleStartSyntaxClinic = async () => {
       setLoadingContext('clinic');
-      setStreamingLog("");
       setView('loading');
       try {
-          const plan = await generateSyntaxClinicPlan(
-              preferences,
-              (chunk) => setStreamingLog(prev => prev + chunk)
-          );
+          const plan = await generateSyntaxClinicPlan(preferences);
           setCurrentLessonPlan(plan);
           setView('runner');
       } catch (e) {
@@ -333,28 +337,10 @@ export default function App() {
     if (activeProblem && activeTab !== 'review' && currentLessonPlan && !currentLessonPlan.isLocalReplay) {
         const currentLangProg = getCurrentLangProgress();
         const currentMax = currentLangProg[activeProblem.id] || 0;
-        
-        // Logic for Skip Challenge or Normal Progression
-        if (currentLessonPlan.isSkipChallenge) {
-            // Skip Challenge Logic
-            if (newMistakes.length <= 2) {
-                // Success! Mark as fully complete (Level 6 = Done with mastery)
-                saveProgressForCurrentLang({ ...currentLangProg, [activeProblem.id]: 6 });
-                alert(preferences.spokenLanguage === 'Chinese' ? "挑战成功！本题已全部精通！" : "Challenge Accepted! Problem marked as mastered.");
-            } else {
-                // Failed! Mark this problem as failed skip
-                const skipFailedKey = `skip_failed_${activeProblem.name}`;
-                localStorage.setItem(skipFailedKey, 'true');
-                alert(preferences.spokenLanguage === 'Chinese' ? "挑战失败 (错误 > 2)。跳过功能已禁用。" : "Challenge Failed (Errors > 2). Skip option disabled.");
-            }
-        } else {
-            // Normal Logic: Advance 1 level if at current max and < 6
-            if (activeNodeIndex === currentMax && activeNodeIndex < 6 && shouldSave) { 
-                saveProgressForCurrentLang({ ...currentLangProg, [activeProblem.id]: activeNodeIndex + 1 });
-            }
+        if (activeNodeIndex < 90 && activeNodeIndex === currentMax && shouldSave) { 
+            saveProgressForCurrentLang({ ...currentLangProg, [activeProblem.id]: activeNodeIndex + 1 });
         }
-        
-        if (shouldSave && !currentLessonPlan.isSkipChallenge) {
+        if (shouldSave) {
             const newSaved = {
                 id: Date.now().toString(),
                 problemId: activeProblem.id,
@@ -391,7 +377,6 @@ export default function App() {
                 phase={activeNodeIndex} 
                 language={preferences.spokenLanguage} 
                 onRetry={handleRetryLoading}
-                realLogs={streamingLog}
             />
         );
     }

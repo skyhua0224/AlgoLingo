@@ -8,7 +8,6 @@ interface LoadingScreenProps {
     phase?: number;
     language: 'Chinese' | 'English';
     onRetry?: () => void;
-    realLogs?: string; // New prop for real streaming text
 }
 
 const TIPS_ZH = [
@@ -69,7 +68,7 @@ const LOGS_TEMPLATE_EN = [
     "[READY] Awaiting final bytes...",
 ];
 
-export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase = 0, language, onRetry, realLogs }) => {
+export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase = 0, language, onRetry }) => {
   const [progress, setProgress] = useState(5);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [logs, setLogs] = useState<string[]>([]);
@@ -82,12 +81,12 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
   const tips = isChinese ? TIPS_ZH : TIPS_EN;
   const baseLogs = isChinese ? LOGS_TEMPLATE_ZH : LOGS_TEMPLATE_EN;
 
-  // --- 1. Slowed Progress Logic (60s to 99%) ---
+  // --- 1. Slowed Progress Logic (~30s to 99%) ---
   useEffect(() => {
     const updateIntervalMs = 40;
-    const targetDurationMs = 60000; // 60 Seconds
+    const targetDurationMs = 30000; // 30 Seconds
     const totalSteps = targetDurationMs / updateIntervalMs;
-    const incrementPerStep = 99 / totalSteps;
+    const incrementPerStep = 99 / totalSteps; // ~0.132 per step
 
     const interval = setInterval(() => {
       setProgress(prev => {
@@ -130,7 +129,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
       if (logsEndRef.current) {
           logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
       }
-  }, [logs, showTerminal, realLogs]);
+  }, [logs, showTerminal]);
 
   const handleRetry = () => {
       setIsRetrying(true);
@@ -253,18 +252,12 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
                         <span className="ml-auto">gemini-thinking-process.log</span>
                     </div>
                     <div className="flex-1 overflow-y-auto custom-scrollbar space-y-1">
-                        {realLogs ? (
-                            <pre className="whitespace-pre-wrap text-green-300 font-mono text-[10px] leading-tight break-all">
-                                {realLogs}
-                            </pre>
-                        ) : (
-                            logs.map((log, i) => (
-                                <div key={i} className="opacity-80 hover:opacity-100">
-                                    <span className="text-gray-600 mr-2">[{new Date().toLocaleTimeString().split(' ')[0]}]</span>
-                                    {log}
-                                </div>
-                            ))
-                        )}
+                        {logs.map((log, i) => (
+                            <div key={i} className="opacity-80 hover:opacity-100">
+                                <span className="text-gray-600 mr-2">[{new Date().toLocaleTimeString().split(' ')[0]}]</span>
+                                {log}
+                            </div>
+                        ))}
                         <div ref={logsEndRef} />
                         <div className="animate-pulse flex items-center gap-1 mt-2">
                             <span className="text-brand">{'>'}</span>
