@@ -253,6 +253,7 @@ export interface LeetCodeContext {
         constraints: string[];
     };
     starterCode: string; // Template code for the user to start with
+    starterCodeMap?: Record<string, string>; // Map of languages to starter code
     
     // Existing Sidebar Content
     sidebar: {

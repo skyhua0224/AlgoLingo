@@ -174,6 +174,18 @@ const leetCodeContextSchema: Schema = {
             }
         },
         starterCode: { type: Type.STRING, description: "Standard template code (e.g. 'class Solution...')" },
+        starterCodeMap: {
+            type: Type.OBJECT,
+            description: "Map of language name to starter code template. MUST include: Python, Java, C++, JavaScript, Go, C.",
+            properties: {
+                Python: { type: Type.STRING },
+                Java: { type: Type.STRING },
+                "C++": { type: Type.STRING },
+                JavaScript: { type: Type.STRING },
+                Go: { type: Type.STRING },
+                C: { type: Type.STRING }
+            }
+        },
         sidebar: {
             type: Type.OBJECT,
             properties: {
@@ -317,7 +329,8 @@ export const generateLeetCodeContext = async (
            - examples: 2-3 examples with input/output/explanation.
            - constraints: List of constraints (e.g. 1 <= nums.length <= 10^5).
         3. starterCode: A valid, idiomatic ${preferences.targetLanguage} starter template (e.g. "class Solution:\n    def twoSum(self, nums, target):").
-        4. sidebar: The standard helper content (concept card, solution code, suggestions).
+        4. starterCodeMap: Provide starter templates for: Python, Java, C++, C, JavaScript, Go. The function name/class must be standard LeetCode style.
+        5. sidebar: The standard helper content (concept card, solution code, suggestions).
     `;
 
     try {
@@ -354,7 +367,7 @@ export const generateReviewLesson = async (mistakes: MistakeRecord[], preference
     };
 };
 
-export const validateUserCode = async (code: string, problemDesc: string, preferences: UserPreferences) => {
+export const validateUserCode = async (code: string, problemDesc: string, preferences: UserPreferences, languageOverride?: string) => {
      let client: GoogleGenAI;
       if (preferences.apiConfig.provider === 'gemini-custom') {
           client = new GoogleGenAI({ apiKey: preferences.apiConfig.gemini.apiKey || '' });
@@ -362,24 +375,36 @@ export const validateUserCode = async (code: string, problemDesc: string, prefer
           client = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
       }
 
+      const targetLang = languageOverride || preferences.targetLanguage;
+
       const prompt = `
       Problem: ${problemDesc}
+      Language: ${targetLang}
       User Code:
-      \`\`\`${preferences.targetLanguage}
+      \`\`\`${targetLang}
       ${code}
       \`\`\`
       
-      Act as a LeetCode Judge.
-      1. Check for syntax errors.
+      Act as a Strict LeetCode Judge.
+      1. Check for syntax errors in ${targetLang}.
       2. Check logic against the problem description.
-      3. Estimate time complexity.
-      
+      3. STRICTLY evaluate Time Complexity and Space Complexity against typical constraints for this problem.
+         - If the solution is O(n^2) but the problem requires O(n) or O(n log n), mark it as WRONG (Time Limit Exceeded).
+      4. Provide a detailed analysis (pros and cons).
+      5. IMPORTANT: The 'analysis' field fields (pros, cons, timeComplexity, spaceComplexity) MUST be written in ${preferences.spokenLanguage}.
+
       Return JSON: 
       { 
         "correct": boolean, 
         "output": string (simulated stdout or error message), 
         "feedback": string (brief hints if wrong, or "Accepted" if correct),
-        "stats": string (e.g. "Runtime: 45ms | Memory: 16MB")
+        "stats": string (e.g. "Runtime: 45ms | Memory: 16MB"),
+        "analysis": {
+            "pros": string[],
+            "cons": string[],
+            "timeComplexity": string,
+            "spaceComplexity": string
+        }
       }
       `;
 
