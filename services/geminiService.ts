@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Schema, Type } from "@google/genai";
 import { LessonPlan, MistakeRecord, UserPreferences, LessonScreen, Widget, SavedLesson, ApiConfig, LeetCodeContext } from "../types";
 
@@ -207,6 +206,48 @@ const leetCodeContextSchema: Schema = {
     }
 };
 
+// Schema for Strict Judge Result
+const judgeResultSchema = {
+    type: Type.OBJECT,
+    properties: {
+        status: { type: Type.STRING, enum: ["Accepted", "Wrong Answer", "Compile Error", "Runtime Error", "Time Limit Exceeded"], description: "The overall result of the submission." },
+        error_message: { type: Type.STRING, description: "Raw compiler or runtime error message. Null if Accepted/Wrong Answer." },
+        total_correct: { type: Type.INTEGER },
+        total_testcases: { type: Type.INTEGER },
+        test_cases: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    input: { type: Type.STRING },
+                    expected: { type: Type.STRING },
+                    actual: { type: Type.STRING },
+                    passed: { type: Type.BOOLEAN },
+                    stdout: { type: Type.STRING, description: "Simulated standard output if print statements were used." }
+                }
+            }
+        },
+        stats: {
+            type: Type.OBJECT,
+            properties: {
+                runtime: { type: Type.STRING, description: "e.g. '45 ms'" },
+                memory: { type: Type.STRING, description: "e.g. '16.2 MB'" },
+                percentile: { type: Type.STRING, description: "e.g. 'Beats 85.4%'" }
+            }
+        },
+        analysis: {
+            type: Type.OBJECT,
+            properties: {
+                pros: { type: Type.ARRAY, items: { type: Type.STRING } },
+                cons: { type: Type.ARRAY, items: { type: Type.STRING } },
+                timeComplexity: { type: Type.STRING },
+                spaceComplexity: { type: Type.STRING }
+            }
+        }
+    }
+};
+
+
 // --- VALIDATION HELPER ---
 const isValidWidget = (w: Widget): boolean => {
     if (!w || !w.type) return false;
@@ -367,6 +408,7 @@ export const generateReviewLesson = async (mistakes: MistakeRecord[], preference
     };
 };
 
+// --- NEW STRICT VALIDATOR ---
 export const validateUserCode = async (code: string, problemDesc: string, preferences: UserPreferences, languageOverride?: string) => {
      let client: GoogleGenAI;
       if (preferences.apiConfig.provider === 'gemini-custom') {
@@ -376,47 +418,56 @@ export const validateUserCode = async (code: string, problemDesc: string, prefer
       }
 
       const targetLang = languageOverride || preferences.targetLanguage;
+      const modelId = preferences.apiConfig.gemini.model || 'gemini-2.5-flash';
+
+      const systemInstruction = `
+      Act as a VIRTUAL LEETCODE JUDGE ENGINE.
+      Target Language: ${targetLang}.
+      
+      Your Goal: SIMULATE the execution of the user's code against the problem description.
+      
+      CRITICAL RULES:
+      1. **COMPILATION/SYNTAX**: If there is a syntax error, set status="Compile Error" and "error_message" to a REALISTIC error log (like gcc/python interpreter output).
+      2. **TEST CASES**: Generate 3 representative test cases (Input, Expected, Actual).
+         - Calculate the "Actual" output by mentally running the code.
+         - Compare Expected vs Actual. If they mismatch, set passed=false.
+      3. **STATUS**:
+         - If any syntax error -> "Compile Error".
+         - If logic crashes (e.g. index out of bounds) -> "Runtime Error".
+         - If O(n^2) used on large constraints -> "Time Limit Exceeded".
+         - If output mismatches -> "Wrong Answer".
+         - Only if ALL pass -> "Accepted".
+      4. **STATS**: Estimate runtime/memory based on complexity (e.g. O(n) is fast, O(n^2) is slow).
+      5. **ANALYSIS**: Provide pros/cons and Big O analysis in ${preferences.spokenLanguage}.
+      `;
 
       const prompt = `
       Problem: ${problemDesc}
-      Language: ${targetLang}
       User Code:
       \`\`\`${targetLang}
       ${code}
       \`\`\`
-      
-      Act as a Strict LeetCode Judge.
-      1. Check for syntax errors in ${targetLang}.
-      2. Check logic against the problem description.
-      3. STRICTLY evaluate Time Complexity and Space Complexity against typical constraints for this problem.
-         - If the solution is O(n^2) but the problem requires O(n) or O(n log n), mark it as WRONG (Time Limit Exceeded).
-      4. Provide a detailed analysis (pros and cons).
-      5. IMPORTANT: The 'analysis' field fields (pros, cons, timeComplexity, spaceComplexity) MUST be written in ${preferences.spokenLanguage}.
-
-      Return JSON: 
-      { 
-        "correct": boolean, 
-        "output": string (simulated stdout or error message), 
-        "feedback": string (brief hints if wrong, or "Accepted" if correct),
-        "stats": string (e.g. "Runtime: 45ms | Memory: 16MB"),
-        "analysis": {
-            "pros": string[],
-            "cons": string[],
-            "timeComplexity": string,
-            "spaceComplexity": string
-        }
-      }
       `;
 
       try {
         const res = await client.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: modelId,
             contents: prompt,
-            config: { responseMimeType: 'application/json' }
+            config: { 
+                systemInstruction: systemInstruction,
+                responseMimeType: 'application/json',
+                responseSchema: judgeResultSchema,
+                temperature: 0.2 // Low temp for deterministic logic checking
+            }
         });
         return JSON.parse(res.text || '{}');
       } catch (e) {
-          return { correct: false, output: "Judge Error", feedback: "Connection error." };
+          return { 
+              status: "Runtime Error", 
+              error_message: "Judge Connection Failed. Please try again.", 
+              test_cases: [], 
+              analysis: { pros: [], cons: [], timeComplexity: "?", spaceComplexity: "?" } 
+          };
       }
 }
 
