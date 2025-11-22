@@ -9,6 +9,7 @@ import { LoadingScreen } from './components/LoadingScreen';
 import { ProfileView } from './components/ProfileView';
 import { Onboarding } from './components/Onboarding';
 import { generateLessonPlan, generateReviewLesson, generateSyntaxClinicPlan } from './services/geminiService';
+import { syncWithGist } from './services/githubService';
 import { UserStats, LessonPlan, SavedLesson, MistakeRecord, UserPreferences, ProgressMap, Widget } from './types';
 import { INITIAL_STATS, DEFAULT_API_CONFIG, PROBLEM_CATEGORIES } from './constants';
 
@@ -66,22 +67,28 @@ export default function App() {
     if (loadedProgress) {
         try {
             const parsed = JSON.parse(loadedProgress);
-            const keys = Object.keys(parsed);
-            if (keys.length > 0) {
-                // Detect if it's the old flat structure (Value is number)
-                const sampleKey = keys[0];
-                if (typeof parsed[sampleKey] === 'number') {
-                    // Migrate to nested structure under default target language (Python)
-                    const defaultLang = loadedPrefs ? JSON.parse(loadedPrefs).targetLanguage || 'Python' : 'Python';
-                    console.log(`[Migration] Converting flat progress to nested for ${defaultLang}`);
-                    const nested = { [defaultLang]: parsed };
-                    setProgressMap(nested);
-                    // Update local storage immediately
-                    localStorage.setItem('algolingo_progress_v2', JSON.stringify(nested));
+            // FIX: Ensure parsed is a valid object (not null) before using Object.keys
+            if (parsed && typeof parsed === 'object') {
+                const keys = Object.keys(parsed);
+                if (keys.length > 0) {
+                    // Detect if it's the old flat structure (Value is number)
+                    const sampleKey = keys[0];
+                    if (typeof parsed[sampleKey] === 'number') {
+                        // Migrate to nested structure under default target language (Python)
+                        const defaultLang = loadedPrefs ? JSON.parse(loadedPrefs).targetLanguage || 'Python' : 'Python';
+                        console.log(`[Migration] Converting flat progress to nested for ${defaultLang}`);
+                        const nested = { [defaultLang]: parsed };
+                        setProgressMap(nested);
+                        // Update local storage immediately
+                        localStorage.setItem('algolingo_progress_v2', JSON.stringify(nested));
+                    } else {
+                        setProgressMap(parsed);
+                    }
                 } else {
-                    setProgressMap(parsed);
+                    setProgressMap({});
                 }
             } else {
+                // Fallback for null/invalid loaded progress
                 setProgressMap({});
             }
         } catch (e) {
@@ -92,43 +99,66 @@ export default function App() {
     
     // Hydrate stats and calculate streak
     if (loadedStats) {
-        const parsedStats: UserStats = JSON.parse(loadedStats);
-        const realStreak = calculateRealStreak(parsedStats.history);
-        // Merge with INITIAL_STATS to ensure new fields (League, Quests) exist
-        const mergedStats = { 
-            ...INITIAL_STATS, 
-            ...parsedStats, 
-            streak: realStreak,
-            // Ensure quests exist if missing
-            quests: parsedStats.quests && parsedStats.quests.length ? parsedStats.quests : [
-                { id: 'q1', description: 'Complete 1 Lesson', target: 1, current: 0, rewardGems: 10, completed: false },
-                { id: 'q2', description: 'Fix 3 Mistakes', target: 3, current: 0, rewardGems: 20, completed: false }
-            ]
-        };
-        setStats(mergedStats);
+        try {
+            const parsedStats: UserStats = JSON.parse(loadedStats);
+            // FIX: Ensure parsedStats is not null
+            if (parsedStats && typeof parsedStats === 'object') {
+                const realStreak = calculateRealStreak(parsedStats.history || {});
+                // Merge with INITIAL_STATS to ensure new fields (League, Quests) exist
+                const mergedStats = { 
+                    ...INITIAL_STATS, 
+                    ...parsedStats, 
+                    streak: realStreak,
+                    // Ensure quests exist if missing
+                    quests: parsedStats.quests && parsedStats.quests.length ? parsedStats.quests : [
+                        { id: 'q1', description: 'Complete 1 Lesson', target: 1, current: 0, rewardGems: 10, completed: false },
+                        { id: 'q2', description: 'Fix 3 Mistakes', target: 3, current: 0, rewardGems: 20, completed: false }
+                    ]
+                };
+                setStats(mergedStats);
+            }
+        } catch (e) {
+            console.error("Stats Load Error", e);
+            setStats(INITIAL_STATS);
+        }
     }
 
-    if (loadedSaved) setSavedLessons(JSON.parse(loadedSaved));
-    if (loadedMistakes) setMistakes(JSON.parse(loadedMistakes));
+    if (loadedSaved) {
+        try {
+            setSavedLessons(JSON.parse(loadedSaved) || []);
+        } catch(e) { setSavedLessons([]); }
+    }
+    if (loadedMistakes) {
+        try {
+            setMistakes(JSON.parse(loadedMistakes) || []);
+        } catch(e) { setMistakes([]); }
+    }
     if (loadedPrefs) {
-        const parsed = JSON.parse(loadedPrefs);
-        const mergedConfig = { ...DEFAULT_API_CONFIG, ...parsed.apiConfig };
-        if (!mergedConfig.openai) mergedConfig.openai = DEFAULT_API_CONFIG.openai;
-        if (!mergedConfig.gemini) mergedConfig.gemini = DEFAULT_API_CONFIG.gemini;
+        try {
+            const parsed = JSON.parse(loadedPrefs);
+            if (parsed && typeof parsed === 'object') {
+                const mergedConfig = { ...DEFAULT_API_CONFIG, ...parsed.apiConfig };
+                if (!mergedConfig.openai) mergedConfig.openai = DEFAULT_API_CONFIG.openai;
+                if (!mergedConfig.gemini) mergedConfig.gemini = DEFAULT_API_CONFIG.gemini;
+                
+                const safePrefs = {
+                     ...preferences,
+                     ...parsed,
+                     apiConfig: mergedConfig,
+                     userName: parsed.userName || 'Sky Hua',
+                     hasOnboarded: parsed.hasOnboarded !== undefined ? parsed.hasOnboarded : true 
+                };
         
-        const safePrefs = {
-             ...preferences,
-             ...parsed,
-             apiConfig: mergedConfig,
-             userName: parsed.userName || 'Sky Hua',
-             hasOnboarded: parsed.hasOnboarded !== undefined ? parsed.hasOnboarded : true 
-        };
-
-        setPreferences(safePrefs);
+                setPreferences(safePrefs);
+            }
+        } catch (e) {
+            console.error("Prefs Load Error", e);
+        }
     }
   }, []);
 
   const calculateRealStreak = (history: Record<string, number>): number => {
+      if (!history) return 0;
       const sortedDates = Object.keys(history).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
       if (sortedDates.length === 0) return 0;
 
@@ -189,6 +219,93 @@ export default function App() {
       localStorage.setItem('algolingo_prefs', JSON.stringify(updated));
   }
 
+  // --- UNIVERSAL DATA LOADER ---
+  const handleDataLoad = (data: any) => {
+      // Basic Validation
+      if (!data.version) {
+          alert("Invalid data format.");
+          return;
+      }
+
+      if (data.stats) {
+          setStats(data.stats);
+          localStorage.setItem('algolingo_stats', JSON.stringify(data.stats));
+      }
+      if (data.progressMap) {
+          setProgressMap(data.progressMap);
+          localStorage.setItem('algolingo_progress_v2', JSON.stringify(data.progressMap));
+      }
+      if (data.mistakes) {
+          setMistakes(data.mistakes);
+          localStorage.setItem('algolingo_mistakes', JSON.stringify(data.mistakes));
+      }
+      if (data.savedLessons) {
+          setSavedLessons(data.savedLessons);
+          localStorage.setItem('algolingo_saved_lessons', JSON.stringify(data.savedLessons));
+      }
+      
+      // Update prefs if available
+      if (data.preferences) {
+          // Merge but prioritize existing API keys if restored ones are empty (safety)
+          const mergedPrefs = { 
+              ...preferences, 
+              ...data.preferences,
+              // IMPORTANT: Force onboarded true so we skip/exit onboarding immediately
+              hasOnboarded: true 
+          };
+          
+          if (!mergedPrefs.apiConfig?.gemini?.apiKey && preferences.apiConfig.gemini.apiKey) {
+              mergedPrefs.apiConfig.gemini.apiKey = preferences.apiConfig.gemini.apiKey;
+          }
+          
+          setPreferences(mergedPrefs);
+          localStorage.setItem('algolingo_prefs', JSON.stringify(mergedPrefs));
+      } else {
+          // If no prefs in data, still mark as onboarded
+          updatePreferences({ hasOnboarded: true });
+      }
+
+      // NO RELOAD: Direct State Update
+      setView('dashboard');
+  };
+
+  // --- IMPORT FUNCTIONALITY (FILE) ---
+  const handleImportData = async (file: File) => {
+      try {
+          const text = await file.text();
+          const data = JSON.parse(text);
+          handleDataLoad(data);
+          // Removed alert to prevent blocking UI which might feel like a crash to some users
+          // The state update in handleDataLoad will switch the view, which is feedback enough.
+      } catch (e) {
+          console.error(e);
+          alert(preferences.spokenLanguage === 'Chinese' ? "导入失败：文件格式错误" : "Import failed: Invalid file format");
+      }
+  };
+
+  // --- EXPORT FUNCTIONALITY ---
+  const handleExportData = () => {
+      const data = {
+          stats,
+          progressMap,
+          savedLessons,
+          mistakes,
+          preferences,
+          version: "3.0",
+          exportedAt: new Date().toISOString()
+      };
+      
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `algolingo_backup_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+  };
+
   const handleSelectProblem = (id: string, name: string, currentLevel: number) => {
     setActiveProblem({ id, name });
     const currentLangProg = getCurrentLangProgress();
@@ -199,7 +316,6 @@ export default function App() {
   };
 
   // --- MAIN ENTRY: Start a Node ---
-  // nodeIndex 0-5 are standard/skip. nodeIndex 6 is LeetCode.
   const handleStartNode = async (nodeIndex: number, isSkip: boolean = false) => {
     if (!activeProblem) return;
     
@@ -210,10 +326,6 @@ export default function App() {
     setView('loading');
 
     try {
-      // Generate Logic
-      // If nodeIndex 6 (LeetCode), we might want to check if we already have a saved lesson for it?
-      // For simplicity, we generate fresh for now or reuse generic.
-      
       const problemMistakes = mistakes.filter(m => m.problemName === activeProblem.name || m.problemName.includes(activeProblem.name));
       const plan = await generateLessonPlan(activeProblem.name, nodeIndex, preferences, problemMistakes, savedLessons);
       setCurrentLessonPlan(plan);
@@ -221,7 +333,6 @@ export default function App() {
     } catch (e: any) {
       console.error(e);
       setGenerationError(e.message || "Unknown Error");
-      // Keep Loading Screen displayed but in Error State
     }
   };
 
@@ -298,19 +409,17 @@ export default function App() {
     // Update Quests
     const updatedQuests = (stats.quests || []).map(q => {
         if (q.completed) return q;
-        // Heuristic for quest type matching based on ID/Description
         let newCurrent = q.current;
         if (q.description.includes('Lesson') || q.id === 'q1') {
              newCurrent += 1;
         } else if ((q.description.includes('Mistake') || q.id === 'q2') && loadingContext === 'review') {
-             newCurrent += 1; // Treat 1 review session as 1 unit of progress for simplicity
+             newCurrent += 1;
         }
         
         const completed = newCurrent >= q.target;
         return { ...q, current: newCurrent, completed };
     });
 
-    // Award Gems for Quests
     const questGems = updatedQuests.reduce((acc, q) => acc + (q.completed && !stats.quests?.find(old => old.id === q.id)?.completed ? q.rewardGems : 0), 0);
 
     const newStats = { 
@@ -325,24 +434,25 @@ export default function App() {
     
     saveStats(newStats);
     
-    // Handle New Mistakes
     if (newMistakes.length > 0) {
         const updatedMistakes = [...mistakes, ...newMistakes];
         saveMistakes(updatedMistakes);
     }
 
+    let finalProgress = progressMap;
+
     if (activeProblem && activeTab !== 'review' && currentLessonPlan && !currentLessonPlan.isLocalReplay) {
         const currentLangProg = getCurrentLangProgress();
         const currentMax = currentLangProg[activeProblem.id] || 0;
         
-        // Progress Logic
         if (shouldSave) {
              if (isSkipAttempt && activeNodeIndex === 5) {
-                // SKIP LOGIC CHECK
                 const sessionFailures = newMistakes.filter(m => m.problemName === currentLessonPlan.title); 
                 
                 if (newMistakes.length <= 2) {
-                    saveProgressForCurrentLang({ ...currentLangProg, [activeProblem.id]: 6 }); 
+                    const updatedProg = { ...currentLangProg, [activeProblem.id]: 6 };
+                    saveProgressForCurrentLang(updatedProg);
+                    finalProgress = { ...progressMap, [preferences.targetLanguage]: updatedProg }; 
                     alert(preferences.spokenLanguage === 'Chinese' ? "挑战成功！该单元已精通。" : "Challenge Accepted! Unit Mastered.");
                 } else {
                     const existingFails = preferences.failedSkips || {};
@@ -350,11 +460,12 @@ export default function App() {
                 }
             } else {
                 if (activeNodeIndex < 6 && activeNodeIndex === currentMax) { 
-                    saveProgressForCurrentLang({ ...currentLangProg, [activeProblem.id]: activeNodeIndex + 1 });
+                    const updatedProg = { ...currentLangProg, [activeProblem.id]: activeNodeIndex + 1 };
+                    saveProgressForCurrentLang(updatedProg);
+                    finalProgress = { ...progressMap, [preferences.targetLanguage]: updatedProg };
                 }
             }
 
-            // Save Lesson History
             const newSaved = {
                 id: Date.now().toString(),
                 problemId: activeProblem.id,
@@ -372,6 +483,21 @@ export default function App() {
     setCurrentLessonPlan(null);
     setIsSkipAttempt(false);
     setView(activeTab === 'review' ? 'dashboard' : 'unit-map');
+
+    if (preferences.syncConfig?.enabled && preferences.syncConfig.githubToken) {
+        console.log("Auto-syncing...");
+        const syncData = {
+            stats: newStats,
+            progress: finalProgress,
+            mistakes: [...mistakes, ...newMistakes],
+            preferences: preferences
+        };
+        
+        syncWithGist(preferences.syncConfig.githubToken, preferences.syncConfig.gistId, syncData).then(res => {
+            if (res.success) console.log("Auto-sync success");
+            else console.warn("Auto-sync failed", res.error);
+        });
+    }
   };
 
   if (!preferences.hasOnboarded) {
@@ -380,6 +506,8 @@ export default function App() {
             preferences={preferences}
             onUpdatePreferences={updatePreferences}
             onComplete={() => updatePreferences({ hasOnboarded: true })}
+            onImportData={handleImportData}
+            onDataLoaded={handleDataLoad}
         />
       );
   }
@@ -409,6 +537,7 @@ export default function App() {
                 language={preferences.spokenLanguage}
                 preferences={preferences}
                 isReviewMode={loadingContext === 'review'}
+                isSkipContext={isSkipAttempt}
             />
         );
     }
@@ -453,8 +582,8 @@ export default function App() {
         onTabChange={setActiveTab}
         preferences={preferences}
         onUpdatePreferences={updatePreferences}
-        onExportData={() => {}}
-        onImportData={() => {}}
+        onExportData={handleExportData}
+        onImportData={handleImportData}
         onResetData={() => {}}
         hideMobileNav={view === 'runner' || view === 'loading'}
     >

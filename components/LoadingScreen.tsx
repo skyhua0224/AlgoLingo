@@ -82,7 +82,79 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
   const tips = isChinese ? TIPS_ZH : TIPS_EN;
   const baseLogs = isChinese ? LOGS_TEMPLATE_ZH : LOGS_TEMPLATE_EN;
 
-  // Error View
+  // --- 1. Slowed Progress Logic (~30s to 99%) ---
+  useEffect(() => {
+    // If error exists, we don't need to update progress, but hook must run.
+    if (error) return; 
+
+    const updateIntervalMs = 40;
+    const targetDurationMs = 30000; // 30 Seconds
+    const totalSteps = targetDurationMs / updateIntervalMs;
+    const incrementPerStep = 99 / totalSteps; // ~0.132 per step
+
+    const interval = setInterval(() => {
+      setProgress(prev => {
+        if (prev >= 99) return 99; // Hard cap
+        // Add slight random variance to look natural
+        const variance = (Math.random() * 0.05) - 0.025;
+        return Math.min(99, prev + incrementPerStep + variance); 
+      });
+    }, updateIntervalMs);
+
+    return () => clearInterval(interval);
+  }, [error]);
+
+  // --- 2. Elapsed Time Tracker & Log Injection ---
+  useEffect(() => {
+    if (error) return;
+
+    const interval = setInterval(() => {
+      setElapsedSeconds(s => s + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [error]);
+
+  // Add logs based on progress thresholds
+  useEffect(() => {
+      if (error) return;
+
+      const logIndex = Math.floor((progress / 100) * baseLogs.length);
+      if (logIndex > logs.length - 1 && baseLogs[logIndex]) {
+          setLogs(prev => [...prev, baseLogs[logIndex]]);
+      }
+  }, [progress, baseLogs, logs.length, error]);
+
+  // Rotate tips
+  useEffect(() => {
+    if (error) return;
+
+    const interval = setInterval(() => {
+        setCurrentTip(prev => (prev + 1) % tips.length);
+    }, 6000);
+    return () => clearInterval(interval);
+  }, [tips.length, error]);
+
+  // Auto-scroll logs
+  useEffect(() => {
+      if (logsEndRef.current) {
+          logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      }
+  }, [logs, showTerminal]);
+
+  const handleRetry = () => {
+      setIsRetrying(true);
+      setProgress(5);
+      setLogs([]);
+      if (onRetry) onRetry();
+      // Keep retrying state for a bit to show feedback
+      setTimeout(() => setIsRetrying(false), 5000);
+  };
+
+  const showRetry = elapsedSeconds > 8; // Show after 8 seconds
+
+  // --- RENDER LOGIC ---
+
+  // Error View (Rendered conditionally HERE, after all hooks)
   if (error) {
     return (
         <div className="fixed inset-0 z-[100] w-full h-full bg-gray-50 dark:bg-dark-bg flex flex-col items-center justify-center p-6 animate-fade-in-up transition-colors">
@@ -95,7 +167,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
                 </div>
                 
                 <h2 className="text-2xl font-extrabold text-gray-800 dark:text-white mb-2">
-                    {language === 'Chinese' ? "生成遇到问题" : "Generation Failed"}
+                    {language === 'Chinese' ? "生成遇到了问题" : "Generation Issue"}
                 </h2>
                 
                 <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-xl mb-6 border border-red-100 dark:border-red-900/30">
@@ -106,8 +178,8 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
                 
                 <p className="text-gray-500 dark:text-gray-400 text-sm mb-8 font-medium">
                     {language === 'Chinese' 
-                        ? "AI 有时会犯错。请尝试重新生成。" 
-                        : "AI sometimes makes mistakes. Please try again."}
+                        ? "AI 生成过程可能不稳定。请点击下方按钮重新尝试。" 
+                        : "AI generation can be unstable. Please try regenerating."}
                 </p>
 
                 <div className="flex flex-col gap-3">
@@ -131,67 +203,6 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
         </div>
     );
   }
-
-  // --- 1. Slowed Progress Logic (~30s to 99%) ---
-  useEffect(() => {
-    const updateIntervalMs = 40;
-    const targetDurationMs = 30000; // 30 Seconds
-    const totalSteps = targetDurationMs / updateIntervalMs;
-    const incrementPerStep = 99 / totalSteps; // ~0.132 per step
-
-    const interval = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 99) return 99; // Hard cap
-        // Add slight random variance to look natural
-        const variance = (Math.random() * 0.05) - 0.025;
-        return Math.min(99, prev + incrementPerStep + variance); 
-      });
-    }, updateIntervalMs);
-
-    return () => clearInterval(interval);
-  }, []);
-
-  // --- 2. Elapsed Time Tracker & Log Injection ---
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setElapsedSeconds(s => s + 1);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Add logs based on progress thresholds
-  useEffect(() => {
-      const logIndex = Math.floor((progress / 100) * baseLogs.length);
-      if (logIndex > logs.length - 1 && baseLogs[logIndex]) {
-          setLogs(prev => [...prev, baseLogs[logIndex]]);
-      }
-  }, [progress, baseLogs, logs.length]);
-
-  // Rotate tips
-  useEffect(() => {
-    const interval = setInterval(() => {
-        setCurrentTip(prev => (prev + 1) % tips.length);
-    }, 6000);
-    return () => clearInterval(interval);
-  }, [tips.length]);
-
-  // Auto-scroll logs
-  useEffect(() => {
-      if (logsEndRef.current) {
-          logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
-      }
-  }, [logs, showTerminal]);
-
-  const handleRetry = () => {
-      setIsRetrying(true);
-      setProgress(5);
-      setLogs([]);
-      if (onRetry) onRetry();
-      // Keep retrying state for a bit to show feedback
-      setTimeout(() => setIsRetrying(false), 5000);
-  };
-
-  const showRetry = elapsedSeconds > 8; // Show after 8 seconds
 
   return (
     <div className="fixed inset-0 z-[100] w-full h-full bg-gray-50 dark:bg-dark-bg flex flex-col items-center justify-center p-6 transition-colors">

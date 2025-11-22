@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { Code2, BookOpen, RotateCcw, Settings, User, X, Globe, Terminal, Save, Download, Upload, Trash2, Cpu, Link, Key, RefreshCw, Moon, Sun, Monitor, ChevronLeft, ChevronRight, Cloud, Bell, Github, Send } from 'lucide-react';
+import { Code2, BookOpen, RotateCcw, Settings, User, X, Globe, Terminal, Save, Download, Upload, Trash2, Cpu, Link, Key, RefreshCw, Moon, Sun, Monitor, ChevronLeft, ChevronRight, Cloud, Bell, Github, Send, HelpCircle } from 'lucide-react';
 import { UserPreferences, ApiConfig } from '../types';
 import { GEMINI_MODELS } from '../constants';
 import { syncWithGist } from '../services/githubService';
@@ -79,6 +79,7 @@ const TRANSLATIONS = {
 export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, preferences, onUpdatePreferences, onExportData, onImportData, onResetData, hideMobileNav }) => {
   const [showSettings, setShowSettings] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showSyncHelp, setShowSyncHelp] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const t = TRANSLATIONS[preferences.spokenLanguage];
   
@@ -269,10 +270,49 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
                       
                       {/* 1. GitHub Sync */}
                       <div className="bg-gray-50 dark:bg-gray-800/50 p-6 rounded-2xl border border-gray-200 dark:border-gray-700">
-                          <div className="flex items-center gap-2 mb-4 text-gray-800 dark:text-white font-bold text-sm uppercase tracking-wider">
-                              <Github size={16} />
-                              {t.cloudSync}
+                          <div className="flex items-center justify-between mb-4">
+                              <div className="flex items-center gap-2 text-gray-800 dark:text-white font-bold text-sm uppercase tracking-wider">
+                                  <Github size={16} />
+                                  {t.cloudSync}
+                              </div>
+                              <button
+                                  onClick={() => setShowSyncHelp(!showSyncHelp)}
+                                  className="text-brand hover:text-brand-dark dark:text-brand-light dark:hover:text-white text-xs font-bold flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-brand/10 transition-colors"
+                              >
+                                  <HelpCircle size={14} />
+                                  {preferences.spokenLanguage === 'Chinese' ? "如何配置？" : "How to setup?"}
+                              </button>
                           </div>
+
+                          {showSyncHelp && (
+                              <div className="mb-4 p-4 bg-white dark:bg-dark-card rounded-xl border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-300 shadow-sm animate-fade-in-down">
+                                   <p className="font-bold mb-2">{preferences.spokenLanguage === 'Chinese' ? "步骤指南：" : "Setup Guide:"}</p>
+                                   <ol className="list-decimal list-inside space-y-1.5">
+                                      <li>
+                                          {preferences.spokenLanguage === 'Chinese'
+                                              ? <span>访问 <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="text-brand underline">GitHub Tokens</a> 页面。</span>
+                                              : <span>Visit <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="text-brand underline">GitHub Tokens</a> page.</span>
+                                          }
+                                      </li>
+                                       <li>
+                                          {preferences.spokenLanguage === 'Chinese'
+                                              ? "生成新 Token (Classic)，在 Scopes 中勾选 `gist`。"
+                                              : "Generate new Token (Classic), check `gist` in Scopes."}
+                                      </li>
+                                      <li>
+                                          {preferences.spokenLanguage === 'Chinese'
+                                              ? "复制 Token (以 ghp_ 开头) 填入下方。"
+                                              : "Copy Token (starts with ghp_) and paste below."}
+                                      </li>
+                                       <li>
+                                          {preferences.spokenLanguage === 'Chinese'
+                                              ? "点击同步。系统将自动创建一个 Gist ID 用于存档。"
+                                              : "Click Sync. System creates a Gist ID automatically."}
+                                      </li>
+                                   </ol>
+                              </div>
+                          )}
+
                           <div className="space-y-3">
                               <div>
                                   <label className="text-xs font-bold text-gray-500 block mb-2">{t.githubToken} (Gist Scope)</label>

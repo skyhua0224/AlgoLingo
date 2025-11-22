@@ -286,6 +286,8 @@ export const generateLessonPlan = async (
     - **${targetRule}**
     - Ensure all code snippets are syntactically correct for ${targetLang}.
     - For Parsons problems, ensure lines are logical and can be ordered correctly. Indentation is important for Python.
+    - **CONSISTENCY**: Use the EXACT SAME variable names (e.g., 'nums', 'target'), coding style, and logic baseline across all widgets. Do not switch naming conventions or logic styles midway.
+    - **NO PEDANTIC CHECKS**: Do NOT test for function signatures, parameter type hints, or strict naming conventions in quizzes/fill-ins unless it is the core concept being taught. Focus on the algorithm logic and steps.
     
     STRICT LESSON STRUCTURE RULES:
     1. **TOTAL SCREENS**: ${screenCountInstruction}

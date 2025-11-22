@@ -6,10 +6,9 @@ import {
   DialogueWidget, FlipCardWidget, CalloutWidget, InteractiveCodeWidget,
   ParsonsWidget, FillInWidget, QuizWidgetPresenter, StepsWidget
 } from './widgets/LessonWidgets';
-import { X, CheckCircle, Flame, AlertCircle, MessageSquarePlus, Send, Sparkles, RotateCcw, ArrowRight, ThumbsUp, ThumbsDown, HelpCircle, SkipForward, LogOut, History, Code, Lightbulb, ExternalLink, Clock, Target, FastForward, Zap, Layout } from 'lucide-react';
-import { generateAiAssistance } from '../services/geminiService';
+import { GlobalAiAssistant } from './GlobalAiAssistant';
+import { X, CheckCircle, Flame, AlertCircle, MessageSquarePlus, Send, Sparkles, RotateCcw, ArrowRight, ThumbsUp, ThumbsDown, HelpCircle, SkipForward, LogOut, History, Code, Lightbulb, ExternalLink, Clock, Target, FastForward, Zap, Layout as LayoutIcon, PanelRightClose, PanelRightOpen, Globe } from 'lucide-react';
 import { generateAiNotification, sendWebhookNotification } from '../services/notificationService';
-import { GEMINI_MODELS } from '../constants';
 
 interface LessonRunnerProps {
   plan: LessonPlan;
@@ -20,6 +19,7 @@ interface LessonRunnerProps {
   language: 'Chinese' | 'English';
   preferences: UserPreferences;
   isReviewMode?: boolean;
+  isSkipContext?: boolean;
 }
 
 type ScreenStatus = 'idle' | 'correct' | 'wrong';
@@ -57,7 +57,11 @@ const LOCALE = {
         leetcodeExternal: "无法加载？在浏览器中打开",
         practiceMode: "练习模式",
         skipMode: "跳级挑战",
-        remainingLives: "剩余机会"
+        remainingLives: "剩余机会",
+        splitView: "分屏模式",
+        fullView: "全屏模式",
+        cantLoadIframe: "LeetCode 禁止了嵌入访问。请使用外部链接或尝试右侧的 AI 模拟。",
+        openInNewTab: "在新标签页打开 LeetCode"
     },
     English: {
         incorrect: "Incorrect",
@@ -91,7 +95,11 @@ const LOCALE = {
         leetcodeExternal: "Can't load? Open in Browser",
         practiceMode: "Practice Mode",
         skipMode: "Skip Challenge",
-        remainingLives: "Lives Left"
+        remainingLives: "Lives Left",
+        splitView: "Split View",
+        fullView: "Full View",
+        cantLoadIframe: "LeetCode blocked embedding. Use the external link or the AI simulation on the right.",
+        openInNewTab: "Open LeetCode in New Tab"
     }
 };
 
@@ -100,14 +108,14 @@ const cleanCodeLine = (line: string) => {
     return line.replace(/\s*#.*$/, '').replace(/\s*\/\/.*$/, '').trim();
 };
 
-export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onComplete, onExit, onRegenerate, language, preferences, isReviewMode = false }) => {
+export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onComplete, onExit, onRegenerate, language, preferences, isReviewMode = false, isSkipContext = false }) => {
   const [screens, setScreens] = useState<LessonScreen[]>(plan.screens || []);
   const [currentIndex, setCurrentIndex] = useState(0);
   
   // Skip / Practice Logic
-  const [isSkipModeVisual, setIsSkipModeVisual] = useState(nodeIndex === 5); 
+  // isSkipModeVisual implies we show the "Boss/Skip" UI styles
+  const [isSkipModeVisual, setIsSkipModeVisual] = useState(isSkipContext); 
   const [isPracticeMode, setIsPracticeMode] = useState(false); 
-  const [skipLives, setSkipLives] = useState(2);
   const [showSkipLockedModal, setShowSkipLockedModal] = useState(false);
 
   const [isInMistakeLoop, setIsInMistakeLoop] = useState(false); 
@@ -122,6 +130,9 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
   const [sessionMistakes, setSessionMistakes] = useState<MistakeRecord[]>([]);
   
   const [timerSeconds, setTimerSeconds] = useState(0);
+
+  // LeetCode Layout State
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const t = LOCALE[language];
 
@@ -216,12 +227,14 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
               timestamp: Date.now(),
               widget: interactiveWidget
           };
-          setSessionMistakes(p => [...p, newMistake]);
+          // Update Mistakes
+          const updatedMistakes = [...sessionMistakes, newMistake];
+          setSessionMistakes(updatedMistakes);
 
+          // STRICT SKIP LOGIC: Fail if > 2 mistakes (i.e. on the 3rd mistake)
           if (isSkipModeVisual && !isPracticeMode) {
-              const newCount = skipLives - 1;
-              setSkipLives(newCount);
-              if (newCount < 0) {
+              // We allow 2 lives (2 mistakes). The 3rd mistake is fatal.
+              if (updatedMistakes.length > 2) {
                   setShowSkipLockedModal(true);
               }
           }
@@ -284,10 +297,24 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
 
   const progressPercent = ((currentIndex + 1) / screens.length) * 100;
   const showSkipUI = isSkipModeVisual && !isPracticeMode;
+  
+  // Determine LeetCode Layout
+  const isLeetCodeMode = currentScreen.widgets.some(w => w.type === 'leetcode');
+
+  // Remaining lives calculation for UI display (Start with 3 lives: 0,1,2 allowed mistakes? No, usually 3 hearts = 3 lives. Mistake 1 -> 2 hearts. Mistake 2 -> 1 heart. Mistake 3 -> 0 hearts (Fail).
+  // So lives = 3 - mistakes.
+  const remainingLives = Math.max(0, 3 - sessionMistakes.length);
 
   return (
-    <div className="fixed inset-0 z-[60] bg-white dark:bg-dark-bg flex flex-col md:relative md:z-0 md:inset-auto md:h-[calc(100vh-6rem)] md:rounded-3xl md:overflow-hidden md:border border-gray-200 dark:border-gray-700 shadow-2xl mx-auto max-w-4xl transition-all">
+    <div className={`fixed inset-0 z-[60] bg-white dark:bg-dark-bg flex flex-col md:relative md:z-0 md:inset-auto md:h-[calc(100vh-6rem)] ${isLeetCodeMode ? 'md:w-full md:max-w-full' : 'md:max-w-4xl'} mx-auto md:rounded-3xl md:overflow-hidden md:border border-gray-200 dark:border-gray-700 shadow-2xl transition-all`}>
       
+      {/* GLOBAL AI ASSISTANT */}
+      <GlobalAiAssistant 
+        problemName={plan.title} 
+        preferences={preferences} 
+        language={language}
+      />
+
       {/* Exit Confirmation Modal */}
       {showExitConfirm && (
            <div className="absolute inset-0 z-[90] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
@@ -384,7 +411,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
                {showSkipUI && (
                    <div className="flex items-center gap-1 text-red-500 font-bold text-sm" title={t.remainingLives}>
                        <Zap size={16} className="fill-current"/>
-                       {Math.max(0, skipLives + 1)}
+                       {remainingLives}
                    </div>
                )}
                
@@ -398,73 +425,109 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
           </div>
       </div>
 
-      {/* MAIN CONTENT AREA - SINGLE COLUMN */}
+      {/* MAIN CONTENT AREA */}
       <div className="flex-1 overflow-hidden relative flex flex-col bg-gray-50/30 dark:bg-dark-bg/30">
-           <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8 pb-32 md:pb-32 w-full">
-                <div className="mx-auto max-w-2xl transition-all duration-300">
-                    {currentScreen.isRetry && (
-                        <div className="bg-orange-50 dark:bg-orange-900/10 border-l-4 border-orange-400 p-4 mb-6 rounded-r-xl shadow-sm flex items-start gap-3 animate-fade-in-down">
-                            <RotateCcw className="text-orange-500 shrink-0 mt-1" size={20} />
-                            <div>
-                                <h3 className="text-orange-800 dark:text-orange-400 font-bold text-sm uppercase tracking-wide">{t.mistakeLabel}</h3>
-                                <p className="text-orange-700 dark:text-orange-500/80 text-sm mt-1">Let's review this concept again.</p>
-                            </div>
-                        </div>
-                    )}
-                    
-                    {currentScreen.widgets.length === 0 ? (
-                         <div className="flex flex-col items-center justify-center py-20 text-center text-gray-400 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
-                             <AlertCircle size={48} className="mb-4 opacity-50"/>
-                             <p className="text-sm font-bold">{language === 'Chinese' ? "内容加载失败" : "Content failed to load"}</p>
-                             <p className="text-xs mt-2">Slide is empty.</p>
-                         </div>
-                    ) : (
-                        currentScreen.widgets.map((widget, idx) => (
-                            <div key={widget.id + idx + widgetResetKey} className={`animate-fade-in-up delay-${Math.min(idx * 100, 400)} mb-6`}>
-                                {widget.type === 'dialogue' && <DialogueWidget widget={widget} />}
-                                {widget.type === 'callout' && <CalloutWidget widget={widget} />}
-                                {widget.type === 'interactive-code' && <InteractiveCodeWidget widget={widget} />}
-                                {widget.type === 'steps-list' && <StepsWidget widget={widget} onUpdateOrder={widget.stepsList?.mode === 'interactive' ? setStepsOrder : undefined} />}
-                                {widget.type === 'flipcard' && <FlipCardWidget widget={widget} onAssessment={(result) => status === 'idle' && handleCheck(result === 'remembered')} />}
-                                {widget.type === 'quiz' && <QuizWidgetPresenter widget={widget} selectedIdx={quizSelection} onSelect={setQuizSelection} status={status} />}
-                                {widget.type === 'parsons' && <ParsonsWidget widget={widget} onUpdateOrder={setParsonsOrder} status={status} />}
-                                {widget.type === 'fill-in' && <FillInWidget widget={widget} onUpdateAnswers={setFillInAnswers} />}
-                                
-                                {/* LeetCode Specific Render */}
-                                {widget.type === 'leetcode' && widget.leetcode && (
-                                    <div className="space-y-6">
-                                        {/* Concept Card */}
-                                        <FlipCardWidget widget={{
-                                            ...widget,
-                                            id: widget.id + '_concept',
-                                            type: 'flipcard',
-                                            flipcard: {
-                                                front: widget.leetcode.concept.front,
-                                                back: widget.leetcode.concept.back,
-                                                mode: 'learn'
-                                            }
-                                        }} />
-                                        
-                                        {/* External Link */}
-                                        <a 
-                                            href={`https://leetcode.cn/problems/${widget.leetcode.problemSlug}`} 
-                                            target="_blank" 
-                                            rel="noopener noreferrer"
-                                            className="block w-full p-4 bg-gray-800 text-white rounded-xl text-center font-bold hover:bg-gray-700 transition-colors flex items-center justify-center gap-2 shadow-md"
-                                        >
-                                            <ExternalLink size={18} />
-                                            {t.leetcodeExternal}
-                                        </a>
+          
+          {/* SPLIT LAYOUT FOR LEETCODE MODE */}
+          {isLeetCodeMode && currentScreen.widgets[0]?.leetcode ? (
+              <div className="flex h-full">
+                  {/* Left Side: Iframe / Fallback (75%) */}
+                  <div className={`${sidebarOpen ? 'w-full md:w-3/4' : 'w-full'} h-full border-r border-gray-200 dark:border-gray-700 relative bg-white dark:bg-dark-card transition-all duration-300`}>
+                      
+                      {/* Iframe Overlay/Fallback for X-Frame-Options Issues */}
+                      <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center z-0">
+                          <Globe size={48} className="text-gray-300 mb-4"/>
+                          <h3 className="text-lg font-bold text-gray-600 dark:text-gray-300 mb-2">{t.cantLoadIframe}</h3>
+                          <a 
+                                href={`https://leetcode.cn/problems/${currentScreen.widgets[0].leetcode.problemSlug}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-4 py-2 bg-brand text-white rounded-lg font-bold shadow hover:bg-brand-dark transition-colors flex items-center gap-2"
+                          >
+                                <ExternalLink size={16} /> {t.openInNewTab}
+                          </a>
+                      </div>
+                      
+                      {/* Actual Iframe (Might be blocked by browser, but requested by user) */}
+                      <iframe 
+                          src={`https://leetcode.cn/problems/${currentScreen.widgets[0].leetcode.problemSlug}`}
+                          className="w-full h-full relative z-10 bg-transparent"
+                          title="LeetCode Problem"
+                          // If blocked, the user sees the fallback above through transparency or failure
+                          sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+                      />
+                      
+                      <button 
+                        onClick={() => setSidebarOpen(!sidebarOpen)}
+                        className="absolute top-4 right-4 z-20 p-2 bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-600 rounded-full shadow-md text-gray-500 hover:text-brand"
+                      >
+                          {sidebarOpen ? <PanelRightClose size={20}/> : <PanelRightOpen size={20}/>}
+                      </button>
+                  </div>
 
-                                        {/* Code */}
-                                        <InteractiveCodeWidget widget={widget} />
-                                    </div>
-                                )}
+                  {/* Right Side: Collapsible Sidebar (25%) */}
+                  <div className={`${sidebarOpen ? 'hidden md:flex md:w-1/4' : 'hidden'} h-full flex-col border-l border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-bg overflow-y-auto custom-scrollbar transition-all duration-300`}>
+                       <div className="p-4 space-y-6">
+                           <div className="flex items-center gap-2 text-brand font-bold uppercase tracking-wider text-xs mb-2">
+                               <Lightbulb size={14}/> AI Concept Card
+                           </div>
+                           {/* Concept Card */}
+                           <FlipCardWidget widget={{
+                                ...currentScreen.widgets[0],
+                                id: currentScreen.widgets[0].id + '_concept',
+                                type: 'flipcard',
+                                flipcard: {
+                                    front: currentScreen.widgets[0].leetcode.concept.front,
+                                    back: currentScreen.widgets[0].leetcode.concept.back,
+                                    mode: 'learn'
+                                }
+                           }} />
+
+                           <div className="flex items-center gap-2 text-brand font-bold uppercase tracking-wider text-xs mb-2">
+                               <Code size={14}/> Solution Code
+                           </div>
+                           {/* Code */}
+                           <InteractiveCodeWidget widget={currentScreen.widgets[0]} />
+                       </div>
+                  </div>
+              </div>
+          ) : (
+              /* STANDARD SINGLE COLUMN LAYOUT */
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8 pb-32 md:pb-32 w-full">
+                    <div className="mx-auto max-w-2xl transition-all duration-300">
+                        {currentScreen.isRetry && (
+                            <div className="bg-orange-50 dark:bg-orange-900/10 border-l-4 border-orange-400 p-4 mb-6 rounded-r-xl shadow-sm flex items-start gap-3 animate-fade-in-down">
+                                <RotateCcw className="text-orange-500 shrink-0 mt-1" size={20} />
+                                <div>
+                                    <h3 className="text-orange-800 dark:text-orange-400 font-bold text-sm uppercase tracking-wide">{t.mistakeLabel}</h3>
+                                    <p className="text-orange-700 dark:text-orange-500/80 text-sm mt-1">Let's review this concept again.</p>
+                                </div>
                             </div>
-                        ))
-                    )}
-                </div>
-           </div>
+                        )}
+                        
+                        {currentScreen.widgets.length === 0 ? (
+                             <div className="flex flex-col items-center justify-center py-20 text-center text-gray-400 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
+                                 <AlertCircle size={48} className="mb-4 opacity-50"/>
+                                 <p className="text-sm font-bold">{language === 'Chinese' ? "内容加载失败" : "Content failed to load"}</p>
+                                 <p className="text-xs mt-2">Slide is empty.</p>
+                             </div>
+                        ) : (
+                            currentScreen.widgets.map((widget, idx) => (
+                                <div key={widget.id + idx + widgetResetKey} className={`animate-fade-in-up delay-${Math.min(idx * 100, 400)} mb-6`}>
+                                    {widget.type === 'dialogue' && <DialogueWidget widget={widget} />}
+                                    {widget.type === 'callout' && <CalloutWidget widget={widget} />}
+                                    {widget.type === 'interactive-code' && <InteractiveCodeWidget widget={widget} />}
+                                    {widget.type === 'steps-list' && <StepsWidget widget={widget} onUpdateOrder={widget.stepsList?.mode === 'interactive' ? setStepsOrder : undefined} />}
+                                    {widget.type === 'flipcard' && <FlipCardWidget widget={widget} onAssessment={(result) => status === 'idle' && handleCheck(result === 'remembered')} />}
+                                    {widget.type === 'quiz' && <QuizWidgetPresenter widget={widget} selectedIdx={quizSelection} onSelect={setQuizSelection} status={status} />}
+                                    {widget.type === 'parsons' && <ParsonsWidget widget={widget} onUpdateOrder={setParsonsOrder} status={status} />}
+                                    {widget.type === 'fill-in' && <FillInWidget widget={widget} onUpdateAnswers={setFillInAnswers} />}
+                                </div>
+                            ))
+                        )}
+                    </div>
+               </div>
+          )}
       </div>
 
       {/* Footer */}
@@ -475,7 +538,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
                     ? 'bg-green-50/95 dark:bg-green-900/90 backdrop-blur-md border-green-200 dark:border-green-800 animate-slide-in-bottom' 
                     : 'bg-red-50/95 dark:bg-red-900/90 backdrop-blur-md border-red-200 dark:border-red-800 animate-slide-in-bottom'
             }`}>
-            <div className="max-w-2xl mx-auto flex items-center justify-between gap-4">
+            <div className={`${isLeetCodeMode ? 'w-full px-4' : 'max-w-2xl mx-auto'} flex items-center justify-between gap-4`}>
                 {status === 'wrong' && (
                     <div className="flex items-center gap-3 text-red-600 dark:text-red-200 overflow-hidden">
                         <div className="bg-red-100 dark:bg-red-800/50 p-2 rounded-full shrink-0"><AlertCircle size={24}/></div>
