@@ -239,3 +239,34 @@ export interface GameContent {
         explanation?: string;
     };
 }
+
+// Dedicated response type for the LeetCode Sidebar & Simulator
+export interface LeetCodeContext {
+    meta: {
+        title: string;
+        difficulty: 'Easy' | 'Medium' | 'Hard';
+        slug: string;
+    };
+    problem: {
+        description: string; // Markdown
+        examples: { input: string; output: string; explanation?: string }[];
+        constraints: string[];
+    };
+    starterCode: string; // Template code for the user to start with
+    
+    // Existing Sidebar Content
+    sidebar: {
+        concept: {
+            front: string;
+            back: string;
+        };
+        codeSolution: {
+            language: string;
+            lines: {
+                code: string;
+                explanation: string;
+            }[];
+        };
+        assistantSuggestions: string[];
+    }
+}

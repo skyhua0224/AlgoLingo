@@ -323,6 +323,35 @@ export default function App() {
     setActiveNodeIndex(nodeIndex);
     setLoadingContext('lesson');
     setGenerationError(null);
+    
+    // --- SPECIAL CASE: LEETCODE MODE (Phase 7 / Index 6) ---
+    // Do NOT go to loading screen. Go straight to runner with a dummy plan.
+    // The LessonRunner will handle the async fetch of the sidebar content.
+    if (nodeIndex === 6) {
+         const dummyPlan: LessonPlan = {
+             title: activeProblem.name,
+             description: "LeetCode Study Mode",
+             suggestedQuestions: [],
+             screens: [{
+                 id: 'leetcode-main',
+                 widgets: [{
+                     id: 'lc-widget',
+                     type: 'leetcode',
+                     leetcode: {
+                         // Generate slug from name (basic heuristic, backup logic in runner or service)
+                         problemSlug: "two-sum", // This is a placeholder, sidebar generator will fix or use prop
+                         concept: { front: "Loading...", back: "..." },
+                         exampleCode: { language: preferences.targetLanguage, lines: [] }
+                     }
+                 }]
+             }]
+         };
+         
+         setCurrentLessonPlan(dummyPlan);
+         setView('runner');
+         return;
+    }
+
     setView('loading');
 
     try {
@@ -446,9 +475,8 @@ export default function App() {
         const currentMax = currentLangProg[activeProblem.id] || 0;
         
         if (shouldSave) {
+             // Skip logic or Progression
              if (isSkipAttempt && activeNodeIndex === 5) {
-                const sessionFailures = newMistakes.filter(m => m.problemName === currentLessonPlan.title); 
-                
                 if (newMistakes.length <= 2) {
                     const updatedProg = { ...currentLangProg, [activeProblem.id]: 6 };
                     saveProgressForCurrentLang(updatedProg);
@@ -459,6 +487,7 @@ export default function App() {
                     updatePreferences({ failedSkips: { ...existingFails, [activeProblem.name]: true } });
                 }
             } else {
+                // Normal Progression: Advance if current level was the max level
                 if (activeNodeIndex < 6 && activeNodeIndex === currentMax) { 
                     const updatedProg = { ...currentLangProg, [activeProblem.id]: activeNodeIndex + 1 };
                     saveProgressForCurrentLang(updatedProg);
@@ -466,17 +495,27 @@ export default function App() {
                 }
             }
 
-            const newSaved = {
-                id: Date.now().toString(),
-                problemId: activeProblem.id,
-                nodeIndex: activeNodeIndex,
-                timestamp: Date.now(),
-                plan: currentLessonPlan,
-                language: preferences.targetLanguage
-            };
-            const updatedSaved = [...savedLessons, newSaved];
-            setSavedLessons(updatedSaved);
-            localStorage.setItem('algolingo_saved_lessons', JSON.stringify(updatedSaved));
+            // Save Lesson for History (and LeetCode Caching)
+            // We save if it's LeetCode (Index 6) OR if it's a passed standard lesson
+            if (activeNodeIndex === 6 || activeNodeIndex < 6) {
+                 const newSaved = {
+                    id: Date.now().toString(),
+                    problemId: activeProblem.id,
+                    nodeIndex: activeNodeIndex,
+                    timestamp: Date.now(),
+                    plan: currentLessonPlan,
+                    language: preferences.targetLanguage
+                };
+                
+                // Avoid duplicates if saving multiple times (e.g. LeetCode re-run)
+                const filteredSaved = savedLessons.filter(l => 
+                    !(l.problemId === activeProblem.id && l.nodeIndex === activeNodeIndex && l.language === preferences.targetLanguage)
+                );
+                
+                const updatedSaved = [...filteredSaved, newSaved];
+                setSavedLessons(updatedSaved);
+                localStorage.setItem('algolingo_saved_lessons', JSON.stringify(updatedSaved));
+            }
         }
     }
     
@@ -484,7 +523,8 @@ export default function App() {
     setIsSkipAttempt(false);
     setView(activeTab === 'review' ? 'dashboard' : 'unit-map');
 
-    if (preferences.syncConfig?.enabled && preferences.syncConfig.githubToken) {
+    // Auto-Sync Hook (Triggered on ANY completion)
+    if (preferences.syncConfig?.enabled && preferences.syncConfig.githubToken && preferences.syncConfig.gistId) {
         console.log("Auto-syncing...");
         const syncData = {
             stats: newStats,

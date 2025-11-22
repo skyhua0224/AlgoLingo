@@ -1,6 +1,7 @@
+
 import React, { useState, useRef } from 'react';
 import { Button } from './Button';
-import { Code2, Brain, Zap, ArrowRight, Check, Globe, Moon, Sun, Monitor, Cpu, Key, Box, Github, HelpCircle, RefreshCw, Copy, AlertTriangle, Cloud, Sparkles, Upload, FileJson, ChevronRight } from 'lucide-react';
+import { Code2, Brain, Zap, ArrowRight, Check, Globe, Moon, Sun, Monitor, Cpu, Key, Box, Github, HelpCircle, RefreshCw, Copy, AlertTriangle, Cloud, Sparkles, Upload, FileJson, ChevronRight, PlusCircle, DownloadCloud } from 'lucide-react';
 import { UserPreferences, ApiConfig } from '../types';
 import { GEMINI_MODELS, INITIAL_STATS } from '../constants';
 import { syncWithGist } from '../services/githubService';
@@ -28,7 +29,10 @@ export const Onboarding: React.FC<OnboardingProps> = ({ preferences, onUpdatePre
     // Sync State
     const [showSyncHelp, setShowSyncHelp] = useState(false);
     const [syncStatus, setSyncStatus] = useState('');
-    
+    const [syncMode, setSyncMode] = useState<'create' | 'restore'>('create');
+    const [createdGistId, setCreatedGistId] = useState<string | null>(null);
+    const [showGistModal, setShowGistModal] = useState(false);
+
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const isZh = preferences.spokenLanguage === 'Chinese';
@@ -90,14 +94,14 @@ export const Onboarding: React.FC<OnboardingProps> = ({ preferences, onUpdatePre
         };
 
         const token = preferences.syncConfig?.githubToken;
-        const gistId = preferences.syncConfig?.gistId;
+        const gistId = preferences.syncConfig?.gistId; // Can be empty if creating
         
         if (!token) {
              setSyncStatus(isZh ? '错误: 需要 GitHub Token' : 'Error: Token required');
              return;
         }
 
-        if (!gistId) {
+        if (syncMode === 'restore' && !gistId) {
             setSyncStatus(isZh ? '错误: 恢复模式必须填写 Gist ID' : 'Error: Gist ID required for restore');
             return;
         }
@@ -107,14 +111,30 @@ export const Onboarding: React.FC<OnboardingProps> = ({ preferences, onUpdatePre
         if (res.success) {
             setSyncStatus(isZh ? `成功: ${res.action}` : `Success: ${res.action}`);
             
+            if (res.newGistId) {
+                setCreatedGistId(res.newGistId);
+                // Update preferences with the new ID so it persists
+                onUpdatePreferences({ 
+                    syncConfig: { ...preferences.syncConfig!, gistId: res.newGistId } 
+                });
+                
+                if (syncMode === 'create') {
+                    setShowGistModal(true);
+                }
+            }
+
             if (res.action === 'pulled' && res.data) {
                  // Call parent to update app state seamlessly (NO RELOAD)
                  onDataLoaded(res.data);
-            } else {
-                setSyncStatus(isZh ? '未找到数据，请检查 Gist ID' : 'No data found, check Gist ID');
-            }
+            } 
         } else {
             setSyncStatus(isZh ? `失败: ${res.error}` : `Error: ${res.error}`);
+        }
+    };
+    
+    const handleCopyGistId = () => {
+        if (createdGistId) {
+            navigator.clipboard.writeText(createdGistId);
         }
     };
 
@@ -156,6 +176,36 @@ export const Onboarding: React.FC<OnboardingProps> = ({ preferences, onUpdatePre
 
     return (
         <div className="fixed inset-0 bg-white dark:bg-dark-bg z-[100] flex flex-col items-center justify-center p-4 md:p-8 text-gray-800 dark:text-white transition-colors duration-300">
+            
+            {/* Gist ID Modal */}
+            {showGistModal && (
+                <div className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6 animate-fade-in-up">
+                    <div className="bg-white dark:bg-dark-card rounded-3xl p-8 w-full max-w-md text-center shadow-2xl border-2 border-green-100 dark:border-green-900/50">
+                        <div className="mb-4 bg-green-100 dark:bg-green-900/30 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
+                                <Check className="text-green-500" size={32} />
+                        </div>
+                        <h3 className="text-2xl font-extrabold text-gray-800 dark:text-white mb-2">{isZh ? "云存档已创建！" : "Cloud Save Created!"}</h3>
+                        <p className="text-gray-500 dark:text-gray-400 mb-6 text-sm leading-relaxed">
+                            {isZh ? "请务必保存您的 Gist ID。在其他设备恢复进度时需要用到它。" : "Please save your Gist ID safely. You need it to restore progress on other devices."}
+                        </p>
+                        
+                        <div className="bg-gray-100 dark:bg-black p-4 rounded-xl border border-gray-200 dark:border-gray-800 mb-6 font-mono text-sm break-all select-all text-gray-800 dark:text-gray-200">
+                            {createdGistId}
+                        </div>
+
+                        <button 
+                            onClick={handleCopyGistId}
+                            className="w-full py-3 bg-brand text-white rounded-xl font-bold shadow-lg hover:bg-brand-light mb-3 flex items-center justify-center gap-2"
+                        >
+                            <Copy size={18}/> {isZh ? "复制 ID" : "Copy ID"}
+                        </button>
+                        <button onClick={() => setShowGistModal(false)} className="text-gray-400 hover:text-gray-600 text-sm font-bold py-2">
+                            {isZh ? "完成" : "Done"}
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* Progress Steps */}
             <div className="absolute top-8 left-0 right-0 flex justify-center gap-2 px-8">
                 {steps.map((_, i) => (
@@ -204,49 +254,48 @@ export const Onboarding: React.FC<OnboardingProps> = ({ preferences, onUpdatePre
                              <div className="inline-flex p-4 bg-gray-100 dark:bg-gray-800 rounded-full mb-6 text-gray-600 dark:text-gray-400 shadow-sm border-2 border-gray-200 dark:border-gray-700">
                                  <Cloud size={48} />
                              </div>
-                             <h1 className="text-3xl font-extrabold mb-2">{isZh ? "恢复数据" : "Restore Data"}</h1>
-                             <p className="text-gray-500 dark:text-gray-400">{isZh ? "已有账号？导入或同步进度" : "Returning user? Import or Sync progress"}</p>
+                             <h1 className="text-3xl font-extrabold mb-2">{isZh ? "数据同步" : "Data Sync"}</h1>
+                             <p className="text-gray-500 dark:text-gray-400">{isZh ? "设置 GitHub 同步，永久保存你的进度" : "Setup GitHub sync to save your progress forever"}</p>
                         </div>
 
                         <div className="space-y-4 max-h-[55vh] overflow-y-auto custom-scrollbar px-1">
-                            {/* Option A: File Import */}
-                            <div className="bg-white dark:bg-dark-card p-5 rounded-2xl border-2 border-gray-100 dark:border-gray-700 hover:border-brand dark:hover:border-brand/50 transition-colors">
-                                <div className="flex items-center gap-3 mb-3">
-                                    <div className="bg-blue-50 dark:bg-blue-900/20 p-2 rounded-lg text-blue-500"><FileJson size={20}/></div>
-                                    <h3 className="font-bold text-gray-800 dark:text-white">{isZh ? "从 JSON 文件导入" : "Import from JSON File"}</h3>
-                                </div>
+                            
+                             {/* File Import Option */}
+                            <div className="bg-white dark:bg-dark-card p-4 rounded-2xl border border-gray-100 dark:border-gray-700">
+                                <h3 className="font-bold text-gray-800 dark:text-white mb-2 text-sm">{isZh ? "选项 1: 从文件导入" : "Option 1: Import File"}</h3>
                                 <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".json" className="hidden" />
                                 <button 
                                     onClick={() => fileInputRef.current?.click()}
-                                    className="w-full py-3 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 font-bold hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors flex items-center justify-center gap-2"
+                                    className="w-full py-2 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 font-bold hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors flex items-center justify-center gap-2 text-xs"
                                 >
-                                    <Upload size={16} /> {isZh ? "选择文件..." : "Select File..."}
+                                    <Upload size={14} /> {isZh ? "选择 .json 文件..." : "Select .json file..."}
                                 </button>
                             </div>
 
-                            {/* Option B: GitHub Sync */}
+                            {/* GitHub Sync Section */}
                             <div className="bg-white dark:bg-dark-card p-5 rounded-2xl border-2 border-gray-100 dark:border-gray-700 hover:border-brand dark:hover:border-brand/50 transition-colors">
                                 <div className="flex items-center justify-between mb-4">
                                     <div className="flex items-center gap-3">
                                         <div className="bg-gray-100 dark:bg-gray-700 p-2 rounded-lg text-gray-700 dark:text-white"><Github size={20}/></div>
-                                        <h3 className="font-bold text-gray-800 dark:text-white">{isZh ? "从 GitHub 同步" : "Sync from GitHub"}</h3>
+                                        <h3 className="font-bold text-gray-800 dark:text-white">{isZh ? "选项 2: GitHub 云同步" : "Option 2: GitHub Sync"}</h3>
                                     </div>
-                                    <button
-                                        onClick={() => setShowSyncHelp(!showSyncHelp)}
-                                        className="text-brand text-xs font-bold flex items-center gap-1"
+                                </div>
+                                
+                                {/* Sync Mode Switch */}
+                                <div className="flex p-1 bg-gray-100 dark:bg-gray-800 rounded-lg mb-4">
+                                    <button 
+                                        onClick={() => setSyncMode('create')} 
+                                        className={`flex-1 py-2 text-xs font-bold rounded-md transition-all flex items-center justify-center gap-2 ${syncMode === 'create' ? 'bg-white dark:bg-dark-card shadow text-brand' : 'text-gray-500'}`}
                                     >
-                                        <HelpCircle size={14} /> {isZh ? "帮助" : "Help"}
+                                        <PlusCircle size={14} /> {isZh ? "我是新用户 (创建存档)" : "New User (Create)"}
+                                    </button>
+                                    <button 
+                                        onClick={() => setSyncMode('restore')} 
+                                        className={`flex-1 py-2 text-xs font-bold rounded-md transition-all flex items-center justify-center gap-2 ${syncMode === 'restore' ? 'bg-white dark:bg-dark-card shadow text-brand' : 'text-gray-500'}`}
+                                    >
+                                        <DownloadCloud size={14} /> {isZh ? "老用户 (恢复存档)" : "Existing User (Restore)"}
                                     </button>
                                 </div>
-
-                                {showSyncHelp && (
-                                  <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-xl text-xs text-gray-600 dark:text-gray-300">
-                                       <ol className="list-decimal list-inside space-y-1">
-                                          <li>GitHub Token (Scope: gist)</li>
-                                          <li>Gist ID ({isZh ? "必填" : "Required"})</li>
-                                       </ol>
-                                  </div>
-                                )}
 
                                 <div className="space-y-3">
                                     <input 
@@ -256,30 +305,47 @@ export const Onboarding: React.FC<OnboardingProps> = ({ preferences, onUpdatePre
                                         onChange={(e) => onUpdatePreferences({ syncConfig: { ...(preferences.syncConfig || { enabled: true, githubToken: '' }), githubToken: e.target.value } })}
                                         placeholder="GitHub Token (ghp_...)"
                                     />
-                                    <div>
+                                    
+                                    {syncMode === 'restore' && (
                                         <input 
-                                            className={`w-full p-3 rounded-xl border-2 bg-gray-50 dark:bg-dark-bg text-gray-900 dark:text-white font-mono text-xs focus:border-brand outline-none ${
-                                                !preferences.syncConfig?.gistId ? 'border-red-300 dark:border-red-900' : 'border-gray-200 dark:border-gray-700'
-                                            }`}
+                                            className="w-full p-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-bg text-gray-900 dark:text-white font-mono text-xs focus:border-brand outline-none"
                                             value={preferences.syncConfig?.gistId || ''}
                                             onChange={(e) => onUpdatePreferences({ syncConfig: { ...(preferences.syncConfig || { enabled: true, githubToken: '' }), gistId: e.target.value } })}
                                             placeholder={isZh ? "Gist ID (必填)" : "Gist ID (Required)"}
                                         />
-                                        {!preferences.syncConfig?.gistId && (
-                                            <p className="text-[10px] text-red-500 mt-1 ml-1 font-bold">
-                                                * {isZh ? "必须填写 Gist ID 才能同步" : "Gist ID is required to sync"}
-                                            </p>
-                                        )}
-                                    </div>
+                                    )}
+
                                     <button 
                                         onClick={handleSyncNow}
-                                        disabled={!preferences.syncConfig?.githubToken || !preferences.syncConfig?.gistId}
+                                        disabled={!preferences.syncConfig?.githubToken || (syncMode === 'restore' && !preferences.syncConfig?.gistId)}
                                         className="w-full py-3 bg-gray-800 dark:bg-white text-white dark:text-gray-900 rounded-xl font-bold text-sm hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all"
                                     >
                                         <RefreshCw size={16} className={syncStatus.includes('...') ? 'animate-spin' : ''} />
-                                        {isZh ? "开始同步" : "Start Sync"}
+                                        {syncMode === 'create' 
+                                            ? (isZh ? "初始化并创建云存档" : "Initialize & Create Save") 
+                                            : (isZh ? "拉取云端进度" : "Pull from Cloud")
+                                        }
                                     </button>
+
                                     {syncStatus && <p className="text-xs font-mono text-brand text-center">{syncStatus}</p>}
+                                </div>
+                                
+                                <div className="mt-3 text-center">
+                                     <button
+                                        onClick={() => setShowSyncHelp(!showSyncHelp)}
+                                        className="text-gray-400 hover:text-brand text-xs font-bold flex items-center justify-center gap-1 w-full"
+                                    >
+                                        <HelpCircle size={12} /> {isZh ? "哪里获取 Token?" : "Where to get Token?"}
+                                    </button>
+                                    {showSyncHelp && (
+                                        <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-xl text-xs text-gray-600 dark:text-gray-300 text-left">
+                                            {isZh ? (
+                                                <span>前往 <a href="https://github.com/settings/tokens" target="_blank" className="text-brand underline">GitHub Tokens</a>，生成 Classic Token，勾选 <b>gist</b> 权限。</span>
+                                            ) : (
+                                                <span>Go to <a href="https://github.com/settings/tokens" target="_blank" className="text-brand underline">GitHub Tokens</a>, generate Classic Token, check <b>gist</b> scope.</span>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -288,7 +354,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ preferences, onUpdatePre
                             onClick={handleNext}
                             className="w-full py-4 text-center text-gray-400 hover:text-brand font-bold text-sm transition-colors flex items-center justify-center gap-1"
                         >
-                            {isZh ? "我是新用户，跳过" : "I am a new user, Skip"} <ChevronRight size={16} />
+                            {isZh ? "跳过，稍后设置" : "Skip, setup later"} <ChevronRight size={16} />
                         </button>
                     </div>
                 )}

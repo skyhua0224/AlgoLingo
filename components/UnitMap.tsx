@@ -164,31 +164,31 @@ export const UnitMap: React.FC<UnitMapProps> = ({ problemName, currentLevel, sav
                 const isCompleted = node.id < currentLevel;
                 const isCurrent = node.id === currentLevel;
                 
-                // Special Logic for Boss Node when Mastered
+                // Special Logic for Boss Node when Mastered (CENTERED)
                 if (node.id === 5 && isMastered) {
                     return (
-                        <div key={node.id} className="col-span-1 md:col-span-2 md:col-start-2 p-1 rounded-3xl bg-gradient-to-br from-yellow-200 via-yellow-400 to-yellow-600 shadow-xl animate-pulse-soft">
-                             <div className="bg-white dark:bg-dark-card rounded-[20px] p-6 h-full flex flex-col items-center justify-center text-center gap-4">
-                                 <div className="flex items-center gap-2 mb-2">
-                                     <Crown size={32} className="text-yellow-500 fill-yellow-500"/>
-                                     <h3 className="text-2xl font-extrabold text-gray-800 dark:text-white">{t.masteryHub}</h3>
+                        <div key={node.id} className="col-span-2 md:col-span-3 p-1 rounded-3xl bg-gradient-to-br from-yellow-200 via-yellow-400 to-yellow-600 shadow-xl animate-pulse-soft max-w-2xl mx-auto w-full">
+                             <div className="bg-white dark:bg-dark-card rounded-[20px] p-8 h-full flex flex-col items-center justify-center text-center gap-6">
+                                 <div className="flex items-center gap-3 mb-2">
+                                     <Crown size={40} className="text-yellow-500 fill-yellow-500"/>
+                                     <h3 className="text-3xl font-extrabold text-gray-800 dark:text-white">{t.masteryHub}</h3>
                                  </div>
                                  
-                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
+                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 w-full px-4">
                                      <button 
                                          onClick={() => onStartLevel(6)} // Phase 7 = Index 6 = LeetCode
-                                         className="flex flex-col items-center p-4 rounded-xl bg-gray-50 dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 hover:border-brand hover:bg-brand-bg dark:hover:bg-brand/10 transition-all group"
+                                         className="flex flex-col items-center p-6 rounded-2xl bg-gray-50 dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 hover:border-brand hover:bg-brand-bg dark:hover:bg-brand/10 transition-all group"
                                      >
-                                         <Layout size={24} className="text-gray-500 group-hover:text-brand mb-2"/>
-                                         <span className="font-bold text-sm text-gray-700 dark:text-gray-200">{t.leetcodeMode}</span>
+                                         <Layout size={32} className="text-gray-500 group-hover:text-brand mb-3"/>
+                                         <span className="font-bold text-base text-gray-700 dark:text-gray-200">{t.leetcodeMode}</span>
                                      </button>
 
                                      <button 
                                          onClick={() => onStartLevel(5)} // Replay Mastery
-                                         className="flex flex-col items-center p-4 rounded-xl bg-yellow-50 dark:bg-yellow-900/20 border-2 border-yellow-200 dark:border-yellow-700 hover:border-yellow-500 hover:bg-yellow-100 transition-all group"
+                                         className="flex flex-col items-center p-6 rounded-2xl bg-yellow-50 dark:bg-yellow-900/20 border-2 border-yellow-200 dark:border-yellow-700 hover:border-yellow-500 hover:bg-yellow-100 transition-all group"
                                      >
-                                         <Trophy size={24} className="text-yellow-600 dark:text-yellow-500 mb-2"/>
-                                         <span className="font-bold text-sm text-yellow-800 dark:text-yellow-400">{t.masteryLoop}</span>
+                                         <Trophy size={32} className="text-yellow-600 dark:text-yellow-500 mb-3"/>
+                                         <span className="font-bold text-base text-yellow-800 dark:text-yellow-400">{t.masteryLoop}</span>
                                      </button>
                                  </div>
                              </div>

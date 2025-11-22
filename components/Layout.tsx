@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { Code2, BookOpen, RotateCcw, Settings, User, X, Globe, Terminal, Save, Download, Upload, Trash2, Cpu, Link, Key, RefreshCw, Moon, Sun, Monitor, ChevronLeft, ChevronRight, Cloud, Bell, Github, Send, HelpCircle } from 'lucide-react';
+import { Code2, BookOpen, RotateCcw, Settings, User, X, Globe, Terminal, Save, Download, Upload, Trash2, Cpu, Link, Key, RefreshCw, Moon, Sun, Monitor, ChevronLeft, ChevronRight, Cloud, Bell, Github, Send, HelpCircle, Copy, Check } from 'lucide-react';
 import { UserPreferences, ApiConfig } from '../types';
 import { GEMINI_MODELS } from '../constants';
 import { syncWithGist } from '../services/githubService';
@@ -39,12 +39,17 @@ const TRANSLATIONS = {
         cloudSync: 'GitHub 云同步',
         notifications: '消息通知',
         githubToken: 'GitHub Token',
-        gistId: 'Gist ID (可选)',
+        gistId: 'Gist ID (存档 ID)',
         syncNow: '立即同步',
         webhookUrl: 'Webhook URL',
         enableNotify: '启用 AI 学习提醒',
         testNotify: '测试发送',
-        notifyHint: '支持 Telegram, Bark 等 URL'
+        notifyHint: '支持 Telegram, Bark 等 URL',
+        initSync: '初始化同步 (创建存档)',
+        copy: '复制',
+        copied: '已复制',
+        syncStatusIdle: '未配置同步',
+        syncStatusReady: '同步就绪',
     },
     English: {
         learn: 'Learn',
@@ -67,12 +72,17 @@ const TRANSLATIONS = {
         cloudSync: 'GitHub Cloud Sync',
         notifications: 'Notifications',
         githubToken: 'GitHub Token',
-        gistId: 'Gist ID (Optional)',
+        gistId: 'Gist ID (Save ID)',
         syncNow: 'Sync Now',
         webhookUrl: 'Webhook URL',
         enableNotify: 'Enable AI Reminders',
         testNotify: 'Test Send',
-        notifyHint: 'Supports Telegram, Bark, etc.'
+        notifyHint: 'Supports Telegram, Bark, etc.',
+        initSync: 'Initialize Sync (Create Gist)',
+        copy: 'Copy',
+        copied: 'Copied',
+        syncStatusIdle: 'Sync Not Configured',
+        syncStatusReady: 'Sync Ready',
     }
 };
 
@@ -82,6 +92,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
   const [showSyncHelp, setShowSyncHelp] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const t = TRANSLATIONS[preferences.spokenLanguage];
+  const isZh = preferences.spokenLanguage === 'Chinese';
   
   // Local state for settings
   const [tempApiConfig, setTempApiConfig] = useState<ApiConfig>(preferences.apiConfig);
@@ -89,6 +100,8 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
   const [tempNotifyConfig, setTempNotifyConfig] = useState(preferences.notificationConfig || { enabled: false, webhookUrl: '', type: 'custom' as const });
 
   const [syncStatus, setSyncStatus] = useState('');
+  const [isCopied, setIsCopied] = useState(false);
+  const [showGistIdModal, setShowGistIdModal] = useState<string | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files[0]) {
@@ -105,8 +118,18 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
       setShowSettings(false);
   };
 
-  const handleSyncNow = async () => {
+  const handleCopyGistId = (id?: string) => {
+      const targetId = id || tempSyncConfig.gistId;
+      if (targetId) {
+          navigator.clipboard.writeText(targetId);
+          setIsCopied(true);
+          setTimeout(() => setIsCopied(false), 2000);
+      }
+  };
+
+  const handleSyncAction = async (mode: 'create' | 'sync') => {
       setSyncStatus('Syncing...');
+      
       const currentData = {
           stats: JSON.parse(localStorage.getItem('algolingo_stats') || '{}'),
           progress: JSON.parse(localStorage.getItem('algolingo_progress_v2') || '{}'),
@@ -114,17 +137,32 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
           preferences: preferences
       };
 
-      const res = await syncWithGist(tempSyncConfig.githubToken, tempSyncConfig.gistId, currentData as any);
+      // Use temp config for token
+      const token = tempSyncConfig.githubToken;
+      const gistId = tempSyncConfig.gistId; // Undefined if creating
+
+      if (!token) {
+          setSyncStatus("Error: Token missing");
+          return;
+      }
+
+      const res = await syncWithGist(token, gistId, currentData as any);
+      
       if (res.success) {
           setSyncStatus(`Success: ${res.action}`);
           if (res.newGistId) {
-              setTempSyncConfig(prev => ({...prev, gistId: res.newGistId}));
-              onUpdatePreferences({ syncConfig: { ...tempSyncConfig, gistId: res.newGistId }});
+              // Update both temp config and persist immediately so user doesn't lose it
+              const newConfig = { ...tempSyncConfig, gistId: res.newGistId, enabled: true };
+              setTempSyncConfig(newConfig);
+              onUpdatePreferences({ syncConfig: newConfig });
+              
+              if (mode === 'create') {
+                  setShowGistIdModal(res.newGistId);
+              }
           }
+          
           if (res.action === 'pulled' && res.data) {
-              // Simple reload to apply pulled data for now, or call a prop
-              alert("Data pulled from cloud. Refreshing...");
-              // Inject into local storage
+              alert(isZh ? "从云端拉取了较新的数据，正在刷新..." : "Newer data pulled from cloud. Refreshing...");
               if(res.data.stats) localStorage.setItem('algolingo_stats', JSON.stringify(res.data.stats));
               if(res.data.progress) localStorage.setItem('algolingo_progress_v2', JSON.stringify(res.data.progress));
               window.location.reload();
@@ -134,8 +172,39 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
       }
   };
 
+  const isSyncConfigured = !!tempSyncConfig.githubToken && !!tempSyncConfig.gistId;
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-dark-bg flex text-gray-900 dark:text-dark-text font-sans transition-colors">
+      {/* Gist ID Created Modal */}
+      {showGistIdModal && (
+          <div className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6 animate-fade-in-up">
+              <div className="bg-white dark:bg-dark-card rounded-3xl p-8 w-full max-w-md text-center shadow-2xl border-2 border-green-100 dark:border-green-900/50">
+                  <div className="mb-4 bg-green-100 dark:bg-green-900/30 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
+                        <Check className="text-green-500" size={32} />
+                  </div>
+                  <h3 className="text-2xl font-extrabold text-gray-800 dark:text-white mb-2">{isZh ? "云存档已创建！" : "Cloud Save Created!"}</h3>
+                  <p className="text-gray-500 dark:text-gray-400 mb-6 text-sm leading-relaxed">
+                      {isZh ? "请务必保存您的 Gist ID。在其他设备恢复进度时需要用到它。" : "Please save your Gist ID safely. You need it to restore progress on other devices."}
+                  </p>
+                  
+                  <div className="bg-gray-100 dark:bg-black p-4 rounded-xl border border-gray-200 dark:border-gray-800 mb-6 font-mono text-sm break-all select-all text-gray-800 dark:text-gray-200">
+                      {showGistIdModal}
+                  </div>
+
+                  <button 
+                      onClick={() => handleCopyGistId(showGistIdModal)}
+                      className="w-full py-3 bg-brand text-white rounded-xl font-bold shadow-lg hover:bg-brand-light mb-3 flex items-center justify-center gap-2"
+                  >
+                      {isCopied ? <Check size={18}/> : <Copy size={18}/>} {isZh ? "复制 ID" : "Copy ID"}
+                  </button>
+                  <button onClick={() => setShowGistIdModal(null)} className="text-gray-400 hover:text-gray-600 text-sm font-bold py-2">
+                      {t.done}
+                  </button>
+              </div>
+          </div>
+      )}
+
       {/* Desktop Sidebar */}
       <aside className={`hidden md:flex flex-col ${sidebarCollapsed ? 'w-20' : 'w-72'} bg-white dark:bg-dark-card border-r border-gray-200 dark:border-gray-800 fixed h-full z-20 p-4 shadow-sm transition-all duration-300`}>
         
@@ -280,35 +349,18 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
                                   className="text-brand hover:text-brand-dark dark:text-brand-light dark:hover:text-white text-xs font-bold flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-brand/10 transition-colors"
                               >
                                   <HelpCircle size={14} />
-                                  {preferences.spokenLanguage === 'Chinese' ? "如何配置？" : "How to setup?"}
+                                  {isZh ? "如何配置？" : "Guide"}
                               </button>
                           </div>
 
                           {showSyncHelp && (
                               <div className="mb-4 p-4 bg-white dark:bg-dark-card rounded-xl border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-300 shadow-sm animate-fade-in-down">
-                                   <p className="font-bold mb-2">{preferences.spokenLanguage === 'Chinese' ? "步骤指南：" : "Setup Guide:"}</p>
+                                   <p className="font-bold mb-2">{isZh ? "步骤指南：" : "Setup Guide:"}</p>
                                    <ol className="list-decimal list-inside space-y-1.5">
-                                      <li>
-                                          {preferences.spokenLanguage === 'Chinese'
-                                              ? <span>访问 <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="text-brand underline">GitHub Tokens</a> 页面。</span>
-                                              : <span>Visit <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="text-brand underline">GitHub Tokens</a> page.</span>
-                                          }
-                                      </li>
-                                       <li>
-                                          {preferences.spokenLanguage === 'Chinese'
-                                              ? "生成新 Token (Classic)，在 Scopes 中勾选 `gist`。"
-                                              : "Generate new Token (Classic), check `gist` in Scopes."}
-                                      </li>
-                                      <li>
-                                          {preferences.spokenLanguage === 'Chinese'
-                                              ? "复制 Token (以 ghp_ 开头) 填入下方。"
-                                              : "Copy Token (starts with ghp_) and paste below."}
-                                      </li>
-                                       <li>
-                                          {preferences.spokenLanguage === 'Chinese'
-                                              ? "点击同步。系统将自动创建一个 Gist ID 用于存档。"
-                                              : "Click Sync. System creates a Gist ID automatically."}
-                                      </li>
+                                      <li>{isZh ? <span>访问 <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="text-brand underline">GitHub Tokens</a> 页面。</span> : <span>Visit <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="text-brand underline">GitHub Tokens</a> page.</span>}</li>
+                                       <li>{isZh ? "生成新 Token (Classic)，在 Scopes 中勾选 `gist`。" : "Generate new Token (Classic), check `gist` in Scopes."}</li>
+                                      <li>{isZh ? "复制 Token (以 ghp_ 开头) 填入下方。" : "Copy Token (starts with ghp_) and paste below."}</li>
+                                       <li>{isZh ? "点击初始化同步。系统将自动创建一个 Gist ID。" : "Click Initialize Sync. System creates a Gist ID automatically."}</li>
                                    </ol>
                               </div>
                           )}
@@ -316,31 +368,64 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
                           <div className="space-y-3">
                               <div>
                                   <label className="text-xs font-bold text-gray-500 block mb-2">{t.githubToken} (Gist Scope)</label>
-                                  <input 
-                                      type="password"
-                                      className="w-full p-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card text-gray-900 dark:text-white font-mono text-sm focus:border-brand outline-none"
-                                      value={tempSyncConfig.githubToken}
-                                      onChange={(e) => setTempSyncConfig({...tempSyncConfig, githubToken: e.target.value, enabled: !!e.target.value})}
-                                      placeholder="ghp_..."
-                                  />
+                                  <div className="flex gap-2">
+                                      <input 
+                                          type="password"
+                                          className="flex-1 p-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card text-gray-900 dark:text-white font-mono text-sm focus:border-brand outline-none"
+                                          value={tempSyncConfig.githubToken}
+                                          onChange={(e) => setTempSyncConfig({...tempSyncConfig, githubToken: e.target.value})}
+                                          placeholder="ghp_..."
+                                      />
+                                      {/* Scenario A: Not Configured Button Next to Input */}
+                                      {!isSyncConfigured && (
+                                          <button 
+                                              onClick={() => handleSyncAction('create')}
+                                              disabled={!tempSyncConfig.githubToken}
+                                              className="px-4 bg-gray-800 dark:bg-white text-white dark:text-gray-900 rounded-xl font-bold text-xs hover:opacity-90 disabled:opacity-50 flex items-center justify-center whitespace-nowrap"
+                                          >
+                                              {t.syncNow}
+                                          </button>
+                                      )}
+                                  </div>
+                                  {!isSyncConfigured && (
+                                      <p className="text-[10px] text-gray-400 mt-1 ml-1">
+                                          {isZh ? "输入 Token 后点击右侧按钮进行首次同步" : "Enter Token and click button to start first sync"}
+                                      </p>
+                                  )}
                               </div>
-                              <div className="flex gap-2">
-                                  <input 
-                                      className="flex-1 p-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card text-gray-900 dark:text-white font-mono text-sm outline-none"
-                                      value={tempSyncConfig.gistId || ''}
-                                      onChange={(e) => setTempSyncConfig({...tempSyncConfig, gistId: e.target.value})}
-                                      placeholder={t.gistId}
-                                  />
-                                  <button 
-                                      onClick={handleSyncNow}
-                                      disabled={!tempSyncConfig.githubToken}
-                                      className="px-6 py-3 bg-gray-800 dark:bg-white text-white dark:text-gray-900 rounded-xl font-bold text-sm hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
-                                  >
-                                      <RefreshCw size={16} className={syncStatus === 'Syncing...' ? 'animate-spin' : ''} />
-                                      {t.syncNow}
-                                  </button>
-                              </div>
-                              {syncStatus && <p className="text-xs font-mono text-brand">{syncStatus}</p>}
+
+                              {/* Scenario B: Configured (Has Gist ID) */}
+                              {isSyncConfigured && (
+                                  <div className="space-y-3 animate-fade-in-up pt-2 border-t border-gray-100 dark:border-gray-700">
+                                      <div>
+                                          <label className="text-xs font-bold text-gray-500 block mb-2">{t.gistId}</label>
+                                          <div className="flex gap-2">
+                                              <input 
+                                                  className="flex-1 p-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-500 font-mono text-xs outline-none"
+                                                  value={tempSyncConfig.gistId || ''}
+                                                  readOnly
+                                              />
+                                              <button 
+                                                  onClick={() => handleCopyGistId()}
+                                                  className="p-3 bg-white dark:bg-dark-card border-2 border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-500"
+                                                  title={t.copy}
+                                              >
+                                                  {isCopied ? <Check size={16} className="text-green-500"/> : <Copy size={16}/>}
+                                              </button>
+                                          </div>
+                                      </div>
+
+                                      <button 
+                                          onClick={() => handleSyncAction('sync')}
+                                          className="w-full px-6 py-3 bg-brand text-white rounded-xl font-bold text-sm hover:bg-brand-light shadow-lg shadow-brand/20 flex items-center justify-center gap-2"
+                                      >
+                                          <RefreshCw size={16} className={syncStatus === 'Syncing...' ? 'animate-spin' : ''} />
+                                          {t.syncNow}
+                                      </button>
+                                  </div>
+                              )}
+                              
+                              {syncStatus && <p className="text-xs font-mono text-brand text-center">{syncStatus}</p>}
                           </div>
                       </div>
 

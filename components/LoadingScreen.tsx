@@ -70,7 +70,7 @@ const LOGS_TEMPLATE_EN = [
 ];
 
 export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase = 0, language, onRetry, error, onCancel }) => {
-  const [progress, setProgress] = useState(5);
+  const [progress, setProgress] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [logs, setLogs] = useState<string[]>([]);
   const [currentTip, setCurrentTip] = useState(0);
@@ -82,15 +82,15 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
   const tips = isChinese ? TIPS_ZH : TIPS_EN;
   const baseLogs = isChinese ? LOGS_TEMPLATE_ZH : LOGS_TEMPLATE_EN;
 
-  // --- 1. Slowed Progress Logic (~30s to 99%) ---
+  // --- 1. Slowed Progress Logic (40s to 99%) ---
   useEffect(() => {
     // If error exists, we don't need to update progress, but hook must run.
     if (error) return; 
 
     const updateIntervalMs = 40;
-    const targetDurationMs = 30000; // 30 Seconds
+    const targetDurationMs = 40000; // 40 Seconds
     const totalSteps = targetDurationMs / updateIntervalMs;
-    const incrementPerStep = 99 / totalSteps; // ~0.132 per step
+    const incrementPerStep = 99 / totalSteps; 
 
     const interval = setInterval(() => {
       setProgress(prev => {
@@ -143,14 +143,15 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
 
   const handleRetry = () => {
       setIsRetrying(true);
-      setProgress(5);
+      setProgress(0);
+      setElapsedSeconds(0);
       setLogs([]);
       if (onRetry) onRetry();
       // Keep retrying state for a bit to show feedback
       setTimeout(() => setIsRetrying(false), 5000);
   };
 
-  const showRetry = elapsedSeconds > 8; // Show after 8 seconds
+  const showRetry = elapsedSeconds > 45; // Show after 45 seconds
 
   // --- RENDER LOGIC ---
 
@@ -184,7 +185,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
 
                 <div className="flex flex-col gap-3">
                     <button 
-                        onClick={onRetry}
+                        onClick={handleRetry}
                         className="w-full py-4 rounded-xl font-bold text-white bg-brand hover:bg-brand-dark transition-all shadow-lg hover:shadow-xl active:scale-[0.98] flex items-center justify-center gap-2"
                     >
                         <RotateCcw size={18} />
