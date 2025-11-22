@@ -8,81 +8,129 @@ export interface Problem {
 // Progress is now nested: Language -> ProblemID -> Level
 export type ProgressMap = Record<string, Record<string, number>>;
 
+export type LeagueTier = 'Bronze' | 'Silver' | 'Gold' | 'Platinum' | 'Diamond';
+
+export interface League {
+    currentTier: LeagueTier;
+    rank: number;
+    weeklyXp: number;
+}
+
+export interface DailyQuest {
+    id: string;
+    description: string;
+    target: number;
+    current: number;
+    rewardGems: number;
+    completed: boolean;
+}
+
+export interface Achievement {
+    id: string;
+    title: string;
+    description: string;
+    icon: string;
+    unlockedAt?: number;
+}
+
 export interface UserStats {
   streak: number;
   xp: number;
   gems: number;
   lastPlayed: string;
   history: Record<string, number>; // Date (YYYY-MM-DD) -> XP
+  
+  // v3.0 Gamification
+  league?: League;
+  quests?: DailyQuest[];
+  achievements?: Achievement[];
 }
 
 export type ApiProvider = 'gemini-official' | 'gemini-custom' | 'openai';
 
 export interface ApiConfig {
-  provider: ApiProvider;
-  gemini: {
-    model: string;
-    apiKey?: string;
-    baseUrl?: string; // For proxy
-  };
-  openai: {
-    baseUrl: string;
-    apiKey: string;
-    model: string;
-  };
+    provider: ApiProvider;
+    gemini: {
+        model: string;
+        apiKey?: string;
+        baseUrl?: string; // For proxy
+    };
+    openai: {
+        baseUrl: string;
+        apiKey: string;
+        model: string;
+    };
 }
 
 export type AppTheme = 'light' | 'dark' | 'system';
 
+export interface NotificationConfig {
+    enabled: boolean;
+    webhookUrl: string; // Telegram URL or Bark URL
+    type: 'bark' | 'telegram' | 'wechat' | 'custom';
+    lastNotified?: number;
+}
+
+export interface SyncConfig {
+    enabled: boolean;
+    githubToken: string;
+    gistId?: string; // If empty, we create one
+    lastSynced?: number;
+}
+
 export interface UserPreferences {
-  userName: string; // New: User's name
-  hasOnboarded: boolean; // New: First time flag
-  targetLanguage: 'Python' | 'Java' | 'C++' | 'C' | 'JavaScript';
+  userName: string; 
+  hasOnboarded: boolean; 
+  targetLanguage: 'Python' | 'Java' | 'C++' | 'C' | 'JavaScript' | 'Go';
   spokenLanguage: 'Chinese' | 'English';
   apiConfig: ApiConfig;
-  theme: AppTheme;
-  failedSkips?: Record<string, boolean>; // New: Track failed skip attempts per problem (Problem Name -> Boolean)
+  theme: AppTheme; 
+  failedSkips?: Record<string, boolean>;
+  
+  // New Configurations
+  notificationConfig: NotificationConfig;
+  syncConfig: SyncConfig;
 }
 
 // --- NEW WIDGET TYPES ---
 
-export type WidgetType =
-  | 'dialogue'
-  | 'flipcard'
-  | 'quiz'
-  | 'code'
-  | 'interactive-code'
-  | 'parsons'
-  | 'fill-in'
-  | 'code-editor'
-  | 'steps-list'
-  | 'solution-display' // New: For showing full solution
-  | 'callout';
+export type WidgetType = 
+    | 'dialogue' 
+    | 'flipcard' 
+    | 'quiz' 
+    | 'code' 
+    | 'interactive-code'
+    | 'parsons'
+    | 'fill-in'
+    | 'leetcode' 
+    | 'steps-list'
+    | 'callout';
 
 export interface Widget {
   id: string;
   type: WidgetType;
-
+  
   dialogue?: {
     text: string;
     speaker: 'coach' | 'user';
     emotion?: 'neutral' | 'happy' | 'thinking' | 'excited';
   };
-
+  
   flipcard?: {
     front: string;
     back: string;
     hint?: string;
-    mode?: 'learn' | 'assessment'; // Assessment adds "Got it / Forgot" buttons
+    mode?: 'learn' | 'assessment'; 
+    model3d?: string; // v3.0: URL to 3D model/GLB
   };
-
+  
   quiz?: {
     question: string;
     options: string[];
     correctIndex: number;
     explanation: string;
   };
-
+  
   code?: {
     content: string;
     language: string;
@@ -90,40 +138,45 @@ export interface Widget {
   };
 
   interactiveCode?: {
-    language: string;
-    lines: {
-      code: string;
-      explanation: string;
-    }[];
-    caption?: string;
+      language: string;
+      lines: {
+          code: string;
+          explanation: string;
+      }[];
+      caption?: string;
   };
 
   parsons?: {
-    lines: string[]; // Scrambled lines
-    explanation?: string;
+      lines: string[]; 
+      explanation?: string;
+      indentation?: boolean; // v3.0: Enable horizontal dragging for Python scope
   };
 
-  // New Widget Data
   stepsList?: {
-    items: string[]; // The steps text
-    mode: 'static' | 'interactive'; // Static display or sortable
-    correctOrder?: string[]; // For interactive mode validation
+      items: string[]; 
+      mode: 'static' | 'interactive'; 
+      correctOrder?: string[]; 
   };
 
   fillIn?: {
-    code: string; // Contains __BLANK__
-    options?: string[]; // Correct and distractors (Optional if mode is text)
-    correctValues: string[]; // Order of correct values
-    explanation?: string;
-    inputMode?: 'select' | 'type'; // New: Select from options or Type manually
+      code: string; 
+      options?: string[]; 
+      correctValues: string[]; 
+      explanation?: string;
+      inputMode?: 'select' | 'type'; 
   };
 
-  codeEditor?: {
-    initialCode: string;
-    problemDescription: string;
-    expectedOutputDescription: string;
-    solutionTemplate: string; // The function signature
-    hints: string[];
+  leetcode?: {
+      problemSlug: string;
+      concept: { front: string; back: string };
+      exampleCode: {
+          language: string;
+          lines: {
+              code: string;
+              explanation: string;
+          }[];
+          caption?: string;
+      };
   };
 
   callout?: {
@@ -131,24 +184,22 @@ export interface Widget {
     text: string;
     variant: 'info' | 'warning' | 'success' | 'tip';
   };
-
-  solutionDisplay?: SolutionDisplay;
 }
 
 export interface LessonScreen {
-  id: string;
-  header?: string; // Title of the screen (e.g. "Concept: Hash Maps")
-  widgets: Widget[];
-  isRetry?: boolean; // New: Marks if this screen is a mistake remediation
+    id: string;
+    header?: string; 
+    widgets: Widget[];
+    isRetry?: boolean; 
 }
 
 export interface LessonPlan {
   title: string;
   description: string;
-  unitId?: string; // To track unit mastery
+  unitId?: string; 
   screens: LessonScreen[];
-  suggestedQuestions: string[]; // New: 5 suggestions for AI chat
-  isLocalReplay?: boolean; // New: Marks if this is a purely local review (no AI)
+  suggestedQuestions: string[]; 
+  isLocalReplay?: boolean; 
 }
 
 export interface SavedLesson {
@@ -163,56 +214,28 @@ export interface SavedLesson {
 export interface MistakeRecord {
   id: string;
   problemName: string;
-  nodeIndex: number; // New: Track which phase the mistake happened in
-  questionType: string; // e.g., 'quiz', 'parsons'
-  context: string; // The specific question or code snippet failed
-  widget?: Widget; // Store the full widget for faithful replay without AI
+  nodeIndex: number; 
+  questionType: string; 
+  context: string; 
+  widget?: Widget; 
   timestamp: number;
 }
 
 export interface GameContent {
-  // Legacy support
-  levelTitle: string;
-
-  // FillInGame properties
-  missingWords?: string[];
-  codeSnippet?: string;
-
-  // ParsonsGame properties
-  scrambledLines?: string[];
-
-  // TheoryGame properties
-  levelType?: 'syntax' | 'concept' | string;
-  theory?: {
-    analogy: string;
-    concept: string;
-    explanation: string;
-  };
-  quiz?: {
-    question: string;
-    options: string[];
-    correctIndex: number;
-    explanation?: string;
-  };
-}
-
-
-// New types for our widgets
-export interface LessonState {
-  [key: string]: any;
-}
-
-export interface WidgetProps {
-  widgetData: any; // Can be specified more narrowly in each component
-  onComplete: (success: boolean, data?: any) => void;
-  lessonState: LessonState;
-  updateLessonState: (key: string, value: any) => void;
-}
-
-export interface SolutionDisplay {
-  fullCode: string;
-  explanation: {
-    lineNumber: string;
-    explanation: string;
-  }[];
+    levelTitle: string;
+    missingWords?: string[];
+    codeSnippet?: string;
+    scrambledLines?: string[];
+    levelType?: 'syntax' | 'concept' | string;
+    theory?: {
+        analogy: string;
+        concept: string;
+        explanation: string;
+    };
+    quiz?: {
+        question: string;
+        options: string[];
+        correctIndex: number;
+        explanation?: string;
+    };
 }

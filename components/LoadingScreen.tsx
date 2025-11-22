@@ -1,14 +1,14 @@
+
 import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, Zap, Brain, ChevronDown, ChevronUp, Sparkles, AlertCircle, RotateCcw, Clock, Loader2, ShieldAlert, ArrowLeft } from 'lucide-react';
+import { Terminal, Zap, Brain, ChevronDown, ChevronUp, Sparkles, AlertCircle, RotateCcw, Clock, Loader2, XCircle, ArrowLeft } from 'lucide-react';
 
 interface LoadingScreenProps {
     problemName?: string;
     phase?: number;
     language: 'Chinese' | 'English';
     onRetry?: () => void;
-    error?: string | null; // New: Error message
-    debugLogs?: string[]; // New: Real logs
-    onBack?: () => void; // New: Exit loading
+    error?: string | null;
+    onCancel?: () => void;
 }
 
 const TIPS_ZH = [
@@ -69,7 +69,7 @@ const LOGS_TEMPLATE_EN = [
     "[READY] Awaiting final bytes...",
 ];
 
-export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase = 0, language, onRetry, error, debugLogs, onBack }) => {
+export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase = 0, language, onRetry, error, onCancel }) => {
   const [progress, setProgress] = useState(5);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [logs, setLogs] = useState<string[]>([]);
@@ -82,49 +82,92 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
   const tips = isChinese ? TIPS_ZH : TIPS_EN;
   const baseLogs = isChinese ? LOGS_TEMPLATE_ZH : LOGS_TEMPLATE_EN;
 
-  // Use real logs if available, otherwise use fake template
-  const activeLogs = (debugLogs && debugLogs.length > 0) ? debugLogs : logs;
+  // Error View
+  if (error) {
+    return (
+        <div className="fixed inset-0 z-[100] w-full h-full bg-gray-50 dark:bg-dark-bg flex flex-col items-center justify-center p-6 animate-fade-in-up transition-colors">
+            <div className="max-w-md w-full bg-white dark:bg-dark-card rounded-3xl shadow-2xl border-2 border-red-100 dark:border-red-900/50 p-8 text-center relative overflow-hidden">
+                {/* Background Pattern */}
+                <div className="absolute top-0 left-0 w-full h-2 bg-red-500"></div>
+                
+                <div className="w-20 h-20 mx-auto mb-6 bg-red-50 dark:bg-red-900/20 rounded-full flex items-center justify-center">
+                    <XCircle size={40} className="text-red-500" />
+                </div>
+                
+                <h2 className="text-2xl font-extrabold text-gray-800 dark:text-white mb-2">
+                    {language === 'Chinese' ? "生成遇到问题" : "Generation Failed"}
+                </h2>
+                
+                <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-xl mb-6 border border-red-100 dark:border-red-900/30">
+                    <p className="text-xs text-red-600 dark:text-red-400 font-mono break-words">
+                        {error}
+                    </p>
+                </div>
+                
+                <p className="text-gray-500 dark:text-gray-400 text-sm mb-8 font-medium">
+                    {language === 'Chinese' 
+                        ? "AI 有时会犯错。请尝试重新生成。" 
+                        : "AI sometimes makes mistakes. Please try again."}
+                </p>
 
-  // --- 1. Progress Logic ---
+                <div className="flex flex-col gap-3">
+                    <button 
+                        onClick={onRetry}
+                        className="w-full py-4 rounded-xl font-bold text-white bg-brand hover:bg-brand-dark transition-all shadow-lg hover:shadow-xl active:scale-[0.98] flex items-center justify-center gap-2"
+                    >
+                        <RotateCcw size={18} />
+                        {language === 'Chinese' ? "重新生成" : "Regenerate Lesson"}
+                    </button>
+                    
+                    <button 
+                        onClick={onCancel}
+                        className="w-full py-3 rounded-xl font-bold text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all flex items-center justify-center gap-2"
+                    >
+                        <ArrowLeft size={18} />
+                        {language === 'Chinese' ? "返回" : "Go Back"}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+  }
+
+  // --- 1. Slowed Progress Logic (~30s to 99%) ---
   useEffect(() => {
-    if (error) return; // Stop progress on error
-
     const updateIntervalMs = 40;
-    const targetDurationMs = 30000; // 30 Seconds target
+    const targetDurationMs = 30000; // 30 Seconds
     const totalSteps = targetDurationMs / updateIntervalMs;
-    const incrementPerStep = 99 / totalSteps;
+    const incrementPerStep = 99 / totalSteps; // ~0.132 per step
 
     const interval = setInterval(() => {
       setProgress(prev => {
-        if (prev >= 99) return 99;
+        if (prev >= 99) return 99; // Hard cap
+        // Add slight random variance to look natural
         const variance = (Math.random() * 0.05) - 0.025;
         return Math.min(99, prev + incrementPerStep + variance); 
       });
     }, updateIntervalMs);
 
     return () => clearInterval(interval);
-  }, [error]);
+  }, []);
 
-  // --- 2. Time Tracker ---
+  // --- 2. Elapsed Time Tracker & Log Injection ---
   useEffect(() => {
-    if (error) return;
     const interval = setInterval(() => {
       setElapsedSeconds(s => s + 1);
     }, 1000);
     return () => clearInterval(interval);
-  }, [error]);
+  }, []);
 
-  // --- 3. Fake Logs Injection (Only if no real logs) ---
+  // Add logs based on progress thresholds
   useEffect(() => {
-      if (debugLogs && debugLogs.length > 0) return;
-
       const logIndex = Math.floor((progress / 100) * baseLogs.length);
       if (logIndex > logs.length - 1 && baseLogs[logIndex]) {
           setLogs(prev => [...prev, baseLogs[logIndex]]);
       }
-  }, [progress, baseLogs, logs.length, debugLogs]);
+  }, [progress, baseLogs, logs.length]);
 
-  // --- 4. Tip Rotation ---
+  // Rotate tips
   useEffect(() => {
     const interval = setInterval(() => {
         setCurrentTip(prev => (prev + 1) % tips.length);
@@ -137,110 +180,72 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
       if (logsEndRef.current) {
           logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
       }
-  }, [activeLogs, showTerminal]);
-
-  // Auto-show terminal on error
-  useEffect(() => {
-      if (error) setShowTerminal(true);
-  }, [error]);
+  }, [logs, showTerminal]);
 
   const handleRetry = () => {
       setIsRetrying(true);
       setProgress(5);
       setLogs([]);
       if (onRetry) onRetry();
-      setTimeout(() => setIsRetrying(false), 2000); // Debounce UI
+      // Keep retrying state for a bit to show feedback
+      setTimeout(() => setIsRetrying(false), 5000);
   };
 
-  const showRetry = elapsedSeconds > 8 || !!error;
+  const showRetry = elapsedSeconds > 8; // Show after 8 seconds
 
   return (
     <div className="fixed inset-0 z-[100] w-full h-full bg-gray-50 dark:bg-dark-bg flex flex-col items-center justify-center p-6 transition-colors">
       
       <div className="max-w-md w-full relative z-10">
-        <div className={`bg-white dark:bg-dark-card rounded-3xl shadow-2xl border p-8 text-center backdrop-blur-xl mb-6 transition-all ${error ? 'border-red-200 dark:border-red-900/50' : 'border-white/50 dark:border-white/5'}`}>
+        <div className="bg-white dark:bg-dark-card rounded-3xl shadow-2xl border border-white/50 dark:border-white/5 p-8 text-center backdrop-blur-xl mb-6 transition-colors">
             
-            {/* ERROR STATE */}
-            {error ? (
-                 <div className="mb-6">
-                     <div className="w-20 h-20 mx-auto mb-4 bg-red-100 dark:bg-red-900/20 rounded-full flex items-center justify-center animate-bounce-in">
-                         <ShieldAlert size={40} className="text-red-500" />
-                     </div>
-                     <h2 className="text-2xl font-extrabold text-red-600 dark:text-red-400 mb-2">{isChinese ? "生成失败" : "Generation Failed"}</h2>
-                     <p className="text-gray-500 dark:text-gray-400 text-sm mb-4 font-mono bg-red-50 dark:bg-red-900/10 p-2 rounded break-words">
-                         {error}
-                     </p>
-                     <div className="flex gap-3">
-                         {onBack && (
-                             <button onClick={onBack} className="flex-1 py-3 bg-gray-200 dark:bg-gray-800 rounded-xl font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-300">
-                                <ArrowLeft size={16} className="inline mr-1"/> Back
-                             </button>
-                         )}
-                         <button onClick={handleRetry} className="flex-1 py-3 bg-red-500 text-white rounded-xl font-bold hover:bg-red-600 shadow-lg">
-                            <RotateCcw size={16} className="inline mr-1"/> Retry
-                         </button>
-                     </div>
-                 </div>
-            ) : (
-                /* LOADING STATE */
-                <>
-                    {/* Icon Animation */}
-                    <div className="relative w-20 h-20 mx-auto mb-6">
-                        <div className="absolute inset-0 bg-brand/20 rounded-full animate-ping opacity-75" style={{ animationDuration: '3s' }}></div>
-                        <div className="relative bg-white dark:bg-dark-bg p-4 rounded-full shadow-lg border-2 border-gray-100 dark:border-gray-700">
-                            <Brain size={48} className="text-brand animate-pulse" />
-                        </div>
-                        <div className="absolute -bottom-2 -right-2 bg-brand-dark text-white p-1.5 rounded-full border-2 border-white dark:border-dark-card">
-                            <Sparkles size={16} className="animate-spin-slow" />
-                        </div>
-                    </div>
+            {/* Icon Animation */}
+            <div className="relative w-20 h-20 mx-auto mb-6">
+                <div className="absolute inset-0 bg-brand/20 rounded-full animate-ping opacity-75" style={{ animationDuration: '3s' }}></div>
+                <div className="relative bg-white dark:bg-dark-bg p-4 rounded-full shadow-lg border-2 border-gray-100 dark:border-gray-700">
+                    <Brain size={48} className="text-brand animate-pulse" />
+                </div>
+                <div className="absolute -bottom-2 -right-2 bg-brand-dark text-white p-1.5 rounded-full border-2 border-white dark:border-dark-card">
+                    <Sparkles size={16} className="animate-spin-slow" />
+                </div>
+            </div>
 
-                    <h2 className="text-2xl font-extrabold text-gray-800 dark:text-dark-text mb-2">{isChinese ? "正在生成深度课程" : "Generating Deep Lesson"}</h2>
-                    <p className="text-gray-500 dark:text-dark-muted text-sm font-medium mb-4">
-                        {isChinese ? "正在为 " : "Crafting a personalized path for "}
-                        <span className="text-brand font-bold">{problemName || "Algorithm"}</span>
-                    </p>
+            <h2 className="text-2xl font-extrabold text-gray-800 dark:text-dark-text mb-2">{isChinese ? "正在生成深度课程" : "Generating Deep Lesson"}</h2>
+            <p className="text-gray-500 dark:text-dark-muted text-sm font-medium mb-4">
+                {isChinese ? "正在为 " : "Crafting a personalized path for "}
+                <span className="text-brand font-bold">{problemName || "Algorithm"}</span>
+            </p>
 
-                    {/* Progress Bar */}
-                    <div className="relative h-4 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden border border-gray-200 dark:border-gray-600 mb-2">
-                        <div 
-                            className="absolute top-0 left-0 h-full bg-brand transition-all duration-100 ease-linear relative overflow-hidden"
-                            style={{ width: `${progress}%` }}
-                        >
-                            <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.2)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.2)_50%,rgba(255,255,255,0.2)_75%,transparent_75%,transparent)] bg-[length:1rem_1rem] animate-[shimmer_1s_linear_infinite]"></div>
-                        </div>
-                    </div>
-                    
-                    <div className="flex justify-between items-center text-xs font-bold text-gray-400 dark:text-gray-500 mb-6">
-                        <span className="flex items-center gap-1">
-                            <Clock size={12} /> {elapsedSeconds}s
-                        </span>
-                        <span>{Math.floor(progress)}%</span>
-                    </div>
+            {/* Progress Bar */}
+            <div className="relative h-4 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden border border-gray-200 dark:border-gray-600 mb-2">
+                <div 
+                    className="absolute top-0 left-0 h-full bg-brand transition-all duration-100 ease-linear relative overflow-hidden"
+                    style={{ width: `${progress}%` }}
+                >
+                    <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.2)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.2)_50%,rgba(255,255,255,0.2)_75%,transparent_75%,transparent)] bg-[length:1rem_1rem] animate-[shimmer_1s_linear_infinite]"></div>
+                </div>
+            </div>
+            
+            <div className="flex justify-between items-center text-xs font-bold text-gray-400 dark:text-gray-500 mb-6">
+                <span className="flex items-center gap-1">
+                    <Clock size={12} /> {elapsedSeconds}s
+                </span>
+                <span>{Math.floor(progress)}%</span>
+            </div>
 
-                    {/* Expectation Warning */}
-                    <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-100 dark:border-yellow-900/50 rounded-xl p-3 mb-6 flex items-start gap-2 text-left">
-                        <AlertCircle size={16} className="text-yellow-500 shrink-0 mt-0.5" />
-                        <p className="text-xs text-yellow-700 dark:text-yellow-500 leading-relaxed font-medium">
-                            {isChinese 
-                                ? "AI 生成包含复杂的逻辑推理与代码构建，可能会消耗 1 分钟或更久，请耐心等待。" 
-                                : "AI generation involves complex logical reasoning and code construction. This may take 1 minute or longer."}
-                        </p>
-                    </div>
+            {/* Expectation Warning */}
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-100 dark:border-yellow-900/50 rounded-xl p-3 mb-6 flex items-start gap-2 text-left">
+                <AlertCircle size={16} className="text-yellow-500 shrink-0 mt-0.5" />
+                <p className="text-xs text-yellow-700 dark:text-yellow-500 leading-relaxed font-medium">
+                    {isChinese 
+                        ? "AI 生成包含复杂的逻辑推理与代码构建，可能会消耗 1 分钟或更久，请耐心等待。" 
+                        : "AI generation involves complex logical reasoning and code construction. This may take 1 minute or longer."}
+                </p>
+            </div>
 
-                    {/* Tips Box */}
-                    <div className="bg-brand-bg/50 dark:bg-brand/10 rounded-xl p-4 border border-brand/20 min-h-[80px] flex items-center justify-center transition-all duration-500 mb-6">
-                        <p className="text-sm text-brand-dark dark:text-brand-light font-medium leading-relaxed animate-fade-in-up">
-                            <Zap size={14} className="inline mr-1 mb-0.5 fill-current"/> 
-                            {tips[currentTip]}
-                        </p>
-                    </div>
-                </>
-            )}
-
-             {/* Retry Button (Visible during long loads without error too) */}
-             {!error && showRetry && onRetry && (
-                 <div className="animate-fade-in-down">
+            {/* Retry Button */}
+            {showRetry && onRetry && (
+                 <div className="mb-6 animate-fade-in-down">
                      <button 
                         onClick={handleRetry}
                         disabled={isRetrying}
@@ -258,6 +263,14 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
                      </button>
                  </div>
             )}
+
+            {/* Tips Box */}
+            <div className="bg-brand-bg/50 dark:bg-brand/10 rounded-xl p-4 border border-brand/20 min-h-[80px] flex items-center justify-center transition-all duration-500">
+                <p className="text-sm text-brand-dark dark:text-brand-light font-medium leading-relaxed animate-fade-in-up">
+                    <Zap size={14} className="inline mr-1 mb-0.5 fill-current"/> 
+                    {tips[currentTip]}
+                </p>
+            </div>
         </div>
 
         {/* Terminal Toggle */}
@@ -268,8 +281,8 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
             >
                 <Terminal size={14} />
                 {showTerminal 
-                    ? (isChinese ? "隐藏调试日志" : "Hide Debug Logs") 
-                    : (isChinese ? "查看调试日志" : "View Debug Logs")
+                    ? (isChinese ? "隐藏思维链" : "Hide Chain-of-Thought") 
+                    : (isChinese ? "查看 AI 思维链" : "View AI Chain-of-Thought")
                 }
                 {showTerminal ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             </button>
@@ -282,13 +295,11 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
                             <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/50"/>
                             <div className="w-2.5 h-2.5 rounded-full bg-green-500/50"/>
                         </div>
-                        <span className="ml-auto">
-                            {debugLogs && debugLogs.length > 0 ? "gemini-live-debug.log" : "system-template.log"}
-                        </span>
+                        <span className="ml-auto">gemini-thinking-process.log</span>
                     </div>
                     <div className="flex-1 overflow-y-auto custom-scrollbar space-y-1">
-                        {activeLogs.map((log, i) => (
-                            <div key={i} className="opacity-80 hover:opacity-100 break-words">
+                        {logs.map((log, i) => (
+                            <div key={i} className="opacity-80 hover:opacity-100">
                                 <span className="text-gray-600 mr-2">[{new Date().toLocaleTimeString().split(' ')[0]}]</span>
                                 {log}
                             </div>

@@ -1,5 +1,5 @@
 
-import { Problem, UserPreferences, ApiConfig } from './types';
+import { Problem, UserPreferences, ApiConfig, UserStats } from './types';
 
 // Full mapping of Problem ID to Name (User Provided)
 export const PROBLEM_MAP: Record<string, string> = {
@@ -145,7 +145,7 @@ export const PROBLEM_CATEGORIES = [
     title_zh: "第五单元：二叉树",
     description: "Traversals and recursion.",
     description_zh: "深度优先搜索、广度优先搜索与递归。",
-    problems: ["p_94", "p_104", "p_226", "p_101", "p_543", "p_102", "p_108", "p_98", "p_230", "p_199", "p_114", "p_105", "p_437", "p_236", "p_124"]
+    problems: ["p_94", "p_104", "p_226", "p_101", "p_543", "p_102", "p_102", "p_108", "p_98", "p_230", "p_199", "p_114", "p_105", "p_437", "p_236", "p_124"]
   },
   {
     id: "unit_graphs",
@@ -189,12 +189,19 @@ export const PROBLEM_CATEGORIES = [
   }
 ];
 
-export const INITIAL_STATS = {
-    streak: 0, // Changed from 3 to 0 for real data
-    xp: 0,     // Changed from 1250 to 0
-    gems: 0,   // Changed from 100 to 0
-    lastPlayed: '', // Empty initially
-    history: {} 
+export const INITIAL_STATS: UserStats = {
+    streak: 0, 
+    xp: 0,     
+    gems: 0,   
+    lastPlayed: '', 
+    history: {},
+    league: {
+        currentTier: 'Bronze',
+        rank: 0,
+        weeklyXp: 0
+    },
+    quests: [],
+    achievements: []
 };
 
 export const DEFAULT_API_CONFIG: ApiConfig = {
@@ -214,3 +221,170 @@ export const GEMINI_MODELS = [
     'gemini-2.5-pro',
     'gemini-3-pro-preview'
 ];
+
+// --- GLOBAL TRANSLATIONS ---
+
+export const APP_TRANSLATIONS = {
+    Chinese: {
+        common: {
+            start: "开始",
+            cancel: "取消",
+            confirm: "确认",
+            back: "返回",
+            loading: "加载中...",
+            retry: "重试",
+        },
+        nav: {
+            learn: '学习',
+            review: '复习',
+            profile: '档案',
+            settings: '设置',
+        },
+        settings: {
+            title: '设置',
+            targetLang: '目标编程语言',
+            instructionLang: '教学语言',
+            dataMgmt: '数据管理',
+            export: '导出学习进度',
+            import: '导入学习进度',
+            reset: '重置所有数据',
+            done: '完成',
+            theme: '外观模式',
+            light: '浅色',
+            dark: '深色',
+            system: '跟随系统',
+            cloudSync: 'GitHub 云同步',
+            notifications: '消息通知',
+            githubToken: 'GitHub Token',
+            gistId: 'Gist ID (可选)',
+            syncNow: '立即同步',
+            webhookUrl: 'Webhook URL',
+            enableNotify: '启用 AI 学习提醒',
+            notifyHint: '支持 Telegram, Bark 等 URL'
+        },
+        dashboard: {
+            unitReview: "单元黄金挑战",
+            mastered: "已精通",
+            search: "搜索...",
+        },
+        unitMap: {
+            unit: "当前题目",
+            startBtn: "开始",
+            skipTitle: "跳级挑战",
+            skipDesc: "你即将跳过所有前置课程直接挑战最终 BOSS (精通阶段)。",
+            skipWarn: "如果错误超过 2 次，挑战将失败，且该题目的跳级功能将永久锁定，必须按顺序学习。",
+            confirmSkip: "确认跳级",
+            locked: "已锁定",
+            completed: "已完成",
+            skipLocked: "跳级已锁定",
+            mastered: "已精通",
+            leetcodeMode: "力扣学习",
+            masteryLoop: "精通挑战",
+            masteryHub: "精通中心",
+            saved: "已保存课程"
+        },
+        runner: {
+            incorrect: "错误",
+            correct: "正确!",
+            check: "检查",
+            next: "继续",
+            continue: "继续",
+            tryAgain: "再试一次",
+            skipLockedTitle: "跳级挑战失败",
+            skipLockedDesc: "错误已超过 2 次限制。跳级功能已锁定。",
+            skipLockedAction: "转为练习模式 (不计入跳级)",
+            quit: "退出",
+            mistakeLabel: "错题重练",
+            reviewPhaseTitle: "错题修复",
+            reviewPhaseDesc: "让我们攻克刚才做错的题目",
+            startReview: "开始修复",
+            lessonFeedback: "这节课怎么样？",
+            badFeedback: "不好 (重新生成)",
+            goodFeedback: "很好",
+            practiceMode: "练习模式",
+            skipMode: "跳级挑战",
+            remainingLives: "剩余机会"
+        }
+    },
+    English: {
+        common: {
+            start: "Start",
+            cancel: "Cancel",
+            confirm: "Confirm",
+            back: "Back",
+            loading: "Loading...",
+            retry: "Retry",
+        },
+        nav: {
+            learn: 'Learn',
+            review: 'Review',
+            profile: 'Profile',
+            settings: 'Settings',
+        },
+        settings: {
+            title: 'Settings',
+            targetLang: 'Target Language',
+            instructionLang: 'Instruction Language',
+            dataMgmt: 'Data Management',
+            export: 'Export Progress',
+            import: 'Import Progress',
+            reset: 'Reset All Data',
+            done: 'Done',
+            theme: 'Appearance',
+            light: 'Light',
+            dark: 'Dark',
+            system: 'System',
+            cloudSync: 'GitHub Cloud Sync',
+            notifications: 'Notifications',
+            githubToken: 'GitHub Token',
+            gistId: 'Gist ID (Optional)',
+            syncNow: 'Sync Now',
+            webhookUrl: 'Webhook URL',
+            enableNotify: 'Enable AI Reminders',
+            notifyHint: 'Supports Telegram, Bark, etc.'
+        },
+        dashboard: {
+            unitReview: "Gold Unit Challenge",
+            mastered: "Mastered",
+            search: "Search...",
+        },
+        unitMap: {
+            unit: "Problem",
+            startBtn: "Start",
+            skipTitle: "Skip to Mastery",
+            skipDesc: "You are about to skip all previous lessons to challenge the final BOSS.",
+            skipWarn: "If you make more than 2 mistakes, you will fail and this skip option will be locked forever.",
+            confirmSkip: "Confirm Skip",
+            locked: "Locked",
+            completed: "Completed",
+            skipLocked: "Skip Locked",
+            mastered: "Mastered",
+            leetcodeMode: "LeetCode Study",
+            masteryLoop: "Mastery Challenge",
+            masteryHub: "Mastery Hub",
+            saved: "Saved Lessons"
+        },
+        runner: {
+            incorrect: "Incorrect",
+            correct: "Correct!",
+            check: "CHECK",
+            next: "NEXT",
+            continue: "CONTINUE",
+            tryAgain: "TRY AGAIN",
+            skipLockedTitle: "Skip Challenge Failed",
+            skipLockedDesc: "You exceeded the 2 mistake limit. Skip is now locked.",
+            skipLockedAction: "Continue as Practice",
+            quit: "Quit",
+            mistakeLabel: "Review Mode",
+            reviewPhaseTitle: "Mistake Repair",
+            reviewPhaseDesc: "Let's fix the problems you missed.",
+            startReview: "Start Repair",
+            lessonFeedback: "How was this lesson?",
+            badFeedback: "Bad (Regenerate)",
+            goodFeedback: "Good",
+            practiceMode: "Practice Mode",
+            skipMode: "Skip Challenge",
+            remainingLives: "Lives Left"
+        }
+    }
+};

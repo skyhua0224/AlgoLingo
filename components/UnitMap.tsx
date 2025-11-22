@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Lock, Check, Star, ArrowLeft, History, PlayCircle, Crown, BookOpenCheck, AlertTriangle, FastForward, BookOpen, Code } from 'lucide-react';
+import { Lock, Check, Star, ArrowLeft, History, PlayCircle, Crown, BookOpenCheck, AlertTriangle, FastForward, BookOpen, Code, Sparkles, Trophy, Layout } from 'lucide-react';
 import { SavedLesson } from '../types';
 import { Button } from './Button';
 
@@ -35,7 +35,11 @@ const LOCALE = {
         locked: "已锁定",
         completed: "已完成",
         skipLocked: "跳级已锁定",
-        startBtn: "开始"
+        startBtn: "开始",
+        mastered: "已精通",
+        leetcodeMode: "力扣学习",
+        masteryLoop: "精通挑战",
+        masteryHub: "精通中心"
     },
     English: {
         unit: "Problem",
@@ -56,7 +60,11 @@ const LOCALE = {
         locked: "Locked",
         completed: "Completed",
         skipLocked: "Skip Locked",
-        startBtn: "Start"
+        startBtn: "Start",
+        mastered: "Mastered",
+        leetcodeMode: "LeetCode Study",
+        masteryLoop: "Mastery Challenge",
+        masteryHub: "Mastery Hub"
     }
 };
 
@@ -64,7 +72,7 @@ export const UnitMap: React.FC<UnitMapProps> = ({ problemName, currentLevel, sav
   const [showSkipModal, setShowSkipModal] = useState(false);
   const t = LOCALE[language];
 
-  // 6 Phases: Indices 0 to 5
+  // 6 Phases: Indices 0 to 5. Index 6 is LeetCode (Virtual)
   const pathNodes = [
       { id: 0, type: 'lesson', icon: <BookOpen size={24} />, label: t.intro, subtitle: "Level 1" },
       { id: 1, type: 'lesson', icon: <Code size={24} />, label: t.basics, subtitle: "Level 2" },
@@ -75,17 +83,24 @@ export const UnitMap: React.FC<UnitMapProps> = ({ problemName, currentLevel, sav
   ];
 
   const isSkipLocked = failedSkips && failedSkips[problemName];
+  const isMastered = currentLevel >= 6;
 
   const handleNodeClick = (nodeId: number, isLocked: boolean) => {
-      // Special handling for Boss Node (5) - Skip Logic
-      if (nodeId === 5 && isLocked) {
-          if (isSkipLocked) {
-              return;
+      // Boss Node Logic
+      if (nodeId === 5) {
+          // If locked and skip available -> Skip Modal
+          if (isLocked) {
+              if (!isSkipLocked) {
+                  setShowSkipModal(true);
+                  return;
+              }
+          } else {
+              // If unlocked or mastered, start Mastery Phase (Index 5)
+              onStartLevel(5);
           }
-          setShowSkipModal(true);
           return;
       }
-
+      
       if (!isLocked) {
           onStartLevel(nodeId);
       }
@@ -122,38 +137,65 @@ export const UnitMap: React.FC<UnitMapProps> = ({ problemName, currentLevel, sav
           </div>
       )}
 
-      {/* Floating Rounded Header */}
-      <div className="fixed top-6 left-6 right-6 z-30">
-        <div className="bg-white/90 dark:bg-dark-card/90 backdrop-blur-md border border-gray-200 dark:border-gray-800 px-6 py-4 flex items-center justify-between shadow-lg rounded-2xl max-w-5xl mx-auto">
-            <div className="flex items-center gap-4">
-                <button onClick={onBack} className="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-white p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-                    <ArrowLeft size={24} />
-                </button>
-                <div>
-                    <h1 className="text-lg md:text-xl font-extrabold text-gray-900 dark:text-white tracking-tight leading-none truncate max-w-[200px] md:max-w-none">{problemName}</h1>
-                    <p className="text-brand font-bold text-xs uppercase tracking-wide mt-0.5">{t.unit}</p>
-                </div>
+      {/* Header */}
+      <div className="fixed top-0 left-0 right-0 z-30 bg-white/90 dark:bg-dark-card/90 backdrop-blur-md border-b border-gray-200 dark:border-gray-800 px-6 md:px-12 py-4 flex items-center justify-between shadow-sm">
+        <div className="flex items-center gap-4">
+            <button onClick={onBack} className="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-white p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                <ArrowLeft size={24} />
+            </button>
+            <div>
+                <h1 className="text-xl font-extrabold text-gray-900 dark:text-white tracking-tight leading-none">{problemName}</h1>
+                <p className="text-brand font-bold text-xs uppercase tracking-wide mt-1">{t.unit}</p>
             </div>
-            
-            {/* Current Progress Indicator */}
-            <div className="hidden md:flex items-center gap-2 text-xs font-bold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-1.5 rounded-full">
-                <Star size={14} className="text-yellow-500 fill-yellow-500"/>
-                <span>{currentLevel}/6 {t.completed}</span>
-            </div>
+        </div>
+        
+        <div className="hidden md:flex items-center gap-2 text-xs font-bold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-1.5 rounded-full">
+             <Star size={14} className="text-yellow-500 fill-yellow-500"/>
+             <span>{Math.min(currentLevel, 6)}/6 {t.completed}</span>
         </div>
       </div>
 
       {/* Grid Container */}
-      <div className="flex-1 pt-32 pb-24 px-6 md:px-12 w-full max-w-5xl mx-auto animate-fade-in-up">
+      <div className="flex-1 pt-32 pb-24 px-4 md:px-16 w-full max-w-5xl mx-auto animate-fade-in-up">
         
-        {/* Redesigned 3-Column Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 md:gap-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-6 md:gap-10">
             {pathNodes.map((node) => {
                 const isLocked = node.id > currentLevel;
                 const isCompleted = node.id < currentLevel;
                 const isCurrent = node.id === currentLevel;
                 
-                // Special check for Boss Skip capability
+                // Special Logic for Boss Node when Mastered
+                if (node.id === 5 && isMastered) {
+                    return (
+                        <div key={node.id} className="col-span-1 md:col-span-2 md:col-start-2 p-1 rounded-3xl bg-gradient-to-br from-yellow-200 via-yellow-400 to-yellow-600 shadow-xl animate-pulse-soft">
+                             <div className="bg-white dark:bg-dark-card rounded-[20px] p-6 h-full flex flex-col items-center justify-center text-center gap-4">
+                                 <div className="flex items-center gap-2 mb-2">
+                                     <Crown size={32} className="text-yellow-500 fill-yellow-500"/>
+                                     <h3 className="text-2xl font-extrabold text-gray-800 dark:text-white">{t.masteryHub}</h3>
+                                 </div>
+                                 
+                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
+                                     <button 
+                                         onClick={() => onStartLevel(6)} // Phase 7 = Index 6 = LeetCode
+                                         className="flex flex-col items-center p-4 rounded-xl bg-gray-50 dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 hover:border-brand hover:bg-brand-bg dark:hover:bg-brand/10 transition-all group"
+                                     >
+                                         <Layout size={24} className="text-gray-500 group-hover:text-brand mb-2"/>
+                                         <span className="font-bold text-sm text-gray-700 dark:text-gray-200">{t.leetcodeMode}</span>
+                                     </button>
+
+                                     <button 
+                                         onClick={() => onStartLevel(5)} // Replay Mastery
+                                         className="flex flex-col items-center p-4 rounded-xl bg-yellow-50 dark:bg-yellow-900/20 border-2 border-yellow-200 dark:border-yellow-700 hover:border-yellow-500 hover:bg-yellow-100 transition-all group"
+                                     >
+                                         <Trophy size={24} className="text-yellow-600 dark:text-yellow-500 mb-2"/>
+                                         <span className="font-bold text-sm text-yellow-800 dark:text-yellow-400">{t.masteryLoop}</span>
+                                     </button>
+                                 </div>
+                             </div>
+                        </div>
+                    );
+                }
+
                 const isBossNode = node.id === 5;
                 const isBossSkipAvailable = isBossNode && isLocked && !isSkipLocked;
                 const isBossSkipLocked = isBossNode && isLocked && isSkipLocked;
@@ -163,9 +205,9 @@ export const UnitMap: React.FC<UnitMapProps> = ({ problemName, currentLevel, sav
                 let iconColor = 'text-gray-400 dark:text-gray-500';
                 
                 if (isCompleted) {
-                    borderColor = 'border-green-500';
-                    bgColor = 'bg-green-50 dark:bg-green-900/10';
-                    iconColor = 'text-green-500';
+                    borderColor = 'border-yellow-500'; // Gold for completed
+                    bgColor = 'bg-yellow-50 dark:bg-yellow-900/10';
+                    iconColor = 'text-yellow-500';
                 } else if (isCurrent) {
                     borderColor = 'border-brand';
                     bgColor = 'bg-white dark:bg-dark-card';
@@ -178,40 +220,31 @@ export const UnitMap: React.FC<UnitMapProps> = ({ problemName, currentLevel, sav
                     bgColor = 'bg-gray-100 dark:bg-gray-800';
                 }
 
-                if (node.type === 'boss') {
-                     if (isCompleted) {
-                         borderColor = 'border-yellow-500';
-                         iconColor = 'text-yellow-500';
-                         bgColor = 'bg-yellow-50 dark:bg-yellow-900/10';
-                     } else if (isCurrent) {
-                         borderColor = 'border-yellow-500';
-                     }
-                }
-
                 return (
                     <button
                         key={node.id}
                         onClick={() => handleNodeClick(node.id, isLocked)}
                         disabled={isLocked && !isBossSkipAvailable}
                         className={`
-                            relative p-6 md:p-8 rounded-2xl border-2 border-b-4 transition-all duration-200 text-left flex flex-col h-full min-h-[160px] justify-between
+                            relative p-8 rounded-3xl border-2 border-b-4 transition-all duration-200 text-left flex flex-col h-full min-h-[180px] justify-between
                             ${borderColor} ${bgColor}
-                            ${!isLocked || isBossSkipAvailable ? 'hover:-translate-y-1 hover:shadow-md active:translate-y-0 active:shadow-none active:border-b-2' : 'opacity-70 cursor-not-allowed'}
+                            ${!isLocked || isBossSkipAvailable ? 'hover:-translate-y-1 hover:shadow-md active:translate-y-0 active:shadow-none active:border-b-2' : 'opacity-80 cursor-not-allowed'}
                             ${isCurrent ? 'ring-4 ring-brand/20 dark:ring-brand/10' : ''}
+                            ${isCompleted ? 'shadow-sm' : ''}
                         `}
                     >
-                        <div className="flex justify-between items-start mb-2">
-                             <div className={`p-3 rounded-xl ${isCompleted ? 'bg-green-200 dark:bg-green-900/30' : (isCurrent ? 'bg-brand-bg dark:bg-brand/20' : 'bg-gray-200 dark:bg-gray-700')} ${iconColor}`}>
-                                 {isCompleted ? <Check size={20} strokeWidth={3} /> : 
-                                  isBossSkipAvailable ? <FastForward size={20} /> :
-                                  (isLocked ? <Lock size={20} className="text-gray-400" /> : node.icon)
+                        <div className="flex justify-between items-start mb-4">
+                             <div className={`p-4 rounded-2xl ${isCompleted ? 'bg-yellow-100 dark:bg-yellow-900/30' : (isCurrent ? 'bg-brand-bg dark:bg-brand/20' : 'bg-gray-200 dark:bg-gray-700')} ${iconColor}`}>
+                                 {isCompleted ? <Sparkles size={24} className="text-yellow-500" /> : 
+                                  isBossSkipAvailable ? <FastForward size={24} /> :
+                                  (isLocked ? <Lock size={24} className="text-gray-400" /> : node.icon)
                                  }
                              </div>
-                             <span className="text-[10px] md:text-xs font-bold text-gray-400 uppercase tracking-wider">{node.subtitle}</span>
+                             <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">{node.subtitle}</span>
                         </div>
                         
-                        <div className="mt-1">
-                            <h3 className={`text-base md:text-lg font-extrabold mb-2 truncate ${isLocked && !isBossSkipAvailable ? 'text-gray-400' : 'text-gray-800 dark:text-white'}`}>
+                        <div className="mt-2">
+                            <h3 className={`text-lg font-extrabold mb-2 ${isLocked && !isBossSkipAvailable ? 'text-gray-400' : 'text-gray-800 dark:text-white'}`}>
                                 {node.label}
                             </h3>
                             <div className="flex flex-wrap items-center gap-2">
@@ -229,7 +262,7 @@ export const UnitMap: React.FC<UnitMapProps> = ({ problemName, currentLevel, sav
                                     <span className="text-[10px] font-bold text-gray-400 uppercase">{t.skipLocked}</span>
                                 )}
                                 {isCompleted && (
-                                    <span className="text-[10px] font-bold text-green-600 dark:text-green-400 uppercase">{t.completed}</span>
+                                    <span className="text-[10px] font-bold text-yellow-600 dark:text-yellow-400 uppercase">{t.mastered}</span>
                                 )}
                             </div>
                         </div>
@@ -239,20 +272,20 @@ export const UnitMap: React.FC<UnitMapProps> = ({ problemName, currentLevel, sav
         </div>
 
         {savedLessons.length > 0 && (
-            <div className="mt-12 md:mt-16">
-                <div className="flex items-center gap-2 text-gray-400 mb-4 font-bold text-xs uppercase tracking-wider px-2">
+            <div className="mt-16">
+                <div className="flex items-center gap-2 text-gray-400 mb-6 font-bold text-xs uppercase tracking-wider px-2">
                     <History size={16} />
                     <span>{t.saved}</span>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {savedLessons.map(lesson => (
                         <button 
                             key={lesson.id}
                             onClick={() => onLoadSaved(lesson)}
-                            className="w-full p-5 rounded-2xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card hover:border-brand hover:shadow-md transition-all flex items-center justify-between group text-left"
+                            className="w-full p-6 rounded-2xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card hover:border-brand hover:shadow-md transition-all flex items-center justify-between group text-left"
                         >
                             <div>
-                                <h4 className="font-bold text-gray-800 dark:text-gray-200 text-sm md:text-base mb-1">{lesson.plan.title}</h4>
+                                <h4 className="font-bold text-gray-800 dark:text-gray-200 text-base mb-2">{lesson.plan.title}</h4>
                                 <div className="flex items-center gap-2">
                                     <span className="bg-gray-100 dark:bg-gray-800 text-gray-500 text-[10px] font-bold px-2 py-0.5 rounded-md">
                                         {lesson.language}
@@ -260,7 +293,7 @@ export const UnitMap: React.FC<UnitMapProps> = ({ problemName, currentLevel, sav
                                     <p className="text-xs text-gray-400">{new Date(lesson.timestamp).toLocaleDateString()}</p>
                                 </div>
                             </div>
-                            <PlayCircle className="text-gray-300 dark:text-gray-600 group-hover:text-brand transition-colors" size={28} />
+                            <PlayCircle className="text-gray-300 dark:text-gray-600 group-hover:text-brand transition-colors" size={32} />
                         </button>
                     ))}
                 </div>

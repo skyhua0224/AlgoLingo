@@ -4,22 +4,22 @@ import { LessonPlan, LessonScreen, Widget, MistakeRecord, UserPreferences } from
 import { Button } from './Button';
 import { 
   DialogueWidget, FlipCardWidget, CalloutWidget, InteractiveCodeWidget,
-  ParsonsWidget, FillInWidget, QuizWidgetPresenter, CodeEditorWidget, StepsWidget, ViewSolutionWidget
+  ParsonsWidget, FillInWidget, QuizWidgetPresenter, StepsWidget
 } from './widgets/LessonWidgets';
-import { X, CheckCircle, Flame, AlertCircle, MessageSquarePlus, Send, Sparkles, RotateCcw, ArrowRight, ThumbsUp, ThumbsDown, HelpCircle, SkipForward, LogOut, History, Clock, Heart, ShieldAlert, Skull } from 'lucide-react';
+import { X, CheckCircle, Flame, AlertCircle, MessageSquarePlus, Send, Sparkles, RotateCcw, ArrowRight, ThumbsUp, ThumbsDown, HelpCircle, SkipForward, LogOut, History, Code, Lightbulb, ExternalLink, Clock, Target, FastForward, Zap, Layout } from 'lucide-react';
 import { generateAiAssistance } from '../services/geminiService';
+import { generateAiNotification, sendWebhookNotification } from '../services/notificationService';
 import { GEMINI_MODELS } from '../constants';
 
 interface LessonRunnerProps {
   plan: LessonPlan;
-  nodeIndex: number; // New prop to track phase
-  onComplete: (stats: { xp: number; streak: number }, shouldSave: boolean, mistakes: MistakeRecord[], failedSkip?: boolean) => void;
+  nodeIndex: number; // 0-5 (Normal), 6 (LeetCode)
+  onComplete: (stats: { xp: number; streak: number }, shouldSave: boolean, mistakes: MistakeRecord[]) => void;
   onExit: () => void;
-  onRegenerate?: () => void; // New: Regen callback
+  onRegenerate?: () => void; 
   language: 'Chinese' | 'English';
   preferences: UserPreferences;
   isReviewMode?: boolean;
-  isSkipAttempt?: boolean; // New prop to identify skip mode
 }
 
 type ScreenStatus = 'idle' | 'correct' | 'wrong';
@@ -50,16 +50,14 @@ const LOCALE = {
         stay: "继续学习",
         leaveConfirmTitle: "确定要离开吗？",
         leaveConfirmDesc: "再坚持一下，还有几道题就完成了！现在退出将无法保存本次进度。",
-        skipConfirmTitle: "确定要跳过吗？",
-        skipConfirmDesc: "建议询问 AI 助手帮助理解，直接跳过将无法巩固知识点。",
-        skipFailTitle: "跳级挑战失败",
-        skipFailDesc: "你的错误次数已超过限制（>2次），无法直接精通该单元。该单元的跳级功能将被锁定。",
-        skipFailContinue: "转为练习模式继续",
-        skipFailReturn: "放弃并返回",
-        lives: "生命值",
-        mistakes: "错题",
+        skipLockedTitle: "跳级挑战失败",
+        skipLockedDesc: "错误已超过 2 次限制。跳级功能已锁定。",
+        skipLockedAction: "转为练习模式 (不计入跳级)",
+        quit: "退出",
+        leetcodeExternal: "无法加载？在浏览器中打开",
         practiceMode: "练习模式",
-        bossMode: "跳级挑战",
+        skipMode: "跳级挑战",
+        remainingLives: "剩余机会"
     },
     English: {
         incorrect: "Incorrect",
@@ -86,55 +84,44 @@ const LOCALE = {
         stay: "Keep Learning",
         leaveConfirmTitle: "Are you sure?",
         leaveConfirmDesc: "You're almost there! Exiting now will lose your current progress.",
-        skipConfirmTitle: "Skip this problem?",
-        skipConfirmDesc: "We recommend asking the AI for help. Skipping might affect your mastery.",
-        skipFailTitle: "Skip Challenge Failed",
-        skipFailDesc: "You have exceeded the mistake limit (>2). You cannot skip to mastery directly. Skip feature for this unit will be locked.",
-        skipFailContinue: "Continue as Practice",
-        skipFailReturn: "Return",
-        lives: "Lives",
-        mistakes: "Mistakes",
+        skipLockedTitle: "Skip Challenge Failed",
+        skipLockedDesc: "You exceeded the 2 mistake limit. Skip is now locked.",
+        skipLockedAction: "Continue as Practice",
+        quit: "Quit",
+        leetcodeExternal: "Can't load? Open in Browser",
         practiceMode: "Practice Mode",
-        bossMode: "Boss Challenge",
+        skipMode: "Skip Challenge",
+        remainingLives: "Lives Left"
     }
 };
 
-// Helper to remove comments for comparison
+// Helper to remove comments
 const cleanCodeLine = (line: string) => {
     return line.replace(/\s*#.*$/, '').replace(/\s*\/\/.*$/, '').trim();
 };
 
-const stripMarkdown = (text: string) => text ? text.replace(/\*\*/g, '') : '';
-
-export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onComplete, onExit, onRegenerate, language, preferences, isReviewMode = false, isSkipAttempt: initialSkipAttempt = false }) => {
-  // Lesson State
+export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onComplete, onExit, onRegenerate, language, preferences, isReviewMode = false }) => {
   const [screens, setScreens] = useState<LessonScreen[]>(plan.screens || []);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isInMistakeLoop, setIsInMistakeLoop] = useState(false); // Local review loop
+  
+  // Skip / Practice Logic
+  const [isSkipModeVisual, setIsSkipModeVisual] = useState(nodeIndex === 5); 
+  const [isPracticeMode, setIsPracticeMode] = useState(false); 
+  const [skipLives, setSkipLives] = useState(2);
+  const [showSkipLockedModal, setShowSkipLockedModal] = useState(false);
+
+  const [isInMistakeLoop, setIsInMistakeLoop] = useState(false); 
   const [showReviewIntro, setShowReviewIntro] = useState(false); 
   const [showFeedback, setShowFeedback] = useState(false);
-  const [showExitModal, setShowExitModal] = useState(false);
-  const [showSkipModal, setShowSkipModal] = useState(false);
-  const [showSkipFailModal, setShowSkipFailModal] = useState(false);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
   
-  // State that can change from props
-  const [isSkipAttempt, setIsSkipAttempt] = useState(initialSkipAttempt);
-  const [isPracticeMode, setIsPracticeMode] = useState(false);
-
-  // Skip Logic Counter
-  const [skipMistakeCount, setSkipMistakeCount] = useState(0);
-  const MAX_SKIP_MISTAKES = 2;
-
   const currentScreen = screens[currentIndex];
-  
   const [status, setStatus] = useState<ScreenStatus>('idle');
   const [streak, setStreak] = useState(0);
   const [xpGained, setXpGained] = useState(0);
   const [sessionMistakes, setSessionMistakes] = useState<MistakeRecord[]>([]);
   
-  // Timer State
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [showStreakAnim, setShowStreakAnim] = useState(false);
+  const [timerSeconds, setTimerSeconds] = useState(0);
 
   const t = LOCALE[language];
 
@@ -143,17 +130,13 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
   const [parsonsOrder, setParsonsOrder] = useState<string[]>([]);
   const [stepsOrder, setStepsOrder] = useState<string[]>([]);
   const [fillInAnswers, setFillInAnswers] = useState<string[]>([]);
-  const [codeEditorStatus, setCodeEditorStatus] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
 
-  // Chat State
-  const [showChat, setShowChat] = useState(false);
-  const [chatMessages, setChatMessages] = useState<{role: 'user'|'ai', text: string}[]>([]);
-  const [chatInput, setChatInput] = useState('');
-  const [isChatLoading, setIsChatLoading] = useState(false);
-  const [chatModel, setChatModel] = useState<string>(preferences.apiConfig.gemini.model || 'gemini-2.5-flash');
-
-  // Reset Key used to force re-render widgets on "Try Again"
   const [widgetResetKey, setWidgetResetKey] = useState(0);
+
+  useEffect(() => {
+      const interval = setInterval(() => setTimerSeconds(s => s + 1), 1000);
+      return () => clearInterval(interval);
+  }, []);
 
   if (!screens || screens.length === 0) {
       return <div className="p-8 text-center">Error loading lesson. <button onClick={onExit} className="text-brand underline">Exit</button></div>;
@@ -162,50 +145,23 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
   useEffect(() => {
       setStatus('idle');
       resetInteractions();
-      setChatMessages([]); 
   }, [currentScreen?.id]);
-
-  // Timer Effect
-  useEffect(() => {
-      const timer = setInterval(() => {
-          setElapsedSeconds(s => s + 1);
-      }, 1000);
-      return () => clearInterval(timer);
-  }, []);
-
-  // Streak Animation Effect
-  useEffect(() => {
-      if (streak > 0 && streak % 5 === 0) {
-          setShowStreakAnim(true);
-          const t = setTimeout(() => setShowStreakAnim(false), 2000);
-          return () => clearTimeout(t);
-      }
-  }, [streak]);
-
-  const formatTime = (secs: number) => {
-      const m = Math.floor(secs / 60);
-      const s = secs % 60;
-      return `${m}:${s.toString().padStart(2, '0')}`;
-  };
 
   const resetInteractions = () => {
       setQuizSelection(null);
-      setParsonsOrder([]); // Widget will re-shuffle via key
+      setParsonsOrder([]); 
       setStepsOrder([]);
       setFillInAnswers([]);
-      setCodeEditorStatus('idle');
       setWidgetResetKey(prev => prev + 1);
   }
 
-  // --- ROBUST INTERACTIVE CHECK ---
   const interactiveWidget = currentScreen?.widgets.find(w => {
       if (w.type === 'quiz') return true;
       if (w.type === 'parsons') return true;
       if (w.type === 'fill-in') return true;
-      if (w.type === 'code-editor') return true;
+      if (w.type === 'leetcode') return true; 
       if (w.type === 'steps-list' && w.stepsList?.mode === 'interactive') return true;
       if (w.type === 'flipcard' && w.flipcard?.mode === 'assessment') return true;
-      // 'solution-display' is considered non-interactive in terms of scoring, handled separately
       return false;
   });
 
@@ -224,10 +180,8 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
               failureContext = interactiveWidget.quiz.question;
           } else if (interactiveWidget.type === 'parsons') {
               const correctLines = interactiveWidget.parsons?.lines || [];
-              // Clean comments for robust comparison
               const userClean = parsonsOrder.map(cleanCodeLine).filter(l => l.length > 0);
               const correctClean = correctLines.map(cleanCodeLine).filter(l => l.length > 0);
-              
               isCorrect = JSON.stringify(userClean) === JSON.stringify(correctClean);
               failureContext = "Logic ordering";
           } else if (interactiveWidget.type === 'steps-list' && interactiveWidget.stepsList) {
@@ -237,15 +191,11 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
           } else if (interactiveWidget.type === 'fill-in' && interactiveWidget.fillIn) {
               const correct = interactiveWidget.fillIn.correctValues;
               if (interactiveWidget.fillIn.inputMode === 'type') {
-                  // Fuzzy match case insensitive
                   isCorrect = fillInAnswers.every((ans, i) => ans.trim().toLowerCase() === correct[i].trim().toLowerCase());
               } else {
                   isCorrect = JSON.stringify(fillInAnswers) === JSON.stringify(correct);
               }
               failureContext = interactiveWidget.fillIn.code;
-          } else if (interactiveWidget.type === 'code-editor') {
-              isCorrect = codeEditorStatus === 'success';
-              failureContext = "Coding implementation";
           }
       }
 
@@ -257,26 +207,22 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
           setStatus('wrong');
           setStreak(0);
           
-          // Record Mistake if first time wrong
           const newMistake: MistakeRecord = {
               id: Date.now().toString(),
               problemName: plan.title,
-              nodeIndex: nodeIndex, // Track phase
+              nodeIndex: nodeIndex, 
               questionType: interactiveWidget.type,
               context: failureContext,
               timestamp: Date.now(),
-              widget: interactiveWidget // Capture FULL widget state for faithful replay
+              widget: interactiveWidget
           };
           setSessionMistakes(p => [...p, newMistake]);
 
-          // --- SKIP LOGIC CHECK ---
-          if (isSkipAttempt) {
-              const newCount = skipMistakeCount + 1;
-              setSkipMistakeCount(newCount);
-              if (newCount > MAX_SKIP_MISTAKES) {
-                  // Show Failure Modal instead of Alert
-                  setShowSkipFailModal(true);
-                  return;
+          if (isSkipModeVisual && !isPracticeMode) {
+              const newCount = skipLives - 1;
+              setSkipLives(newCount);
+              if (newCount < 0) {
+                  setShowSkipLockedModal(true);
               }
           }
       }
@@ -286,10 +232,17 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
       if (currentIndex < screens.length - 1) {
           setCurrentIndex(p => p + 1);
       } else {
-          if (sessionMistakes.length > 0 && !isInMistakeLoop && !isReviewMode && !isSkipAttempt && !isPracticeMode) {
+          if (sessionMistakes.length > 0 && !isInMistakeLoop && !isReviewMode) {
               setShowReviewIntro(true);
           } else {
               setShowFeedback(true);
+              // Trigger AI Notification asynchronously
+              if (preferences.notificationConfig.enabled) {
+                  const updatedStats = { streak: streak, xp: xpGained }; // Partial stat
+                  generateAiNotification(updatedStats as any, preferences, 'lesson_complete').then(msg => {
+                      sendWebhookNotification(preferences.notificationConfig, msg);
+                  });
+              }
           }
       }
   };
@@ -297,527 +250,294 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ plan, nodeIndex, onC
   const handleTryAgain = () => {
       setStatus('idle');
       resetInteractions();
-      // Don't advance index, user must solve it
   };
 
-  const handleSkipConfirm = () => {
-      setShowSkipModal(false);
-      handleNext();
-  };
-
-  const handleSkipFailContinue = () => {
-      // Continue as Practice Mode
-      // NOTE: We pass 'failedSkip=true' effectively by ensuring 'isSkipAttempt' becomes false here
-      // but we still track the failure so 'onComplete' knows not to award mastery.
-      setIsSkipAttempt(false);
+  const convertToPractice = () => {
       setIsPracticeMode(true);
-      setShowSkipFailModal(false);
-      
-      // We mark the skip as failed in the preferences immediately via callback if possible,
-      // or wait until the end. To be safe, let's rely on the final callback.
-  };
+      setShowSkipLockedModal(false);
+  }
 
   const handleFeedback = (good: boolean) => {
       if (good) {
-          // If we are in Practice Mode (after skip fail), we pass failedSkip=true
-          onComplete({ xp: xpGained, streak }, true, sessionMistakes, isPracticeMode);
+          onComplete({ xp: xpGained, streak }, true, sessionMistakes);
       } else {
-          if (onRegenerate) {
-              onRegenerate(); // Trigger Regen
-          } else {
-              onExit();
-          }
+          if (onRegenerate) onRegenerate(); 
+          else onExit();
       }
   }
 
-  const startReviewPhase = () => {
-      // Deduplicate mistakes based on Widget ID so we don't ask the same question multiple times
-      const uniqueIds = new Set();
-      const uniqueMistakes = sessionMistakes.filter(m => {
-          if (!m.widget || uniqueIds.has(m.widget.id)) return false;
-          uniqueIds.add(m.widget.id);
-          return true;
-      });
+  const formatTime = (sec: number) => {
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  }
 
-      if (uniqueMistakes.length === 0) {
-          // Should normally be caught by handleNext check, but safe fallback
-          setShowFeedback(true);
-          return;
+  const handleExitClick = () => {
+      if (showFeedback) {
+          onExit();
+      } else {
+          setShowExitConfirm(true);
       }
-
-      const reviewScreens: LessonScreen[] = uniqueMistakes.map((m, i) => ({
-          id: `review_mistake_${m.widget!.id}_${i}`, // Unique ID triggers resetInteractions
-          header: `${t.mistakeLabel} ${i + 1}/${uniqueMistakes.length}`,
-          widgets: [m.widget!],
-          isRetry: true
-      }));
-
-      setScreens(reviewScreens);
-      setCurrentIndex(0);
-      setIsInMistakeLoop(true);
-      setShowReviewIntro(false);
-      setStatus('idle');
   };
 
-  const handleChatSubmit = async (msg?: string) => {
-      const userMsg = msg || chatInput;
-      if (!userMsg.trim()) return;
+  if (!currentScreen) return null;
+
+  const progressPercent = ((currentIndex + 1) / screens.length) * 100;
+  const showSkipUI = isSkipModeVisual && !isPracticeMode;
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-white dark:bg-dark-bg flex flex-col md:relative md:z-0 md:inset-auto md:h-[calc(100vh-6rem)] md:rounded-3xl md:overflow-hidden md:border border-gray-200 dark:border-gray-700 shadow-2xl mx-auto max-w-4xl transition-all">
       
-      setChatMessages(prev => [...prev, { role: 'user', text: userMsg }]);
-      setChatInput('');
-      setIsChatLoading(true);
+      {/* Exit Confirmation Modal */}
+      {showExitConfirm && (
+           <div className="absolute inset-0 z-[90] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
+              <div className="bg-white dark:bg-dark-card rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl border-2 border-gray-200 dark:border-gray-700 animate-scale-in">
+                  <div className="mb-4 bg-gray-100 dark:bg-gray-800 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
+                        <LogOut className="text-gray-500 dark:text-gray-400" size={32} />
+                  </div>
+                  <h3 className="text-xl font-extrabold text-gray-800 dark:text-white mb-2">{t.leaveConfirmTitle}</h3>
+                  <p className="text-gray-500 dark:text-gray-400 mb-6 text-sm">{t.leaveConfirmDesc}</p>
+                  <div className="flex flex-col gap-3">
+                      <Button variant="primary" onClick={() => setShowExitConfirm(false)} className="w-full">{t.stay}</Button>
+                      <button onClick={onExit} className="text-gray-400 text-sm font-bold hover:text-gray-600 py-2">{t.quit}</button>
+                  </div>
+              </div>
+           </div>
+       )}
 
-      const context = currentScreen.widgets.map(w => {
-          if (w.dialogue) return `Dialogue: ${w.dialogue.text}`;
-          if (w.code) return `Code: ${w.code.content}`;
-          if (w.quiz) return `Quiz Question: ${w.quiz.question}`;
-          if (w.interactiveCode) return `Code Lines: ${w.interactiveCode.lines.map(l => l.code).join('\n')}`;
-          return '';
-      }).join('\n---\n');
+       {showSkipLockedModal && (
+          <div className="absolute inset-0 z-[80] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
+              <div className="bg-white dark:bg-dark-card rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl border-2 border-red-100 dark:border-red-900/50 animate-scale-in">
+                  <div className="mb-4 bg-red-100 dark:bg-red-900/30 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
+                        <AlertCircle className="text-red-500" size={32} />
+                  </div>
+                  <h3 className="text-xl font-extrabold text-gray-800 dark:text-white mb-2">{t.skipLockedTitle}</h3>
+                  <p className="text-gray-500 dark:text-gray-400 mb-6 text-sm">{t.skipLockedDesc}</p>
+                  <div className="flex flex-col gap-3">
+                      <Button variant="primary" onClick={convertToPractice} className="w-full">{t.skipLockedAction}</Button>
+                      <button onClick={onExit} className="text-gray-400 text-sm font-bold hover:text-gray-600 py-2">{t.quit}</button>
+                  </div>
+              </div>
+          </div>
+      )}
 
-      const aiResponse = await generateAiAssistance(context, userMsg, preferences, chatModel);
-      setChatMessages(prev => [...prev, { role: 'ai', text: aiResponse || "Sorry, I couldn't help." }]);
-      setIsChatLoading(false);
-  }
-
-  // Intercept Exit
-  const handleExitClick = () => {
-      setShowExitModal(true);
-  }
-
-  // --- Modals ---
-  if (showReviewIntro) {
-      return (
-          <div className="fixed inset-0 z-[60] bg-orange-50 dark:bg-orange-900/20 flex flex-col items-center justify-center p-8 text-center md:relative md:z-0 md:inset-auto md:h-full md:rounded-3xl">
-              <div className="bg-white dark:bg-dark-card p-6 rounded-full shadow-lg mb-6">
+      {showReviewIntro && (
+          <div className="absolute inset-0 z-[70] bg-white dark:bg-dark-bg flex flex-col items-center justify-center p-8 text-center">
+              <div className="bg-orange-50 dark:bg-orange-900/20 p-6 rounded-full shadow-lg mb-6">
                   <RotateCcw size={48} className="text-orange-500" />
               </div>
               <h2 className="text-2xl font-extrabold text-gray-800 dark:text-white mb-2">{t.reviewPhaseTitle}</h2>
               <p className="text-gray-500 dark:text-gray-400 mb-8 max-w-xs">{t.reviewPhaseDesc}</p>
-              <div className="flex flex-col gap-2 w-full max-w-xs">
-                <div className="text-xs text-center text-orange-600 mb-2 font-bold bg-orange-100 py-1 rounded-full">
-                    {sessionMistakes.length} {t.incorrect}
-                </div>
-                <Button onClick={startReviewPhase} variant="primary" className="w-full flex items-center justify-center gap-2">
-                    {t.startReview} <ArrowRight size={20}/>
-                </Button>
-              </div>
+              <Button onClick={() => {
+                  const uniqueMistakes = sessionMistakes.filter((m, i, self) => i === self.findIndex(t => t.widget?.id === m.widget?.id));
+                  const reviewScreens: LessonScreen[] = uniqueMistakes.map((m, i) => ({
+                      id: `review_${i}`,
+                      header: `${t.mistakeLabel} ${i + 1}/${uniqueMistakes.length}`,
+                      widgets: [m.widget!],
+                      isRetry: true
+                  }));
+                  setScreens(reviewScreens);
+                  setCurrentIndex(0);
+                  setIsInMistakeLoop(true);
+                  setShowReviewIntro(false);
+                  setStatus('idle');
+              }} variant="primary" className="w-full max-w-xs flex items-center justify-center gap-2">
+                  {t.startReview} <ArrowRight size={20}/>
+              </Button>
           </div>
-      );
-  }
+      )}
 
-  if (showFeedback) {
-      return (
-          <div className="fixed inset-0 z-[60] bg-brand-bg dark:bg-brand/5 flex flex-col items-center justify-center p-8 text-center animate-fade-in-up md:relative md:z-0 md:inset-auto md:h-full md:rounded-3xl">
+      {showFeedback && (
+           <div className="absolute inset-0 z-[70] bg-brand-bg dark:bg-brand/5 flex flex-col items-center justify-center p-8 text-center animate-fade-in-up">
               <h2 className="text-2xl font-extrabold text-gray-800 dark:text-white mb-8">{t.lessonFeedback}</h2>
               <div className="flex gap-4 w-full max-w-sm">
-                   <button 
-                        onClick={() => handleFeedback(false)}
-                        className="flex-1 p-6 bg-white dark:bg-dark-card border-2 border-red-100 dark:border-red-900/30 rounded-2xl hover:bg-red-50 dark:hover:bg-red-900/10 hover:border-red-200 transition-all group"
-                   >
+                   <button onClick={() => handleFeedback(false)} className="flex-1 p-6 bg-white dark:bg-dark-card border-2 border-red-100 dark:border-red-900/30 rounded-2xl hover:bg-red-50 transition-all group">
                        <ThumbsDown size={32} className="text-red-400 mb-2 mx-auto group-hover:scale-110 transition-transform"/>
                        <span className="text-xs font-bold text-red-400 uppercase">{t.badFeedback}</span>
                    </button>
-                   <button 
-                        onClick={() => handleFeedback(true)}
-                        className="flex-1 p-6 bg-white dark:bg-dark-card border-2 border-green-100 dark:border-green-900/30 rounded-2xl hover:bg-green-50 dark:hover:bg-green-900/10 hover:border-green-200 transition-all group"
-                   >
+                   <button onClick={() => handleFeedback(true)} className="flex-1 p-6 bg-white dark:bg-dark-card border-2 border-green-100 dark:border-green-900/30 rounded-2xl hover:bg-green-50 transition-all group">
                        <ThumbsUp size={32} className="text-green-500 mb-2 mx-auto group-hover:scale-110 transition-transform"/>
                        <span className="text-xs font-bold text-green-500 uppercase">{t.goodFeedback}</span>
                    </button>
               </div>
           </div>
-      )
-  }
-
-  if (!currentScreen) return null;
-
-  const progress = ((currentIndex + 1) / screens.length) * 100;
-  const isReviewing = isReviewMode || isInMistakeLoop;
-
-  return (
-    // Full Screen Override on Mobile using fixed inset-0 z-[60]
-    <div className="fixed inset-0 z-[60] bg-white dark:bg-dark-bg flex flex-col md:relative md:z-0 md:inset-auto md:h-[calc(100vh-6rem)] md:rounded-3xl md:overflow-hidden md:border border-gray-200 dark:border-gray-700 shadow-2xl max-w-4xl mx-auto">
-      
-      {/* Streak Animation Overlay */}
-      {showStreakAnim && (
-          <div className="absolute inset-0 z-[90] pointer-events-none flex items-start justify-center pt-16">
-             <div className="bg-orange-500 text-white px-6 py-2 rounded-full shadow-xl animate-fade-in-down flex items-center gap-2 border-4 border-orange-200">
-                 <Flame size={24} className="animate-pulse fill-current" />
-                 <span className="text-lg font-black uppercase italic">{streak} Streak!</span>
-             </div>
-          </div>
       )}
 
-      {/* Exit Modal */}
-      {showExitModal && (
-          <div className="absolute inset-0 z-[80] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
-              <div className="bg-white dark:bg-dark-card rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl border-2 border-gray-100 dark:border-gray-700 animate-scale-in">
-                  <div className="mb-4 bg-red-100 dark:bg-red-900/30 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
-                        <LogOut className="text-red-500" size={32} />
-                  </div>
-                  <h3 className="text-xl font-extrabold text-gray-800 dark:text-white mb-2">{t.leaveConfirmTitle}</h3>
-                  <p className="text-gray-500 dark:text-gray-400 mb-6 text-sm">{t.leaveConfirmDesc}</p>
-                  <div className="flex flex-col gap-3">
-                      <Button variant="primary" onClick={() => setShowExitModal(false)}>{t.stay}</Button>
-                      <button onClick={onExit} className="text-gray-400 text-sm font-bold hover:text-gray-600 py-2">{t.exit}</button>
-                  </div>
-              </div>
+      {/* HEADER */}
+      <div className="h-16 px-6 bg-white dark:bg-dark-card border-b border-gray-200 dark:border-gray-700 flex items-center justify-between shrink-0 z-10">
+          <div className="w-20 flex items-center gap-2 text-gray-400 font-mono font-bold text-sm">
+              <Clock size={16}/>
+              {formatTime(timerSeconds)}
           </div>
-      )}
 
-       {/* Skip Modal */}
-       {showSkipModal && (
-          <div className="absolute inset-0 z-[80] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
-              <div className="bg-white dark:bg-dark-card rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl border-2 border-gray-100 dark:border-gray-700 animate-scale-in">
-                  <div className="mb-4 bg-orange-100 dark:bg-orange-900/30 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
-                        <HelpCircle className="text-orange-500" size={32} />
-                  </div>
-                  <h3 className="text-xl font-extrabold text-gray-800 dark:text-white mb-2">{t.skipConfirmTitle}</h3>
-                  <p className="text-gray-500 dark:text-gray-400 mb-6 text-sm">{t.skipConfirmDesc}</p>
-                  <div className="flex flex-col gap-3">
-                      <Button 
-                        variant="secondary" 
-                        onClick={() => { setShowSkipModal(false); setShowChat(true); }} 
-                        className="flex items-center justify-center gap-2"
-                      >
-                        <Sparkles size={16}/> {t.askAi}
-                      </Button>
-                      <button onClick={handleSkipConfirm} className="text-gray-400 text-sm font-bold hover:text-gray-600 py-2">{t.skip}</button>
-                      <button onClick={() => setShowSkipModal(false)} className="text-brand text-sm font-bold py-2">Cancel</button>
-                  </div>
-              </div>
-          </div>
-      )}
-      
-      {/* Skip Failure Modal */}
-      {showSkipFailModal && (
-           <div className="absolute inset-0 z-[80] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6">
-               <div className="bg-white dark:bg-dark-card rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl border-4 border-red-100 dark:border-red-900 animate-scale-in">
-                    <div className="mb-4 bg-red-100 dark:bg-red-900/30 w-16 h-16 rounded-full flex items-center justify-center mx-auto relative">
-                          <ShieldAlert className="text-red-500" size={32} />
-                          <div className="absolute -bottom-1 -right-1 bg-red-500 text-white rounded-full p-1 border-2 border-white">
-                              <X size={12} strokeWidth={4} />
-                          </div>
-                    </div>
-                    <h3 className="text-xl font-extrabold text-gray-800 dark:text-white mb-2">{t.skipFailTitle}</h3>
-                    <p className="text-gray-500 dark:text-gray-400 mb-6 text-sm leading-relaxed">{t.skipFailDesc}</p>
-                    
-                    <div className="flex flex-col gap-3">
-                        <Button variant="secondary" onClick={handleSkipFailContinue} className="border-brand text-brand">
-                            {t.skipFailContinue}
-                        </Button>
-                        <button onClick={onExit} className="text-gray-400 text-sm font-bold hover:text-gray-600 py-2">
-                            {t.skipFailReturn}
-                        </button>
-                    </div>
+          <div className="flex-1 flex flex-col items-center max-w-xs mx-auto">
+               <div className="w-full h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden mb-1">
+                   <div className={`h-full transition-all duration-500 ${showSkipUI ? 'bg-orange-500' : 'bg-brand'}`} style={{ width: `${progressPercent}%` }} />
                </div>
-           </div>
-      )}
+               <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 flex items-center gap-1">
+                   {isSkipModeVisual ? (isPracticeMode ? t.practiceMode : t.skipMode) : currentScreen.header || "Lesson"}
+                   {showSkipUI && <FastForward size={10} className="text-orange-500" />}
+               </div>
+          </div>
 
-
-      {/* Enhanced Header */}
-      <div className={`px-4 py-3 backdrop-blur-md border-b border-gray-100 dark:border-gray-800 z-10 sticky top-0 transition-colors duration-300
-        ${isReviewing ? 'bg-orange-50/90 dark:bg-orange-900/20' : 
-          isSkipAttempt ? 'bg-purple-50/90 dark:bg-purple-900/20' : 'bg-white/90 dark:bg-dark-bg/90'}`}>
-        
-        <div className="flex items-center justify-between gap-3">
-            <button onClick={handleExitClick} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"><X size={24} /></button>
-            
-            {/* Central Progress Bar */}
-            <div className="flex-1 flex flex-col justify-center gap-1">
-                 <div className="h-3 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden relative shadow-inner">
-                    <div 
-                        className={`absolute h-full transition-all duration-700 ease-out rounded-full 
-                            ${isReviewing ? 'bg-orange-500' : isSkipAttempt ? 'bg-purple-500' : 'bg-brand'}`} 
-                        style={{ width: `${progress}%` }} 
-                    />
-                     {/* Subtle shimmer on progress bar */}
-                     <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.15)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.15)_50%,rgba(255,255,255,0.15)_75%,transparent_75%,transparent)] bg-[length:1rem_1rem] opacity-50" style={{ width: `${progress}%` }}></div>
-                </div>
-            </div>
-
-            {/* Stats Area */}
-            <div className="flex items-center gap-3">
-                 {/* Timer */}
-                 <div className="hidden md:flex items-center gap-1 text-gray-400 text-xs font-mono font-bold">
-                     <Clock size={14} />
-                     {formatTime(elapsedSeconds)}
-                 </div>
-
-                 {/* Mode Specific Stats */}
-                 {isSkipAttempt ? (
-                     <div className="flex items-center gap-1 px-2 py-1 bg-purple-100 dark:bg-purple-900/40 rounded-lg text-purple-600 dark:text-purple-300 font-bold text-xs">
-                         <Heart size={14} className="fill-current" />
-                         <span>{Math.max(0, MAX_SKIP_MISTAKES - skipMistakeCount + 1)}</span>
-                     </div>
-                 ) : (
-                     sessionMistakes.length > 0 && (
-                         <div className="flex items-center gap-1 px-2 py-1 bg-red-100 dark:bg-red-900/40 rounded-lg text-red-500 font-bold text-xs">
-                             <Skull size={14} />
-                             <span>{sessionMistakes.length}</span>
-                         </div>
-                     )
-                 )}
-
-                 {/* Streak */}
-                 <div className={`flex items-center text-orange-500 font-bold gap-1 transition-transform ${streak > 0 && streak % 5 === 0 ? 'scale-110' : ''}`}>
-                    <Flame size={20} className={`fill-current ${streak > 0 ? 'animate-pulse-soft' : ''}`}/> 
-                    <span>{streak}</span>
-                </div>
-            </div>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 pb-32 md:pb-40 custom-scrollbar bg-gray-50/50 dark:bg-dark-bg">
-          <div className="max-w-2xl mx-auto space-y-2">
-              
-              {/* Screen Header */}
-              <div className="mb-6 text-center">
-                 {isReviewing && <div className="inline-block px-3 py-1 bg-orange-100 dark:bg-orange-900/40 text-orange-600 dark:text-orange-400 rounded-full text-xs font-bold uppercase tracking-wider mb-2">{t.mistakeLabel}</div>}
-                 {isSkipAttempt && <div className="inline-block px-3 py-1 bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 rounded-full text-xs font-bold uppercase tracking-wider mb-2">{t.bossMode}</div>}
-                 {isPracticeMode && <div className="inline-block px-3 py-1 bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 rounded-full text-xs font-bold uppercase tracking-wider mb-2">{t.practiceMode}</div>}
-                 
-                 {currentScreen.header && <h3 className="text-sm font-bold text-brand uppercase tracking-widest mb-1">{currentScreen.header}</h3>}
-                 {currentIndex === 0 && !isReviewing && <h2 className="text-2xl font-extrabold text-gray-800 dark:text-white">{stripMarkdown(plan.title)}</h2>}
-              </div>
-              
-              {/* Local Replay Indicator */}
-              {plan.isLocalReplay && (
-                   <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-xl mb-6 flex items-center justify-center gap-2 text-gray-500 text-xs font-bold uppercase">
-                       <History size={14}/> Local Replay • No AI
+          <div className="w-20 flex items-center justify-end gap-3">
+               {showSkipUI && (
+                   <div className="flex items-center gap-1 text-red-500 font-bold text-sm" title={t.remainingLives}>
+                       <Zap size={16} className="fill-current"/>
+                       {Math.max(0, skipLives + 1)}
                    </div>
-              )}
-
-              {currentScreen.isRetry && (
-                  <div className="bg-orange-50 dark:bg-orange-900/10 border-l-4 border-orange-400 p-4 mb-6 rounded-r-xl shadow-sm flex items-start gap-3 animate-fade-in-down">
-                      <RotateCcw className="text-orange-500 shrink-0 mt-1" size={20} />
-                      <div>
-                        <h3 className="text-orange-800 dark:text-orange-400 font-bold text-sm uppercase tracking-wide">{t.mistakeLabel}</h3>
-                        <p className="text-orange-700 dark:text-orange-500/80 text-sm mt-1">Let's review this concept again.</p>
-                      </div>
-                  </div>
-              )}
-
-              {currentScreen.widgets.map((widget, idx) => {
-                  if (widget.type === 'flipcard' && (!widget.flipcard || !widget.flipcard.front)) return null;
-                  
-                  return (
-                    <div key={widget.id + idx + widgetResetKey} className={`animate-fade-in-up delay-${Math.min(idx * 100, 400)}`}>
-                        {widget.type === 'dialogue' && <DialogueWidget widget={widget} />}
-                        {widget.type === 'flipcard' && (
-                            <FlipCardWidget 
-                                widget={widget} 
-                                onAssessment={(result) => status === 'idle' && handleCheck(result === 'remembered')}
-                            />
-                        )}
-                        {widget.type === 'callout' && <CalloutWidget widget={widget} />}
-                        {widget.type === 'interactive-code' && <InteractiveCodeWidget widget={widget} />}
-                        {widget.type === 'steps-list' && <StepsWidget widget={widget} onUpdateOrder={setStepsOrder} />}
-                        
-                        {/* Interactive Widgets */}
-                        {widget.type === 'quiz' && (
-                            <QuizWidgetPresenter 
-                                widget={widget} 
-                                selectedIdx={quizSelection} 
-                                onSelect={setQuizSelection} 
-                                status={status} 
-                            />
-                        )}
-                        {widget.type === 'parsons' && (
-                            <ParsonsWidget 
-                                widget={widget} 
-                                onUpdateOrder={setParsonsOrder} 
-                                status={status} 
-                            />
-                        )}
-                        {widget.type === 'fill-in' && (
-                            <FillInWidget widget={widget} onUpdateAnswers={setFillInAnswers} />
-                        )}
-                        {widget.type === 'code-editor' && (
-                            <CodeEditorWidget widget={widget} onUpdateStatus={setCodeEditorStatus} preferences={preferences} />
-                        )}
-                        {widget.type === 'solution-display' && (
-                            <ViewSolutionWidget 
-                                widgetData={widget.solutionDisplay} 
-                                onComplete={() => handleNext()} 
-                                lessonState={{}} 
-                                updateLessonState={() => {}}
-                            />
-                        )}
-                    </div>
-                )
-              })}
+               )}
+               
+               {!showSkipUI && (
+                   <div className="flex items-center gap-1 text-orange-500 font-bold text-sm">
+                       <Flame size={16} className={`${streak > 0 ? 'fill-current animate-pulse-soft' : ''}`}/>
+                       {streak}
+                   </div>
+               )}
+               <button onClick={handleExitClick} className="text-gray-300 hover:text-gray-500 transition-colors"><X size={20} /></button>
           </div>
       </div>
 
-      {/* Chat */}
-      {showChat && (
-          <div className="absolute bottom-28 right-6 w-80 md:w-96 bg-white/95 dark:bg-dark-card/95 backdrop-blur-md rounded-2xl shadow-glass border border-white/20 dark:border-gray-700 flex flex-col overflow-hidden animate-scale-in z-30 max-h-[500px]">
-              <div className="bg-gradient-to-r from-brand to-brand-light text-white p-3 font-bold text-sm flex justify-between items-center shadow-sm">
-                  <div className="flex items-center gap-2">
-                      <Sparkles size={14}/> 
-                      <span>{t.askAi}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                     {/* Independent Model Selector */}
-                     <select 
-                        className="bg-white/20 text-white border-none rounded px-2 py-0.5 text-xs font-mono outline-none cursor-pointer hover:bg-white/30"
-                        value={chatModel}
-                        onChange={(e) => setChatModel(e.target.value)}
-                     >
-                         {GEMINI_MODELS.map(m => <option key={m} value={m} className="text-black">{m}</option>)}
-                     </select>
-                     <button onClick={() => setShowChat(false)} className="hover:bg-white/20 rounded-full p-1 transition-colors"><X size={16}/></button>
-                  </div>
-              </div>
-              
-              <div className="flex-1 overflow-y-auto p-3 space-y-3 bg-transparent h-64 custom-scrollbar">
-                  {chatMessages.length === 0 && (
-                      <div className="flex flex-col items-center justify-center h-full text-gray-400 text-center px-4">
-                          <HelpCircle size={32} className="mb-2 opacity-20" />
-                          <p className="text-xs">Ask me anything about the current code or concept.</p>
-                      </div>
-                  )}
-                  {chatMessages.map((m, i) => (
-                      <div key={i} className={`p-3 rounded-2xl text-xs max-w-[85%] shadow-sm leading-relaxed ${m.role === 'user' ? 'bg-brand text-white ml-auto rounded-tr-none' : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 mr-auto rounded-tl-none'}`}>
-                          {m.text}
-                      </div>
-                  ))}
-                  {isChatLoading && <div className="text-xs text-gray-400 italic ml-2 animate-pulse">{t.typing}</div>}
-              </div>
+      {/* MAIN CONTENT AREA - SINGLE COLUMN */}
+      <div className="flex-1 overflow-hidden relative flex flex-col bg-gray-50/30 dark:bg-dark-bg/30">
+           <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8 pb-32 md:pb-32 w-full">
+                <div className="mx-auto max-w-2xl transition-all duration-300">
+                    {currentScreen.isRetry && (
+                        <div className="bg-orange-50 dark:bg-orange-900/10 border-l-4 border-orange-400 p-4 mb-6 rounded-r-xl shadow-sm flex items-start gap-3 animate-fade-in-down">
+                            <RotateCcw className="text-orange-500 shrink-0 mt-1" size={20} />
+                            <div>
+                                <h3 className="text-orange-800 dark:text-orange-400 font-bold text-sm uppercase tracking-wide">{t.mistakeLabel}</h3>
+                                <p className="text-orange-700 dark:text-orange-500/80 text-sm mt-1">Let's review this concept again.</p>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {currentScreen.widgets.length === 0 ? (
+                         <div className="flex flex-col items-center justify-center py-20 text-center text-gray-400 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
+                             <AlertCircle size={48} className="mb-4 opacity-50"/>
+                             <p className="text-sm font-bold">{language === 'Chinese' ? "内容加载失败" : "Content failed to load"}</p>
+                             <p className="text-xs mt-2">Slide is empty.</p>
+                         </div>
+                    ) : (
+                        currentScreen.widgets.map((widget, idx) => (
+                            <div key={widget.id + idx + widgetResetKey} className={`animate-fade-in-up delay-${Math.min(idx * 100, 400)} mb-6`}>
+                                {widget.type === 'dialogue' && <DialogueWidget widget={widget} />}
+                                {widget.type === 'callout' && <CalloutWidget widget={widget} />}
+                                {widget.type === 'interactive-code' && <InteractiveCodeWidget widget={widget} />}
+                                {widget.type === 'steps-list' && <StepsWidget widget={widget} onUpdateOrder={widget.stepsList?.mode === 'interactive' ? setStepsOrder : undefined} />}
+                                {widget.type === 'flipcard' && <FlipCardWidget widget={widget} onAssessment={(result) => status === 'idle' && handleCheck(result === 'remembered')} />}
+                                {widget.type === 'quiz' && <QuizWidgetPresenter widget={widget} selectedIdx={quizSelection} onSelect={setQuizSelection} status={status} />}
+                                {widget.type === 'parsons' && <ParsonsWidget widget={widget} onUpdateOrder={setParsonsOrder} status={status} />}
+                                {widget.type === 'fill-in' && <FillInWidget widget={widget} onUpdateAnswers={setFillInAnswers} />}
+                                
+                                {/* LeetCode Specific Render */}
+                                {widget.type === 'leetcode' && widget.leetcode && (
+                                    <div className="space-y-6">
+                                        {/* Concept Card */}
+                                        <FlipCardWidget widget={{
+                                            ...widget,
+                                            id: widget.id + '_concept',
+                                            type: 'flipcard',
+                                            flipcard: {
+                                                front: widget.leetcode.concept.front,
+                                                back: widget.leetcode.concept.back,
+                                                mode: 'learn'
+                                            }
+                                        }} />
+                                        
+                                        {/* External Link */}
+                                        <a 
+                                            href={`https://leetcode.cn/problems/${widget.leetcode.problemSlug}`} 
+                                            target="_blank" 
+                                            rel="noopener noreferrer"
+                                            className="block w-full p-4 bg-gray-800 text-white rounded-xl text-center font-bold hover:bg-gray-700 transition-colors flex items-center justify-center gap-2 shadow-md"
+                                        >
+                                            <ExternalLink size={18} />
+                                            {t.leetcodeExternal}
+                                        </a>
 
-              {/* Suggested Questions Chips */}
-              {plan.suggestedQuestions && plan.suggestedQuestions.length > 0 && (
-                  <div className="px-3 pb-2 flex gap-2 overflow-x-auto no-scrollbar">
-                      {plan.suggestedQuestions.map((q, i) => (
-                          <button 
-                             key={i} 
-                             onClick={() => handleChatSubmit(q)}
-                             className="whitespace-nowrap bg-brand-bg dark:bg-brand/10 border border-brand/20 text-brand text-[10px] font-bold px-3 py-1.5 rounded-full hover:bg-brand/10 dark:hover:bg-brand/20 transition-colors active:scale-95"
-                          >
-                              {q}
-                          </button>
-                      ))}
-                  </div>
-              )}
+                                        {/* Code */}
+                                        <InteractiveCodeWidget widget={widget} />
+                                    </div>
+                                )}
+                            </div>
+                        ))
+                    )}
+                </div>
+           </div>
+      </div>
 
-              <div className="p-2 border-t border-gray-100 dark:border-gray-700 flex gap-2 bg-white dark:bg-dark-card">
-                  <input 
-                    className="flex-1 text-xs bg-gray-50 dark:bg-gray-800 border-0 rounded-xl px-3 py-2 focus:ring-2 focus:ring-brand/50 outline-none transition-shadow dark:text-white" 
-                    placeholder="Type your question..."
-                    value={chatInput} 
-                    onChange={e => setChatInput(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleChatSubmit()}
-                  />
-                  <button onClick={() => handleChatSubmit()} className="p-2 text-brand hover:bg-brand-bg dark:hover:bg-brand/10 rounded-xl transition-colors"><Send size={18}/></button>
-              </div>
-          </div>
-      )}
-
-      {!showChat && (
-          <button 
-            onClick={() => setShowChat(true)}
-            className="absolute bottom-28 right-6 bg-white dark:bg-dark-card text-brand border-2 border-brand p-3 rounded-full shadow-glass hover:scale-110 hover:shadow-xl transition-all z-20 group"
-          >
-              <MessageSquarePlus size={24} className="group-hover:animate-pulse" />
-          </button>
-      )}
-
-      {/* Bottom Bar */}
-      <div className={`absolute bottom-0 left-0 right-0 p-4 pb-6 z-[70] border-t transition-all duration-500 ease-out 
-        ${status === 'idle' 
-            ? 'bg-white dark:bg-dark-bg border-gray-100 dark:border-gray-800' 
-            : status === 'correct' 
-                ? 'bg-green-50/95 dark:bg-green-900/90 backdrop-blur-md border-green-200 dark:border-green-800 animate-slide-in-bottom' 
-                : 'bg-red-50/95 dark:bg-red-900/90 backdrop-blur-md border-red-200 dark:border-red-800 animate-slide-in-bottom'
-        }`}>
-          <div className="max-w-2xl mx-auto flex items-center justify-between gap-4">
-              {status === 'wrong' && (
-                  <div className="flex items-center gap-3 text-red-600 dark:text-red-200 overflow-hidden">
-                      <div className="bg-red-100 dark:bg-red-800/50 p-2 rounded-full shrink-0"><AlertCircle size={24}/></div>
-                      <div className="min-w-0">
-                          <div className="font-extrabold text-lg leading-none mb-1">{t.incorrect}</div>
-                          {isReviewing ? (
-                               // In Review Mode, don't show answer immediately. Prompt retry.
-                               <div className="text-xs opacity-90 font-medium text-red-700 dark:text-red-300">
-                                   Keep trying!
-                               </div>
-                          ) : (
-                               <div className="text-xs opacity-90 font-medium truncate text-red-700 dark:text-red-300">
-                                 {interactiveWidget?.type === 'fill-in' && interactiveWidget.fillIn 
+      {/* Footer */}
+      <div className={`absolute bottom-0 left-0 right-0 p-4 z-[50] border-t transition-all duration-500 ease-out 
+            ${status === 'idle' 
+                ? 'bg-white dark:bg-dark-card border-gray-100 dark:border-gray-800' 
+                : status === 'correct' 
+                    ? 'bg-green-50/95 dark:bg-green-900/90 backdrop-blur-md border-green-200 dark:border-green-800 animate-slide-in-bottom' 
+                    : 'bg-red-50/95 dark:bg-red-900/90 backdrop-blur-md border-red-200 dark:border-red-800 animate-slide-in-bottom'
+            }`}>
+            <div className="max-w-2xl mx-auto flex items-center justify-between gap-4">
+                {status === 'wrong' && (
+                    <div className="flex items-center gap-3 text-red-600 dark:text-red-200 overflow-hidden">
+                        <div className="bg-red-100 dark:bg-red-800/50 p-2 rounded-full shrink-0"><AlertCircle size={24}/></div>
+                        <div className="min-w-0">
+                            <div className="font-extrabold text-lg leading-none mb-1">{t.incorrect}</div>
+                            <div className="text-xs opacity-90 font-medium truncate text-red-700 dark:text-red-300">
+                                {interactiveWidget?.type === 'fill-in' && interactiveWidget.fillIn 
                                     ? `Solution: ${interactiveWidget.fillIn.correctValues.join(' ')}` 
                                     : (interactiveWidget?.type === 'quiz' && interactiveWidget.quiz?.explanation 
                                         ? interactiveWidget.quiz.explanation 
                                         : t.reviewTips)
-                                 }
-                               </div>
-                          )}
-                      </div>
-                  </div>
-              )}
-              {status === 'correct' && (
-                  <div className="flex items-center gap-3 text-green-600 dark:text-green-300">
-                      <div className="bg-green-100 dark:bg-green-800/50 p-2 rounded-full"><CheckCircle size={24}/></div>
-                      <div className="font-extrabold text-lg">{t.correct}</div>
-                  </div>
-              )}
-              {status === 'idle' && <div className="flex-1"></div>}
-              
-              {/* Action Buttons */}
-              <div className="flex gap-3 ml-auto">
-                  {/* Skip Button (Visible only when wrong in review mode or general lesson, NOT in Skip Attempt) */}
-                  {status === 'wrong' && !isSkipAttempt && (
-                       <button 
-                           onClick={() => setShowSkipModal(true)}
-                           className="px-4 py-3 font-bold text-gray-400 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors flex items-center gap-2 text-sm"
-                       >
-                           <SkipForward size={18} /> {t.skip}
-                       </button>
-                  )}
-
-                  {/* "Solution Display" Widget is purely informational, so the button just says Continue */}
-                  {interactiveWidget?.type === 'solution-display' ? (
+                                }
+                            </div>
+                        </div>
+                    </div>
+                )}
+                {status === 'correct' && (
+                    <div className="flex items-center gap-3 text-green-600 dark:text-green-300">
+                        <div className="bg-green-100 dark:bg-green-800/50 p-2 rounded-full"><CheckCircle size={24}/></div>
+                        <div className="font-extrabold text-lg">{t.correct}</div>
+                    </div>
+                )}
+                {status === 'idle' && <div className="flex-1"></div>}
+                
+                <div className="flex gap-3 ml-auto">
+                    {!(interactiveWidget?.type === 'flipcard' && interactiveWidget.flipcard?.mode === 'assessment') && (
                         <Button 
-                            onClick={() => handleNext()}
-                            variant="primary"
+                            onClick={() => {
+                                if (status === 'idle') {
+                                    // If no widgets, just skip
+                                    if (currentScreen.widgets.length === 0) {
+                                        handleNext();
+                                    } else {
+                                        interactiveWidget ? handleCheck() : handleNext();
+                                    }
+                                } else if (status === 'wrong' && isInMistakeLoop) {
+                                    handleTryAgain();
+                                } else {
+                                    handleNext();
+                                }
+                            }}
+                            variant={status === 'wrong' ? 'secondary' : 'primary'}
                             className="w-32 md:w-40 shadow-lg"
                         >
-                            {t.continue}
-                        </Button>
-                  ) : !(interactiveWidget?.type === 'flipcard' && interactiveWidget.flipcard?.mode === 'assessment') && (
-                      <Button 
-                        onClick={() => {
-                            if (status === 'idle') {
-                                interactiveWidget ? handleCheck() : handleNext();
-                            } else if (status === 'wrong' && isReviewing) {
-                                handleTryAgain();
-                            } else {
-                                handleNext();
+                            {status === 'idle' 
+                                ? (interactiveWidget ? t.check : t.next) 
+                                : (status === 'wrong' && isInMistakeLoop ? t.tryAgain : t.continue)
                             }
-                        }}
-                        variant={status === 'wrong' ? (isReviewing ? 'secondary' : 'secondary') : 'primary'}
-                        className="w-32 md:w-40 shadow-lg"
-                      >
-                          {status === 'idle' 
-                             ? (interactiveWidget ? t.check : t.next) 
-                             : (status === 'wrong' && isReviewing ? t.tryAgain : t.continue)
-                          }
-                      </Button>
-                  )}
-              </div>
-              
-              {(interactiveWidget?.type === 'flipcard' && interactiveWidget.flipcard?.mode === 'assessment') && status !== 'idle' && (
-                   <Button 
-                    onClick={handleNext}
-                    variant={status === 'wrong' ? 'secondary' : 'primary'}
-                    className={`w-32 md:w-40 shadow-lg ml-auto`}
-                  >
-                      {t.continue}
-                  </Button>
-              )}
-          </div>
+                        </Button>
+                    )}
+                </div>
+                
+                {(interactiveWidget?.type === 'flipcard' && interactiveWidget.flipcard?.mode === 'assessment') && status !== 'idle' && (
+                    <Button 
+                        onClick={handleNext}
+                        variant={status === 'wrong' ? 'secondary' : 'primary'}
+                        className={`w-32 md:w-40 shadow-lg ml-auto`}
+                    >
+                        {t.continue}
+                    </Button>
+                )}
+            </div>
       </div>
 
     </div>

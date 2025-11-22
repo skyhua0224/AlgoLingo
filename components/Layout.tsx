@@ -1,8 +1,9 @@
 
 import React, { useState, useRef } from 'react';
-import { Code2, BookOpen, RotateCcw, Settings, User, X, Globe, Terminal, Save, Download, Upload, Trash2, Cpu, Link, Key, RefreshCw, Moon, Sun, Monitor, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Code2, BookOpen, RotateCcw, Settings, User, X, Globe, Terminal, Save, Download, Upload, Trash2, Cpu, Link, Key, RefreshCw, Moon, Sun, Monitor, ChevronLeft, ChevronRight, Cloud, Bell, Github, Send } from 'lucide-react';
 import { UserPreferences, ApiConfig } from '../types';
 import { GEMINI_MODELS } from '../constants';
+import { syncWithGist } from '../services/githubService';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -13,7 +14,7 @@ interface LayoutProps {
   onExportData: () => void;
   onImportData: (file: File) => void;
   onResetData: () => void;
-  hideMobileNav?: boolean; // New Prop
+  hideMobileNav?: boolean; 
 }
 
 const TRANSLATIONS = {
@@ -31,18 +32,19 @@ const TRANSLATIONS = {
         done: '完成',
         modelSettings: 'AI 模型配置',
         provider: 'API 提供商',
-        geminiOfficial: 'Google Gemini (官方)',
-        geminiCustom: 'Google Gemini (自有 Key/代理)',
-        openai: 'OpenAI 兼容接口',
-        model: '模型',
-        apiKey: 'API Key',
-        baseUrl: 'API Base URL',
-        fetchModels: '获取模型列表',
-        customModel: '自定义模型名称',
         theme: '外观模式',
         light: '浅色',
         dark: '深色',
-        system: '跟随系统'
+        system: '跟随系统',
+        cloudSync: 'GitHub 云同步',
+        notifications: '消息通知',
+        githubToken: 'GitHub Token',
+        gistId: 'Gist ID (可选)',
+        syncNow: '立即同步',
+        webhookUrl: 'Webhook URL',
+        enableNotify: '启用 AI 学习提醒',
+        testNotify: '测试发送',
+        notifyHint: '支持 Telegram, Bark 等 URL'
     },
     English: {
         learn: 'Learn',
@@ -58,18 +60,19 @@ const TRANSLATIONS = {
         done: 'Done',
         modelSettings: 'AI Model Config',
         provider: 'API Provider',
-        geminiOfficial: 'Google Gemini (Official)',
-        geminiCustom: 'Google Gemini (Own Key/Proxy)',
-        openai: 'OpenAI Compatible',
-        model: 'Model',
-        apiKey: 'API Key',
-        baseUrl: 'API Base URL',
-        fetchModels: 'Fetch Models',
-        customModel: 'Custom Model Name',
         theme: 'Appearance',
         light: 'Light',
         dark: 'Dark',
-        system: 'System'
+        system: 'System',
+        cloudSync: 'GitHub Cloud Sync',
+        notifications: 'Notifications',
+        githubToken: 'GitHub Token',
+        gistId: 'Gist ID (Optional)',
+        syncNow: 'Sync Now',
+        webhookUrl: 'Webhook URL',
+        enableNotify: 'Enable AI Reminders',
+        testNotify: 'Test Send',
+        notifyHint: 'Supports Telegram, Bark, etc.'
     }
 };
 
@@ -79,10 +82,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
   const fileInputRef = useRef<HTMLInputElement>(null);
   const t = TRANSLATIONS[preferences.spokenLanguage];
   
-  // Local state for editing API config before saving
+  // Local state for settings
   const [tempApiConfig, setTempApiConfig] = useState<ApiConfig>(preferences.apiConfig);
-  const [fetchedModels, setFetchedModels] = useState<string[]>([]);
-  const [isFetching, setIsFetching] = useState(false);
+  const [tempSyncConfig, setTempSyncConfig] = useState(preferences.syncConfig || { enabled: false, githubToken: '' });
+  const [tempNotifyConfig, setTempNotifyConfig] = useState(preferences.notificationConfig || { enabled: false, webhookUrl: '', type: 'custom' as const });
+
+  const [syncStatus, setSyncStatus] = useState('');
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files[0]) {
@@ -91,28 +96,40 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
   };
 
   const saveSettings = () => {
-      onUpdatePreferences({ apiConfig: tempApiConfig });
+      onUpdatePreferences({ 
+          apiConfig: tempApiConfig,
+          syncConfig: tempSyncConfig,
+          notificationConfig: tempNotifyConfig
+      });
       setShowSettings(false);
   };
 
-  const fetchOpenAIModels = async () => {
-      if (!tempApiConfig.openai.baseUrl || !tempApiConfig.openai.apiKey) return;
-      setIsFetching(true);
-      try {
-          const url = `${tempApiConfig.openai.baseUrl.replace(/\/+$/, '')}/models`;
-          const res = await fetch(url, {
-              headers: { 'Authorization': `Bearer ${tempApiConfig.openai.apiKey}` }
-          });
-          const data = await res.json();
-          if (data.data && Array.isArray(data.data)) {
-              setFetchedModels(data.data.map((m: any) => m.id));
-          } else {
-              alert('Invalid response format');
+  const handleSyncNow = async () => {
+      setSyncStatus('Syncing...');
+      const currentData = {
+          stats: JSON.parse(localStorage.getItem('algolingo_stats') || '{}'),
+          progress: JSON.parse(localStorage.getItem('algolingo_progress_v2') || '{}'),
+          mistakes: JSON.parse(localStorage.getItem('algolingo_mistakes') || '[]'),
+          preferences: preferences
+      };
+
+      const res = await syncWithGist(tempSyncConfig.githubToken, tempSyncConfig.gistId, currentData as any);
+      if (res.success) {
+          setSyncStatus(`Success: ${res.action}`);
+          if (res.newGistId) {
+              setTempSyncConfig(prev => ({...prev, gistId: res.newGistId}));
+              onUpdatePreferences({ syncConfig: { ...tempSyncConfig, gistId: res.newGistId }});
           }
-      } catch (e) {
-          alert('Failed to fetch models');
-      } finally {
-          setIsFetching(false);
+          if (res.action === 'pulled' && res.data) {
+              // Simple reload to apply pulled data for now, or call a prop
+              alert("Data pulled from cloud. Refreshing...");
+              // Inject into local storage
+              if(res.data.stats) localStorage.setItem('algolingo_stats', JSON.stringify(res.data.stats));
+              if(res.data.progress) localStorage.setItem('algolingo_progress_v2', JSON.stringify(res.data.progress));
+              window.location.reload();
+          }
+      } else {
+          setSyncStatus(`Error: ${res.error}`);
       }
   };
 
@@ -126,7 +143,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
           {!sidebarCollapsed && <span className="text-2xl font-extrabold tracking-tight overflow-hidden whitespace-nowrap">AlgoLingo</span>}
         </div>
 
-        {/* Toggle Button */}
         <button 
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
             className="absolute -right-3 top-12 bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-700 shadow-md rounded-full p-1 text-gray-500 hover:text-brand transition-colors z-30"
@@ -160,7 +176,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
 
         <div className="pt-4 border-t border-gray-100 dark:border-gray-700">
            <button 
-                onClick={() => { setTempApiConfig(preferences.apiConfig); setShowSettings(true); }}
+                onClick={() => { 
+                    setTempApiConfig(preferences.apiConfig); 
+                    setTempSyncConfig(preferences.syncConfig || { enabled: false, githubToken: '' });
+                    setTempNotifyConfig(preferences.notificationConfig || { enabled: false, webhookUrl: '', type: 'custom' });
+                    setShowSettings(true); 
+                }}
                 className={`flex items-center ${sidebarCollapsed ? 'justify-center' : 'gap-3 px-4'} text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white font-bold py-3 w-full rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors`}
                 title={t.settings}
             >
@@ -170,40 +191,19 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
         </div>
       </aside>
 
-      {/* Main Content Area */}
+      {/* Main Content */}
       <main className={`flex-1 ${sidebarCollapsed ? 'md:ml-20' : 'md:ml-72'} flex flex-col min-h-screen transition-all duration-300`}>
         <div className="flex-1 w-full mx-auto p-0 md:p-0">
           {children}
         </div>
       </main>
 
-      {/* Mobile Bottom Nav - Hidden if hideMobileNav is true */}
       {!hideMobileNav && (
           <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-dark-card border-t border-gray-200 dark:border-gray-800 flex justify-around py-3 pb-6 z-50 shadow-lg">
-            <MobileNavItem 
-              icon={<BookOpen size={24} />} 
-              label={t.learn} 
-              active={activeTab === 'learn'} 
-              onClick={() => onTabChange('learn')}
-            />
-            <MobileNavItem 
-              icon={<RotateCcw size={24} />} 
-              label={t.review} 
-              active={activeTab === 'review'} 
-              onClick={() => onTabChange('review')}
-            />
-            <MobileNavItem 
-              icon={<User size={24} />} 
-              label={t.profile} 
-              active={activeTab === 'profile'} 
-              onClick={() => onTabChange('profile')}
-            />
-            <MobileNavItem 
-              icon={<Settings size={24} />} 
-              label={t.settings} 
-              active={showSettings} 
-              onClick={() => { setTempApiConfig(preferences.apiConfig); setShowSettings(true); }}
-            />
+            <MobileNavItem icon={<BookOpen size={24} />} label={t.learn} active={activeTab === 'learn'} onClick={() => onTabChange('learn')} />
+            <MobileNavItem icon={<RotateCcw size={24} />} label={t.review} active={activeTab === 'review'} onClick={() => onTabChange('review')} />
+            <MobileNavItem icon={<User size={24} />} label={t.profile} active={activeTab === 'profile'} onClick={() => onTabChange('profile')} />
+            <MobileNavItem icon={<Settings size={24} />} label={t.settings} active={showSettings} onClick={() => setShowSettings(true)} />
           </nav>
       )}
 
@@ -217,8 +217,128 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
                   </div>
                   
                   <div className="p-8 space-y-8 overflow-y-auto custom-scrollbar">
+
+                      {/* 0. Language Settings (NEW) */}
+                      <div className="bg-gray-50 dark:bg-gray-800/50 p-6 rounded-2xl border border-gray-200 dark:border-gray-700">
+                            <div className="flex items-center gap-2 mb-4 text-gray-800 dark:text-white font-bold text-sm uppercase tracking-wider">
+                                <Globe size={16} />
+                                {t.instructionLang} & {t.targetLang}
+                            </div>
+                            <div className="space-y-6">
+                                {/* Spoken Language */}
+                                <div>
+                                    <label className="text-xs font-bold text-gray-500 block mb-2">{t.instructionLang}</label>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        {['Chinese', 'English'].map((lang) => (
+                                            <button
+                                                key={lang}
+                                                onClick={() => onUpdatePreferences({ spokenLanguage: lang as any })}
+                                                className={`py-3 rounded-xl border-2 font-bold text-sm transition-all ${
+                                                    preferences.spokenLanguage === lang 
+                                                    ? 'border-brand bg-brand text-white shadow-sm' 
+                                                    : 'border-gray-200 dark:border-gray-700 hover:bg-white dark:hover:bg-dark-card text-gray-600 dark:text-gray-300 bg-transparent'
+                                                }`}
+                                            >
+                                                {lang === 'Chinese' ? '中文' : 'English'}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Target Language */}
+                                <div>
+                                    <label className="text-xs font-bold text-gray-500 block mb-2">{t.targetLang}</label>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {['Python', 'Java', 'C++', 'C', 'JavaScript'].map(lang => (
+                                            <button
+                                                key={lang}
+                                                onClick={() => onUpdatePreferences({ targetLanguage: lang as any })}
+                                                className={`py-2 rounded-xl border-2 font-bold text-xs transition-all ${
+                                                    preferences.targetLanguage === lang 
+                                                    ? 'border-brand bg-brand text-white shadow-sm' 
+                                                    : 'border-gray-200 dark:border-gray-700 hover:bg-white dark:hover:bg-dark-card text-gray-600 dark:text-gray-300 bg-transparent'
+                                                }`}
+                                            >
+                                                {lang}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                      </div>
                       
-                      {/* Appearance Settings */}
+                      {/* 1. GitHub Sync */}
+                      <div className="bg-gray-50 dark:bg-gray-800/50 p-6 rounded-2xl border border-gray-200 dark:border-gray-700">
+                          <div className="flex items-center gap-2 mb-4 text-gray-800 dark:text-white font-bold text-sm uppercase tracking-wider">
+                              <Github size={16} />
+                              {t.cloudSync}
+                          </div>
+                          <div className="space-y-3">
+                              <div>
+                                  <label className="text-xs font-bold text-gray-500 block mb-2">{t.githubToken} (Gist Scope)</label>
+                                  <input 
+                                      type="password"
+                                      className="w-full p-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card text-gray-900 dark:text-white font-mono text-sm focus:border-brand outline-none"
+                                      value={tempSyncConfig.githubToken}
+                                      onChange={(e) => setTempSyncConfig({...tempSyncConfig, githubToken: e.target.value, enabled: !!e.target.value})}
+                                      placeholder="ghp_..."
+                                  />
+                              </div>
+                              <div className="flex gap-2">
+                                  <input 
+                                      className="flex-1 p-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card text-gray-900 dark:text-white font-mono text-sm outline-none"
+                                      value={tempSyncConfig.gistId || ''}
+                                      onChange={(e) => setTempSyncConfig({...tempSyncConfig, gistId: e.target.value})}
+                                      placeholder={t.gistId}
+                                  />
+                                  <button 
+                                      onClick={handleSyncNow}
+                                      disabled={!tempSyncConfig.githubToken}
+                                      className="px-6 py-3 bg-gray-800 dark:bg-white text-white dark:text-gray-900 rounded-xl font-bold text-sm hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
+                                  >
+                                      <RefreshCw size={16} className={syncStatus === 'Syncing...' ? 'animate-spin' : ''} />
+                                      {t.syncNow}
+                                  </button>
+                              </div>
+                              {syncStatus && <p className="text-xs font-mono text-brand">{syncStatus}</p>}
+                          </div>
+                      </div>
+
+                      {/* 2. Notifications */}
+                      <div className="bg-gray-50 dark:bg-gray-800/50 p-6 rounded-2xl border border-gray-200 dark:border-gray-700">
+                          <div className="flex items-center gap-2 mb-4 text-brand font-bold text-sm uppercase tracking-wider">
+                              <Bell size={16} />
+                              {t.notifications}
+                          </div>
+                          <div className="space-y-3">
+                              <div className="flex items-center gap-2 mb-2">
+                                  <input 
+                                    type="checkbox" 
+                                    checked={tempNotifyConfig.enabled}
+                                    onChange={(e) => setTempNotifyConfig({...tempNotifyConfig, enabled: e.target.checked})}
+                                    className="w-5 h-5 rounded text-brand focus:ring-brand"
+                                  />
+                                  <label className="text-sm font-bold text-gray-700 dark:text-gray-300">{t.enableNotify}</label>
+                              </div>
+                              {tempNotifyConfig.enabled && (
+                                  <div className="animate-fade-in-down">
+                                      <label className="text-xs font-bold text-gray-500 block mb-2">{t.webhookUrl}</label>
+                                      <div className="flex gap-2">
+                                          <input 
+                                              className="flex-1 p-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card text-gray-900 dark:text-white font-mono text-sm focus:border-brand outline-none"
+                                              value={tempNotifyConfig.webhookUrl}
+                                              onChange={(e) => setTempNotifyConfig({...tempNotifyConfig, webhookUrl: e.target.value, type: e.target.value.includes('bark') ? 'bark' : 'telegram'})}
+                                              placeholder="https://api.day.app/..."
+                                          />
+                                          <button className="p-3 bg-brand text-white rounded-xl hover:bg-brand-dark"><Send size={16}/></button>
+                                      </div>
+                                      <p className="text-[10px] text-gray-400 mt-1">{t.notifyHint}</p>
+                                  </div>
+                              )}
+                          </div>
+                      </div>
+
+                      {/* 3. Appearance */}
                       <div>
                           <div className="flex items-center gap-2 mb-4 text-gray-400 font-bold text-xs uppercase tracking-wider">
                               <Moon size={16} />
@@ -245,214 +365,19 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
                           </div>
                       </div>
 
-                      {/* AI Model Config */}
-                      <div className="bg-gray-50 dark:bg-gray-800/50 p-6 rounded-2xl border border-gray-200 dark:border-gray-700">
-                          <div className="flex items-center gap-2 mb-4 text-brand font-bold text-xs uppercase tracking-wider">
-                              <Cpu size={16} />
-                              {t.modelSettings}
-                          </div>
-
-                          <div className="space-y-4">
-                              {/* Provider Select */}
-                              <div>
-                                  <label className="text-xs font-bold text-gray-500 block mb-2">{t.provider}</label>
-                                  <select 
-                                    className="w-full p-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card text-gray-900 dark:text-white font-bold text-sm focus:border-brand outline-none"
-                                    value={tempApiConfig.provider}
-                                    onChange={(e) => setTempApiConfig({...tempApiConfig, provider: e.target.value as any})}
-                                  >
-                                      <option value="gemini-official">{t.geminiOfficial}</option>
-                                      <option value="gemini-custom">{t.geminiCustom}</option>
-                                      <option value="openai">{t.openai}</option>
-                                  </select>
-                              </div>
-
-                              {/* Gemini Official Config */}
-                              {tempApiConfig.provider === 'gemini-official' && (
-                                  <div>
-                                      <label className="text-xs font-bold text-gray-500 block mb-2">{t.model}</label>
-                                      <select 
-                                        className="w-full p-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card text-gray-900 dark:text-white font-mono text-sm focus:border-brand outline-none"
-                                        value={tempApiConfig.gemini.model}
-                                        onChange={(e) => setTempApiConfig({...tempApiConfig, gemini: {...tempApiConfig.gemini, model: e.target.value}})}
-                                      >
-                                          {GEMINI_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
-                                      </select>
-                                  </div>
-                              )}
-
-                              {/* Gemini Custom Config */}
-                              {tempApiConfig.provider === 'gemini-custom' && (
-                                  <div className="space-y-3">
-                                      <div>
-                                          <label className="text-xs font-bold text-gray-500 block mb-2">{t.apiKey}</label>
-                                          <div className="relative">
-                                            <Key size={16} className="absolute top-3.5 left-3 text-gray-400"/>
-                                            <input 
-                                                type="password"
-                                                className="w-full pl-10 p-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card text-gray-900 dark:text-white font-mono text-sm focus:border-brand outline-none"
-                                                value={tempApiConfig.gemini.apiKey || ''}
-                                                onChange={(e) => setTempApiConfig({...tempApiConfig, gemini: {...tempApiConfig.gemini, apiKey: e.target.value}})}
-                                                placeholder="sk-..."
-                                            />
-                                          </div>
-                                      </div>
-                                      <div>
-                                          <label className="text-xs font-bold text-gray-500 block mb-2">{t.baseUrl} (Optional Proxy)</label>
-                                          <div className="relative">
-                                            <Link size={16} className="absolute top-3.5 left-3 text-gray-400"/>
-                                            <input 
-                                                type="text"
-                                                className="w-full pl-10 p-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card text-gray-900 dark:text-white font-mono text-sm focus:border-brand outline-none"
-                                                value={tempApiConfig.gemini.baseUrl || ''}
-                                                onChange={(e) => setTempApiConfig({...tempApiConfig, gemini: {...tempApiConfig.gemini, baseUrl: e.target.value}})}
-                                                placeholder="https://generativelanguage.googleapis.com"
-                                            />
-                                          </div>
-                                      </div>
-                                      <div>
-                                          <label className="text-xs font-bold text-gray-500 block mb-2">{t.model}</label>
-                                          <select 
-                                            className="w-full p-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card text-gray-900 dark:text-white font-mono text-sm focus:border-brand outline-none"
-                                            value={tempApiConfig.gemini.model}
-                                            onChange={(e) => setTempApiConfig({...tempApiConfig, gemini: {...tempApiConfig.gemini, model: e.target.value}})}
-                                          >
-                                              {GEMINI_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
-                                          </select>
-                                      </div>
-                                  </div>
-                              )}
-
-                              {/* OpenAI Config */}
-                              {tempApiConfig.provider === 'openai' && (
-                                  <div className="space-y-3">
-                                      <div>
-                                          <label className="text-xs font-bold text-gray-500 block mb-2">{t.baseUrl}</label>
-                                          <input 
-                                            type="text"
-                                            className="w-full p-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card text-gray-900 dark:text-white font-mono text-sm focus:border-brand outline-none"
-                                            value={tempApiConfig.openai.baseUrl}
-                                            onChange={(e) => setTempApiConfig({...tempApiConfig, openai: {...tempApiConfig.openai, baseUrl: e.target.value}})}
-                                            placeholder="https://api.openai.com/v1"
-                                          />
-                                      </div>
-                                      <div>
-                                          <label className="text-xs font-bold text-gray-500 block mb-2">{t.apiKey}</label>
-                                          <input 
-                                            type="password"
-                                            className="w-full p-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card text-gray-900 dark:text-white font-mono text-sm focus:border-brand outline-none"
-                                            value={tempApiConfig.openai.apiKey}
-                                            onChange={(e) => setTempApiConfig({...tempApiConfig, openai: {...tempApiConfig.openai, apiKey: e.target.value}})}
-                                            placeholder="sk-..."
-                                          />
-                                      </div>
-                                      <div>
-                                          <label className="text-xs font-bold text-gray-500 block mb-2">{t.model}</label>
-                                          <div className="flex gap-2">
-                                              <input 
-                                                type="text"
-                                                className="flex-1 p-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card text-gray-900 dark:text-white font-mono text-sm focus:border-brand outline-none"
-                                                value={tempApiConfig.openai.model}
-                                                onChange={(e) => setTempApiConfig({...tempApiConfig, openai: {...tempApiConfig.openai, model: e.target.value}})}
-                                                placeholder="gpt-4o"
-                                                list="openai-models"
-                                              />
-                                              <datalist id="openai-models">
-                                                  {fetchedModels.map(m => <option key={m} value={m} />)}
-                                              </datalist>
-                                              <button 
-                                                onClick={fetchOpenAIModels}
-                                                disabled={isFetching}
-                                                className="p-3 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-xl transition-colors text-gray-700 dark:text-white disabled:opacity-50"
-                                                title={t.fetchModels}
-                                              >
-                                                  <RefreshCw size={20} className={isFetching ? "animate-spin" : ""} />
-                                              </button>
-                                          </div>
-                                      </div>
-                                  </div>
-                              )}
-                          </div>
-                      </div>
-
-                      {/* Language Settings */}
-                      <div>
-                          <div className="flex items-center gap-2 mb-4 text-gray-400 font-bold text-xs uppercase tracking-wider">
-                              <Terminal size={16} />
-                              {t.targetLang}
-                          </div>
-                          <div className="grid grid-cols-3 gap-3">
-                              {['Python', 'Java', 'C++', 'C', 'JavaScript'].map(lang => (
-                                  <button
-                                    key={lang}
-                                    onClick={() => onUpdatePreferences({ targetLanguage: lang as any })}
-                                    className={`py-3 rounded-xl border-b-4 border-2 font-bold text-sm transition-all active:border-b-2 active:translate-y-[2px] ${
-                                        preferences.targetLanguage === lang 
-                                        ? 'border-brand-dark bg-brand text-white border-b-brand-dark' 
-                                        : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 bg-white dark:bg-dark-card'
-                                    }`}
-                                  >
-                                      {lang}
-                                  </button>
-                              ))}
-                          </div>
-                      </div>
-
-                      <div>
-                          <div className="flex items-center gap-2 mb-4 text-gray-400 font-bold text-xs uppercase tracking-wider">
-                              <Globe size={16} />
-                              {t.instructionLang}
-                          </div>
-                          <div className="grid grid-cols-2 gap-3">
-                              {['Chinese', 'English'].map(lang => (
-                                  <button
-                                    key={lang}
-                                    onClick={() => onUpdatePreferences({ spokenLanguage: lang as any })}
-                                    className={`py-3 rounded-xl border-b-4 border-2 font-bold text-sm transition-all active:border-b-2 active:translate-y-[2px] ${
-                                        preferences.spokenLanguage === lang 
-                                        ? 'border-brand-dark bg-brand text-white border-b-brand-dark' 
-                                        : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 bg-white dark:bg-dark-card'
-                                    }`}
-                                  >
-                                      {lang === 'Chinese' ? '中文' : 'English'}
-                                  </button>
-                              ))}
-                          </div>
-                      </div>
-
-                      {/* Data Management */}
+                      {/* 4. Data Management (Import/Export) */}
                       <div>
                           <div className="flex items-center gap-2 mb-4 text-gray-400 font-bold text-xs uppercase tracking-wider">
                               <Save size={16} />
                               {t.dataMgmt}
                           </div>
-                          <div className="space-y-3">
-                                <button 
-                                    onClick={onExportData}
-                                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-bold hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                                >
+                          <div className="flex gap-3">
+                                <button onClick={onExportData} className="flex-1 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-bold hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors flex items-center justify-center gap-2">
                                     <Download size={18} /> {t.export}
                                 </button>
-                                
-                                <input 
-                                    type="file" 
-                                    ref={fileInputRef} 
-                                    onChange={handleFileChange} 
-                                    accept=".json" 
-                                    className="hidden" 
-                                />
-                                <button 
-                                    onClick={() => fileInputRef.current?.click()}
-                                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-bold hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                                >
+                                <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".json" className="hidden" />
+                                <button onClick={() => fileInputRef.current?.click()} className="flex-1 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-bold hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors flex items-center justify-center gap-2">
                                     <Upload size={18} /> {t.import}
-                                </button>
-                                
-                                <button 
-                                    onClick={onResetData}
-                                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-red-100 dark:border-red-900/50 text-red-500 font-bold hover:bg-red-50 dark:hover:bg-red-900/20 hover:border-red-200 transition-colors"
-                                >
-                                    <Trash2 size={18} /> {t.reset}
                                 </button>
                           </div>
                       </div>
