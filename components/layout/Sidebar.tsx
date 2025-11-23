@@ -1,23 +1,21 @@
 
 import React from 'react';
 import { 
-  BookOpen, 
-  RotateCcw, 
+  Brain, 
+  Cpu, 
+  Sparkles, 
+  Swords, 
   User, 
   Settings, 
   Code2, 
   ChevronLeft, 
   ChevronRight, 
-  Layers, 
-  Swords, 
-  Lock,
-  Cpu,
-  Terminal
 } from 'lucide-react';
+import { AppView } from '../../types';
 
 interface SidebarProps {
-  activeTab: string;
-  onTabChange: (tab: any) => void;
+  activeTab: AppView;
+  onTabChange: (tab: AppView) => void;
   onOpenSettings: () => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
@@ -30,36 +28,15 @@ const MENU_CONFIG = [
   {
     group: "CORE",
     items: [
-      { id: 'learn', icon: BookOpen, label: { zh: '算法闯关', en: 'Algo Map' }, color: 'text-brand' },
-      { id: 'review', icon: RotateCcw, label: { zh: '复习中心', en: 'Review Hub' }, color: 'text-orange-500' },
+      { id: 'algorithms', icon: Brain, label: { zh: '核心算法', en: 'Algorithms' }, color: 'text-brand' },
+      { id: 'engineering', icon: Cpu, label: { zh: '工程中心', en: 'Engineering' }, color: 'text-blue-500' },
     ]
   },
   {
-    group: "ADVANCED ENGINEERING",
+    group: "EXPLORE & FIGHT",
     items: [
-      { 
-        id: 'syntax', 
-        icon: Terminal, 
-        label: { zh: '语法诊所', en: 'Syntax Clinic' }, 
-        color: 'text-blue-500',
-        tag: 'NEW' 
-      },
-      { 
-        id: 'system-design', 
-        icon: Layers, 
-        label: { zh: '系统设计', en: 'System Design' }, 
-        tag: 'BETA',
-        disabled: true,
-        color: 'text-purple-500'
-      },
-      { 
-        id: 'interview', 
-        icon: Swords, 
-        label: { zh: '模拟面试', en: 'Mock Interview' }, 
-        tag: 'SOON',
-        disabled: true,
-        color: 'text-red-500'
-      },
+      { id: 'forge', icon: Sparkles, label: { zh: '探索工坊', en: 'The Forge' }, color: 'text-purple-500' },
+      { id: 'career', icon: Swords, label: { zh: '职业挑战', en: 'Career' }, color: 'text-orange-500' },
     ]
   },
   {
@@ -109,7 +86,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, onOpen
           )}
         </div>
 
-        {/* Collapse Toggle - Highly Visible & Colored */}
         <button 
             onClick={onToggleCollapse}
             className="absolute -right-3 top-9 bg-brand text-white border-2 border-white dark:border-gray-900 shadow-xl rounded-full p-1.5 transition-all hover:scale-110 z-50 flex items-center justify-center hover:bg-brand-dark cursor-pointer"
@@ -137,8 +113,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, onOpen
                 return (
                   <button
                     key={item.id}
-                    onClick={() => !item.disabled && onTabChange(item.id)}
-                    disabled={item.disabled}
+                    onClick={() => onTabChange(item.id as AppView)}
                     title={collapsed ? label : undefined}
                     className={`
                       relative group w-full flex items-center 
@@ -148,10 +123,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, onOpen
                         ? 'bg-gray-100 dark:bg-white/5 text-gray-900 dark:text-white shadow-sm ring-1 ring-black/5 dark:ring-white/5' 
                         : 'text-gray-500 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-white/5 hover:text-gray-900 dark:hover:text-gray-200'
                       }
-                      ${item.disabled ? 'opacity-40 cursor-not-allowed' : ''}
                     `}
                   >
-                    {/* Active Glow Bar */}
                     {isActive && (
                         <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-brand rounded-r-full shadow-[0_0_12px_rgba(132,204,22,0.6)]" />
                     )}
@@ -169,22 +142,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, onOpen
                       <span className={`ml-3 font-bold text-sm tracking-wide flex-1 text-left truncate ${isActive ? 'font-extrabold' : 'font-medium'}`}>
                         {label}
                       </span>
-                    )}
-
-                    {/* Tags */}
-                    {!collapsed && item.tag && (
-                      <span className={`
-                        ml-2 px-1.5 py-[1px] rounded-md text-[9px] font-black border tracking-wide
-                        ${item.tag === 'NEW' ? 'bg-blue-500/10 text-blue-500 border-blue-500/20' : ''}
-                        ${item.tag === 'BETA' ? 'bg-purple-500/10 text-purple-500 border-purple-500/20' : ''}
-                        ${item.tag === 'SOON' ? 'bg-gray-500/10 text-gray-500 border-gray-500/20' : ''}
-                      `}>
-                        {item.tag}
-                      </span>
-                    )}
-                    
-                    {!collapsed && item.disabled && !item.tag && (
-                      <Lock size={12} className="ml-2 opacity-30" />
                     )}
                   </button>
                 );

@@ -1,7 +1,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { 
-    UserStats, ProgressMap, LessonPlan, SavedLesson, MistakeRecord, UserPreferences, ApiConfig, RetentionRecord 
+    UserStats, ProgressMap, LessonPlan, SavedLesson, MistakeRecord, UserPreferences, ApiConfig, RetentionRecord, AppView 
 } from '../types';
 import { 
     INITIAL_STATS, DEFAULT_API_CONFIG, PROBLEM_CATEGORIES, PROBLEM_MAP 
@@ -16,7 +16,8 @@ type ViewState = 'dashboard' | 'unit-map' | 'runner' | 'loading';
 export const useAppManager = () => {
     // --- STATE ---
     const [view, setView] = useState<ViewState>('dashboard');
-    const [activeTab, setActiveTab] = useState<'learn' | 'review' | 'profile'>('learn');
+    // Initialize with 'algorithms' instead of 'learn'
+    const [activeTab, setActiveTab] = useState<AppView>('algorithms');
     
     // Data Stores
     const [progressMap, setProgressMap] = useState<ProgressMap>({});
@@ -159,7 +160,7 @@ export const useAppManager = () => {
             }
 
             setView('dashboard');
-            setActiveTab('learn');
+            setActiveTab('algorithms');
         } catch (e) {
             console.error("Data Import Logic Error", e);
             alert("Error processing data. Check console.");
@@ -530,7 +531,7 @@ export const useAppManager = () => {
             });
         }
 
-        setView(activeTab === 'review' ? 'dashboard' : 'unit-map');
+        setView('dashboard');
         setCurrentLessonPlan(null);
         setIsSkipAttempt(false);
     };

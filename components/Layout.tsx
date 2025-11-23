@@ -1,14 +1,14 @@
 
 import React, { useState } from 'react';
-import { UserPreferences } from '../types';
+import { UserPreferences, AppView } from '../types';
 import { Sidebar } from './layout/Sidebar';
 import { MobileNav } from './layout/MobileNav';
 import { SettingsModal } from './settings/SettingsModal';
 
 interface LayoutProps {
   children: React.ReactNode;
-  activeTab: 'learn' | 'review' | 'profile';
-  onTabChange: (tab: any) => void;
+  activeTab: AppView;
+  onTabChange: (tab: AppView) => void;
   preferences: UserPreferences;
   onUpdatePreferences: (p: Partial<UserPreferences>) => void;
   onExportData: () => void;
