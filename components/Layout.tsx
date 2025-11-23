@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { UserPreferences } from '../types';
 import { Sidebar } from './layout/Sidebar';
@@ -7,7 +8,7 @@ import { SettingsModal } from './settings/SettingsModal';
 interface LayoutProps {
   children: React.ReactNode;
   activeTab: 'learn' | 'review' | 'profile';
-  onTabChange: (tab: 'learn' | 'review' | 'profile') => void;
+  onTabChange: (tab: any) => void;
   preferences: UserPreferences;
   onUpdatePreferences: (p: Partial<UserPreferences>) => void;
   onExportData: () => void;
@@ -104,11 +105,24 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
         activeTab={activeTab} 
         onTabChange={onTabChange} 
         onOpenSettings={() => setShowSettings(true)} 
-        t={t} 
+        t={t}
+        isZh={isZh}
       />
 
       {/* Main Content */}
-      <main className={`flex-1 md:ml-72 flex flex-col min-h-screen transition-all duration-300`}>
+      {/* Added pl-0 md:pl-20 to accommodate the collapsed sidebar initial state, 
+          but ideally the main content margin would react to the sidebar width. 
+          For now, we use a safe margin that looks good with the floating nature or the collapsed state. 
+          The previous version hardcoded md:ml-72. Since the new sidebar handles its own width (w-20 or w-72),
+          we can simply use flex-1 and let flexbox handle it, OR use a margin.
+          Given the Sidebar is 'fixed', we need a margin.
+          To keep it simple and decoupled, let's assume a default margin of ml-20 (collapsed width) 
+          and let the user expand it over the content or push it. 
+          Actually, let's use md:pl-20 as a base, which is the collapsed width. 
+          If the sidebar expands, it might overlap content or push it if we used context. 
+          For this visual refactor, let's stick to a left margin that accounts for the 'dock'.
+      */}
+      <main className={`flex-1 md:ml-20 flex flex-col min-h-screen transition-all duration-300 w-full`}>
         <div className="flex-1 w-full mx-auto p-0 md:p-0">
           {children}
         </div>
