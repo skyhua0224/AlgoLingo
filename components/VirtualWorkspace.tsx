@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { LeetCodeContext, UserPreferences } from '../types';
-import { Play, RotateCcw, Terminal, Activity, CheckCircle, XCircle, ChevronDown, AlertTriangle, FileText, Code2, Layout, Columns, Rows, Loader2, Box, Check, X, Clock, Cpu } from 'lucide-react';
+import { Play, RotateCcw, Terminal, Activity, CheckCircle, XCircle, ChevronDown, AlertTriangle, FileText, Code2, Layout, Columns, Rows, Loader2, Box, Check, X, Clock, Cpu, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { validateUserCode } from '../services/geminiService';
 
 // Declare Prism for highlighting
@@ -10,6 +11,8 @@ interface VirtualWorkspaceProps {
     context: LeetCodeContext;
     preferences: UserPreferences;
     onSuccess: () => void;
+    isSidebarOpen?: boolean;
+    onToggleSidebar?: () => void;
 }
 
 type LayoutMode = 'tabs' | 'split-v' | 'split-h';
@@ -81,7 +84,7 @@ const SNIPPETS: Record<string, { label: string; detail: string; insert: string }
     ]
 };
 
-export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, preferences, onSuccess }) => {
+export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, preferences, onSuccess, isSidebarOpen, onToggleSidebar }) => {
     // State: Layout & Language
     const [layoutMode, setLayoutMode] = useState<LayoutMode>('tabs');
     const [currentLanguage, setCurrentLanguage] = useState(preferences.targetLanguage);
@@ -312,12 +315,23 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
                 </div>
             </div>
 
-            {layoutMode === 'tabs' && (
-                 <div className="flex gap-1 bg-gray-200 dark:bg-gray-800 p-1 rounded-lg">
-                    <button onClick={() => setActiveTab('description')} className={`flex items-center gap-2 px-3 py-1 rounded-md text-xs font-bold transition-colors ${activeTab === 'description' ? 'bg-white dark:bg-dark-card text-gray-800 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><FileText size={12}/> Desc</button>
-                    <button onClick={() => setActiveTab('code')} className={`flex items-center gap-2 px-3 py-1 rounded-md text-xs font-bold transition-colors ${activeTab === 'code' ? 'bg-white dark:bg-dark-card text-gray-800 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><Code2 size={12}/> Code</button>
-                </div>
-            )}
+            <div className="flex gap-2 items-center">
+                {layoutMode === 'tabs' && (
+                     <div className="flex gap-1 bg-gray-200 dark:bg-gray-800 p-1 rounded-lg mr-2">
+                        <button onClick={() => setActiveTab('description')} className={`flex items-center gap-2 px-3 py-1 rounded-md text-xs font-bold transition-colors ${activeTab === 'description' ? 'bg-white dark:bg-dark-card text-gray-800 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><FileText size={12}/> Desc</button>
+                        <button onClick={() => setActiveTab('code')} className={`flex items-center gap-2 px-3 py-1 rounded-md text-xs font-bold transition-colors ${activeTab === 'code' ? 'bg-white dark:bg-dark-card text-gray-800 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><Code2 size={12}/> Code</button>
+                    </div>
+                )}
+                {onToggleSidebar && (
+                    <button 
+                        onClick={onToggleSidebar}
+                        className="p-2 bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-600 rounded-lg shadow-sm text-gray-500 hover:text-brand flex items-center justify-center transition-all"
+                        title="Toggle Solutions Sidebar"
+                    >
+                        {isSidebarOpen ? <PanelRightClose size={16}/> : <PanelRightOpen size={16}/>}
+                    </button>
+                )}
+            </div>
         </div>
     );
 
@@ -606,7 +620,7 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
 
     // --- Main Render ---
     return (
-        <div className="flex flex-col h-full bg-white dark:bg-dark-card rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm">
+        <div className="flex flex-col h-full bg-white dark:bg-dark-card md:rounded-2xl md:border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm">
             {renderHeader()}
             <div className="flex-1 overflow-hidden relative">
                 {layoutMode === 'tabs' && (
@@ -618,9 +632,9 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
                     </div>
                 )}
                 {layoutMode === 'split-v' && (
-                    <div className="flex h-full">
-                        <div className="w-1/2 border-r border-gray-200 dark:border-gray-700 overflow-hidden">{renderDescriptionPanel()}</div>
-                        <div className="w-1/2 flex flex-col">
+                    <div className="flex flex-col md:flex-row h-full">
+                        <div className="h-1/2 md:h-full md:w-1/2 border-b md:border-b-0 md:border-r border-gray-200 dark:border-gray-700 overflow-hidden">{renderDescriptionPanel()}</div>
+                        <div className="h-1/2 md:h-full md:w-1/2 flex flex-col">
                             <div className="flex-1 overflow-hidden">{renderCodePanel()}</div>
                             <div className="h-1/3 min-h-[250px] border-t border-gray-200 dark:border-gray-700">{renderBottomPanel()}</div>
                         </div>

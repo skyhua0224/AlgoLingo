@@ -1,13 +1,13 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { 
-    UserStats, ProgressMap, LessonPlan, SavedLesson, MistakeRecord, UserPreferences, ApiConfig 
+    UserStats, ProgressMap, LessonPlan, SavedLesson, MistakeRecord, UserPreferences, ApiConfig, RetentionRecord 
 } from '../types';
 import { 
-    INITIAL_STATS, DEFAULT_API_CONFIG 
+    INITIAL_STATS, DEFAULT_API_CONFIG, PROBLEM_CATEGORIES, PROBLEM_MAP 
 } from '../constants';
 import { 
-    generateLessonPlan, generateReviewLesson, generateSyntaxClinicPlan 
+    generateLessonPlan, generateDailyWorkoutPlan, generateSyntaxClinicPlan, generateVariantLesson
 } from '../services/geminiService';
 import { syncWithGist } from '../services/githubService';
 
@@ -42,7 +42,7 @@ export const useAppManager = () => {
     const [isSkipAttempt, setIsSkipAttempt] = useState(false);
     
     // Loading & Error State
-    const [loadingContext, setLoadingContext] = useState<'lesson' | 'review' | 'clinic'>('lesson');
+    const [loadingContext, setLoadingContext] = useState<'lesson' | 'review' | 'clinic' | 'variant'>('lesson');
     const [generationError, setGenerationError] = useState<string | null>(null);
     const [generationRawError, setGenerationRawError] = useState<string | null>(null);
 
@@ -130,7 +130,6 @@ export const useAppManager = () => {
             // 1. Merge and Save Stats
             if (data.stats) {
                 const mergedStats = { ...INITIAL_STATS, ...data.stats };
-                // Ensure nested objects like league exist
                 if (!mergedStats.league) mergedStats.league = INITIAL_STATS.league;
                 saveStats(mergedStats);
             }
@@ -150,23 +149,17 @@ export const useAppManager = () => {
                 const mergedPrefs = { 
                     ...preferences, 
                     ...data.preferences,
-                    hasOnboarded: true, // Force onboarding complete
-                    // Deep merge configs to prevent breaking new features with old backups
+                    hasOnboarded: true, 
                     apiConfig: { ...DEFAULT_API_CONFIG, ...data.preferences.apiConfig },
-                    syncConfig: { ...preferences.syncConfig, ...data.preferences.syncConfig }, // Keep local token if possible or merge carefully
+                    syncConfig: { ...preferences.syncConfig, ...data.preferences.syncConfig }, 
                 };
                 updatePreferences(mergedPrefs);
             } else {
-                // If only stats imported, still mark onboarded
                 updatePreferences({ hasOnboarded: true });
             }
 
-            // 5. Reset View State
             setView('dashboard');
             setActiveTab('learn');
-            
-            // No reload needed, React state updates will trigger re-render
-            // alert("Data loaded successfully."); 
         } catch (e) {
             console.error("Data Import Logic Error", e);
             alert("Error processing data. Check console.");
@@ -211,7 +204,6 @@ export const useAppManager = () => {
 
     const handleSelectProblem = (id: string, name: string, currentLevel: number) => {
         setActiveProblem({ id, name });
-        // Initialize progress if missing
         const currentLang = preferences.targetLanguage;
         if (!progressMap[currentLang]) {
             saveProgress({ ...progressMap, [currentLang]: {} });
@@ -227,7 +219,6 @@ export const useAppManager = () => {
         setGenerationError(null);
         setGenerationRawError(null);
 
-        // LeetCode Simulator Mode
         if (nodeIndex === 6) {
             setCurrentLessonPlan({
                 title: activeProblem.name,
@@ -252,47 +243,113 @@ export const useAppManager = () => {
         }
     };
 
-    const handleStartReview = async (strategy: 'ai' | 'all' | 'due' = 'ai') => {
+    // Extended to support 'type' and 'time' strategies
+    const handleStartReview = async (strategy: 'ai' | 'all' | 'specific' | 'category' | 'type' | 'time' | 'urgent', targetId?: string) => {
         setLoadingContext('review');
         setGenerationError(null);
+        setActiveNodeIndex(0); 
         
-        if (strategy !== 'ai') {
-            const candidates = mistakes.filter(m => m.widget);
-            if (candidates.length === 0) {
-                alert("No mistakes to review!");
-                return;
+        // AI Daily Smart Workout (Real AI Generation)
+        if (strategy === 'ai') {
+            setView('loading');
+            try {
+                const currentLang = preferences.targetLanguage;
+                const learnedProblems = Object.keys(progressMap[currentLang] || {}).filter(pid => progressMap[currentLang][pid] > 0);
+                
+                const plan = await generateDailyWorkoutPlan(mistakes, learnedProblems, preferences);
+                setCurrentLessonPlan(plan);
+                setView('runner');
+            } catch (e: any) {
+                setGenerationError(e.message);
+                if (e.rawOutput) setGenerationRawError(e.rawOutput);
             }
-            // Local Replay Mode
-            setCurrentLessonPlan({
-                title: "Mistake Repair",
-                description: "Targeted Practice",
-                suggestedQuestions: [],
-                isLocalReplay: true,
-                screens: candidates.map(m => ({
-                    id: `replay_${m.id}`,
-                    header: `Review: ${m.problemName}`,
-                    widgets: [m.widget!],
-                    isRetry: true
-                }))
-            });
-            setView('runner');
             return;
         }
 
-        setView('loading');
-        try {
-            const plan = await generateReviewLesson(mistakes, preferences);
-            setCurrentLessonPlan(plan);
-            setView('runner');
-        } catch (e: any) {
-            setGenerationError(e.message);
-            if (e.rawOutput) setGenerationRawError(e.rawOutput);
+        // Filter mostly ACTIVE mistakes for urgent/specific review, but 'vault' shows all
+        let allCandidates = mistakes.filter(m => m.widget);
+        let activeCandidates = allCandidates.filter(m => !m.isResolved);
+        
+        let candidates = activeCandidates.length > 0 ? activeCandidates : allCandidates;
+
+        // Strategy Logic
+        if (strategy === 'specific' && targetId) {
+            candidates = allCandidates.filter(m => m.id === targetId);
         }
+        else if (strategy === 'category' && targetId) {
+            const unit = PROBLEM_CATEGORIES.find(u => u.id === targetId);
+            if (unit) {
+                const problemNames = unit.problems.map(pid => PROBLEM_MAP[pid]);
+                candidates = candidates.filter(m => problemNames.includes(m.problemName));
+            }
+        }
+        else if (strategy === 'type' && targetId) {
+            candidates = candidates.filter(m => m.questionType === targetId);
+        }
+        else if (strategy === 'time' && targetId) {
+            const now = Date.now();
+            const oneDay = 24 * 60 * 60 * 1000;
+            candidates = candidates.filter(m => {
+                const diff = now - m.timestamp;
+                if (targetId === 'fresh') return diff <= oneDay;
+                if (targetId === 'week') return diff > oneDay && diff <= 7 * oneDay;
+                if (targetId === 'old') return diff > 7 * oneDay;
+                return false;
+            });
+        }
+        else if (strategy === 'urgent') {
+            candidates = [...allCandidates]
+                .sort((a, b) => {
+                    if (a.isResolved !== b.isResolved) return a.isResolved ? 1 : -1;
+                    const failA = a.failureCount || 1;
+                    const failB = b.failureCount || 1;
+                    if (failA !== failB) return failB - failA;
+                    return b.timestamp - a.timestamp;
+                })
+                .slice(0, 5);
+        }
+
+        if (candidates.length === 0) {
+            const msg = preferences.spokenLanguage === 'Chinese' 
+                ? "真棒！当前分类下没有待复习的错题。" 
+                : "Excellent! No mistakes found in this category.";
+            alert(msg);
+            return;
+        }
+
+        const isZh = preferences.spokenLanguage === 'Chinese';
+        let planTitle = isZh ? "复习会话" : "Review Session";
+        
+        if (strategy === 'specific' && candidates.length > 0) {
+            planTitle = isZh ? `复习: ${candidates[0].problemName}` : `Review: ${candidates[0].problemName}`;
+        } else if (strategy === 'category' && targetId) {
+            const unit = PROBLEM_CATEGORIES.find(u => u.id === targetId);
+            planTitle = unit ? (isZh ? `单元复习: ${unit.title_zh.split('：')[1] || unit.title_zh}` : `Review: ${unit.title}`) : "Unit Review";
+        } else if (strategy === 'time') {
+            planTitle = isZh ? "记忆曲线强化" : "Retention Drill";
+        } else if (strategy === 'urgent') {
+            planTitle = isZh ? "⚡ 快速修复 (Top 5)" : "⚡ Quick Repair (Top 5)";
+        }
+
+        setCurrentLessonPlan({
+            title: planTitle,
+            description: `Targeted Practice: ${strategy}`,
+            suggestedQuestions: [],
+            isLocalReplay: true,
+            screens: candidates.map(m => ({
+                id: `replay_${m.id}`,
+                header: isZh ? `复习: ${m.problemName}` : `Review: ${m.problemName}`,
+                widgets: [m.widget!],
+                isRetry: true
+            }))
+        });
+        setView('runner');
     };
 
     const handleStartClinic = async () => {
         setLoadingContext('clinic');
         setGenerationError(null);
+        setActiveNodeIndex(0); 
         setView('loading');
         try {
             const plan = await generateSyntaxClinicPlan(preferences);
@@ -304,18 +361,36 @@ export const useAppManager = () => {
         }
     }
 
+    const handleGenerateVariant = async (mistakeId: string) => {
+        const targetMistake = mistakes.find(m => m.id === mistakeId);
+        if (!targetMistake) return;
+
+        setLoadingContext('variant');
+        setGenerationError(null);
+        setActiveNodeIndex(0); 
+        setView('loading');
+
+        try {
+            const plan = await generateVariantLesson(targetMistake, preferences);
+            setCurrentLessonPlan(plan);
+            setView('runner');
+        } catch (e: any) {
+            setGenerationError(e.message);
+            if (e.rawOutput) setGenerationRawError(e.rawOutput);
+        }
+    };
+
     const handleRetryLoading = () => {
         if (loadingContext === 'lesson') handleStartNode(activeNodeIndex, isSkipAttempt);
         else if (loadingContext === 'review') handleStartReview('ai');
-        else handleStartClinic();
+        else if (loadingContext === 'clinic') handleStartClinic();
+        else if (loadingContext === 'variant') setView('dashboard'); 
     };
 
     const handleLessonComplete = (result: { xp: number; streak: number }, shouldSave: boolean, newMistakes: MistakeRecord[]) => {
-        // 1. Update Stats
         const today = new Date().toISOString().split('T')[0];
         const newHistory = { ...stats.history, [today]: (stats.history[today] || 0) + result.xp };
         
-        // Simple streak logic (could be more robust)
         const lastPlayed = stats.lastPlayed;
         let newStreak = stats.streak;
         if (lastPlayed !== today) {
@@ -324,21 +399,101 @@ export const useAppManager = () => {
             else newStreak = 1;
         }
 
-        const newStats = {
+        // --- SPACED REPETITION UPDATE ---
+        const updatedRetention = { ...(stats.retention || {}) };
+        if (activeProblem) {
+            // If we just completed a lesson for a specific problem
+            const pid = activeProblem.id;
+            const existing = updatedRetention[pid];
+            const hasFailedThisSession = newMistakes.length > 0;
+
+            let nextInterval = 1; // Default 1 day
+            let stability = 50;
+
+            if (hasFailedThisSession) {
+                // Reset interval on failure
+                nextInterval = 1; 
+                stability = 20;
+            } else if (existing) {
+                // Success! Exponential backoff (Spaced Repetition)
+                nextInterval = Math.ceil(existing.interval * 2);
+                stability = Math.min(100, existing.stability + 15);
+            } else {
+                // New mastery
+                nextInterval = 1;
+                stability = 50;
+            }
+
+            updatedRetention[pid] = {
+                lastReview: Date.now(),
+                interval: nextInterval,
+                stability: stability,
+                nextReview: Date.now() + (nextInterval * 24 * 60 * 60 * 1000)
+            };
+        }
+
+        const newStats: UserStats = {
             ...stats,
             xp: stats.xp + result.xp,
             streak: newStreak,
             lastPlayed: today,
-            history: newHistory
+            history: newHistory,
+            retention: updatedRetention
         };
         saveStats(newStats);
 
-        // 2. Save Mistakes
-        if (newMistakes.length > 0) {
-            saveMistakes([...mistakes, ...newMistakes]);
+        // --- MISTAKE MANAGEMENT LOGIC ---
+        const mistakeMap = new Map(mistakes.map(m => [m.id, m]));
+        const getKey = (m: MistakeRecord) => `${m.problemName}|${m.context}|${m.questionType}`;
+        const contentKeyMap = new Map(mistakes.map(m => [getKey(m), m.id]));
+
+        newMistakes.forEach(nm => {
+            const key = getKey(nm);
+            const existingId = contentKeyMap.get(key);
+
+            if (existingId) {
+                const existing = mistakeMap.get(existingId)!;
+                mistakeMap.set(existingId, {
+                    ...existing,
+                    timestamp: Date.now(), 
+                    failureCount: (existing.failureCount || 1) + 1,
+                    isResolved: false 
+                });
+            } else {
+                mistakeMap.set(nm.id, { 
+                    ...nm, 
+                    failureCount: 1, 
+                    isResolved: false 
+                });
+                contentKeyMap.set(key, nm.id);
+            }
+        });
+
+        if (currentLessonPlan?.isLocalReplay && currentLessonPlan.screens) {
+            currentLessonPlan.screens.forEach(screen => {
+                if (screen.id.startsWith('replay_')) {
+                    const originalId = screen.id.replace('replay_', '');
+                    if (mistakeMap.has(originalId)) {
+                        const record = mistakeMap.get(originalId)!;
+                        const key = getKey(record);
+                        const failedInSession = newMistakes.some(nm => getKey(nm) === key);
+                        if (!failedInSession) {
+                            mistakeMap.set(originalId, { ...record, isResolved: true });
+                        }
+                    }
+                }
+            });
         }
 
-        // 3. Update Progress (if normal lesson)
+        const updatedMistakes = Array.from(mistakeMap.values());
+        updatedMistakes.sort((a, b) => {
+            if (a.isResolved === b.isResolved) return b.timestamp - a.timestamp;
+            return a.isResolved ? 1 : -1; 
+        });
+
+        setMistakes(updatedMistakes);
+        saveMistakes(updatedMistakes);
+
         let finalProgress = progressMap;
         if (activeProblem && currentLessonPlan && !currentLessonPlan.isLocalReplay && shouldSave) {
             const lang = preferences.targetLanguage;
@@ -347,16 +502,13 @@ export const useAppManager = () => {
 
             let newLevel = currentLevel;
             
-            // Skip Logic
             if (isSkipAttempt && activeNodeIndex === 5) {
                 if (newMistakes.length <= 2) {
-                    newLevel = 6; // Mastered
+                    newLevel = 6; 
                 } else {
-                    // Skip Failed
                     updatePreferences({ failedSkips: { ...(preferences.failedSkips || {}), [activeProblem.name]: true } });
                 }
             } else {
-                // Normal Logic
                 if (activeNodeIndex < 6 && activeNodeIndex === currentLevel) {
                     newLevel = activeNodeIndex + 1;
                 }
@@ -369,12 +521,11 @@ export const useAppManager = () => {
             }
         }
 
-        // 4. Sync
         if (preferences.syncConfig.enabled && preferences.syncConfig.githubToken) {
             syncWithGist(preferences.syncConfig.githubToken, preferences.syncConfig.gistId, {
                 stats: newStats,
                 progress: finalProgress,
-                mistakes: [...mistakes, ...newMistakes],
+                mistakes: updatedMistakes,
                 preferences
             });
         }
@@ -395,11 +546,12 @@ export const useAppManager = () => {
         actions: {
             setView, setActiveTab,
             updatePreferences,
-            handleImportData, handleExportData, handleDataLoaded, // Exported handleDataLoaded
+            handleImportData, handleExportData, handleDataLoaded,
             handleSelectProblem,
             handleStartNode,
             handleStartReview,
             handleStartClinic,
+            handleGenerateVariant,
             handleRetryLoading,
             handleLessonComplete,
             onResetData: () => { localStorage.clear(); window.location.reload(); }

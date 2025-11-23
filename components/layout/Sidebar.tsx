@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React from 'react';
 import { 
   BookOpen, 
   RotateCcw, 
@@ -11,56 +11,68 @@ import {
   Layers, 
   Swords, 
   Lock,
-  Zap
+  Cpu,
+  Terminal
 } from 'lucide-react';
 
 interface SidebarProps {
   activeTab: string;
   onTabChange: (tab: any) => void;
   onOpenSettings: () => void;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
+  hidden?: boolean;
   t: any;
-  isZh?: boolean; // Add language prop for internal labels
+  isZh?: boolean;
 }
 
-// --- Menu Configuration ---
-// This keeps the sidebar independent. Layout doesn't need to know about these items.
-const MENU_GROUPS = [
+const MENU_CONFIG = [
   {
-    label: "Core Training",
+    group: "CORE",
     items: [
-      { id: 'learn', icon: BookOpen, label: { zh: '算法闯关', en: 'Learn Map' } },
-      { id: 'review', icon: RotateCcw, label: { zh: '复习中心', en: 'Review Hub' } },
+      { id: 'learn', icon: BookOpen, label: { zh: '算法闯关', en: 'Algo Map' }, color: 'text-brand' },
+      { id: 'review', icon: RotateCcw, label: { zh: '复习中心', en: 'Review Hub' }, color: 'text-orange-500' },
     ]
   },
   {
-    label: "Advanced Engineering",
+    group: "ADVANCED ENGINEERING",
     items: [
+      { 
+        id: 'syntax', 
+        icon: Terminal, 
+        label: { zh: '语法诊所', en: 'Syntax Clinic' }, 
+        color: 'text-blue-500',
+        tag: 'NEW' 
+      },
       { 
         id: 'system-design', 
         icon: Layers, 
         label: { zh: '系统设计', en: 'System Design' }, 
         tag: 'BETA',
-        disabled: true 
+        disabled: true,
+        color: 'text-purple-500'
       },
       { 
         id: 'interview', 
         icon: Swords, 
         label: { zh: '模拟面试', en: 'Mock Interview' }, 
         tag: 'SOON',
-        disabled: true 
+        disabled: true,
+        color: 'text-red-500'
       },
     ]
   },
   {
-    label: "Account",
+    group: "USER",
     items: [
-      { id: 'profile', icon: User, label: { zh: '个人档案', en: 'Profile' } },
+      { id: 'profile', icon: User, label: { zh: '个人档案', en: 'Profile' }, color: 'text-gray-400' },
     ]
   }
 ];
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, onOpenSettings, t, isZh = true }) => {
-  const [collapsed, setCollapsed] = useState(false);
+export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, onOpenSettings, collapsed, onToggleCollapse, hidden = false, t, isZh = true }) => {
+  
+  if (hidden) return null;
 
   return (
     <aside 
@@ -68,47 +80,52 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, onOpen
         hidden md:flex flex-col 
         ${collapsed ? 'w-20' : 'w-72'} 
         h-full fixed left-0 top-0 z-40
-        bg-white/80 dark:bg-[#0c0c0c]/90 backdrop-blur-xl
-        border-r border-gray-200 dark:border-white/10
-        transition-all duration-300 ease-[cubic-bezier(0.25,0.1,0.25,1)]
-        shadow-2xl
+        bg-white/90 dark:bg-[#0a0a0a]/90 backdrop-blur-2xl
+        border-r border-gray-200 dark:border-white/5
+        transition-all duration-500 cubic-bezier(0.4, 0, 0.2, 1)
+        shadow-2xl shadow-black/5
       `}
     >
-      {/* --- Header Area --- */}
-      <div className="h-20 flex items-center justify-center relative shrink-0">
-        <div className={`flex items-center gap-3 transition-all duration-300 ${collapsed ? 'scale-75' : 'scale-100'}`}>
-          <div className="w-10 h-10 bg-gradient-to-br from-brand to-brand-dark rounded-xl flex items-center justify-center shadow-lg shadow-brand/20">
-            <Code2 size={24} className="text-white" />
+      {/* --- Brand Header --- */}
+      <div className="h-24 flex items-center justify-center relative shrink-0 group">
+        <div className={`flex items-center gap-3 transition-all duration-500 ${collapsed ? 'scale-90' : 'scale-100'}`}>
+          <div className="relative w-10 h-10 flex items-center justify-center">
+             <div className="absolute inset-0 bg-brand blur-lg opacity-20 rounded-full"></div>
+             <div className="relative w-10 h-10 bg-gradient-to-br from-brand to-brand-dark rounded-xl flex items-center justify-center shadow-lg border border-white/10">
+                <Code2 size={20} className="text-white" />
+             </div>
           </div>
           
           {!collapsed && (
-            <div className="flex flex-col animate-fade-in-left">
-              <span className="font-extrabold text-xl tracking-tight text-gray-900 dark:text-white leading-none">
+            <div className="flex flex-col overflow-hidden animate-fade-in-left">
+              <span className="font-black text-xl tracking-tight text-gray-900 dark:text-white leading-none font-sans">
                 AlgoLingo
               </span>
-              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">
+              <span className="text-[9px] font-bold text-brand-dark dark:text-brand-light uppercase tracking-[0.2em] mt-1.5 flex items-center gap-1">
+                <Cpu size={10} />
                 Senior Coach
               </span>
             </div>
           )}
         </div>
 
-        {/* Collapse Toggle (Absolute Positioned) */}
+        {/* Collapse Toggle - Highly Visible & Colored */}
         <button 
-            onClick={() => setCollapsed(!collapsed)}
-            className="absolute -right-3 top-8 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm rounded-full p-1 text-gray-400 hover:text-brand transition-colors z-50"
+            onClick={onToggleCollapse}
+            className="absolute -right-3 top-9 bg-brand text-white border-2 border-white dark:border-gray-900 shadow-xl rounded-full p-1.5 transition-all hover:scale-110 z-50 flex items-center justify-center hover:bg-brand-dark cursor-pointer"
+            title={collapsed ? "Expand" : "Collapse"}
         >
-            {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+            {collapsed ? <ChevronRight size={16} strokeWidth={3} /> : <ChevronLeft size={16} strokeWidth={3} />}
         </button>
       </div>
 
-      {/* --- Navigation Area --- */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar py-6 space-y-8">
-        {MENU_GROUPS.map((group, groupIdx) => (
-          <div key={groupIdx} className="px-4">
+      {/* --- Navigation --- */}
+      <div className="flex-1 overflow-y-auto custom-scrollbar py-4 px-3 space-y-8">
+        {MENU_CONFIG.map((group, gIdx) => (
+          <div key={gIdx}>
             {!collapsed && (
-              <h3 className="text-[10px] font-extrabold text-gray-400 dark:text-gray-600 uppercase tracking-widest mb-3 pl-3 animate-fade-in-up">
-                {group.label}
+              <h3 className="px-4 text-[10px] font-black text-gray-300 dark:text-gray-600 uppercase tracking-widest mb-2 animate-fade-in-up">
+                {group.group}
               </h3>
             )}
             <div className="space-y-1">
@@ -122,52 +139,52 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, onOpen
                     key={item.id}
                     onClick={() => !item.disabled && onTabChange(item.id)}
                     disabled={item.disabled}
+                    title={collapsed ? label : undefined}
                     className={`
                       relative group w-full flex items-center 
-                      ${collapsed ? 'justify-center p-3' : 'px-4 py-3'}
-                      rounded-xl transition-all duration-200
+                      ${collapsed ? 'justify-center p-3' : 'px-4 py-3.5'}
+                      rounded-2xl transition-all duration-300
                       ${isActive 
-                        ? 'bg-brand/10 dark:bg-brand/20 text-brand-dark dark:text-brand-light' 
-                        : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-900 dark:hover:text-gray-200'
+                        ? 'bg-gray-100 dark:bg-white/5 text-gray-900 dark:text-white shadow-sm ring-1 ring-black/5 dark:ring-white/5' 
+                        : 'text-gray-500 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-white/5 hover:text-gray-900 dark:hover:text-gray-200'
                       }
-                      ${item.disabled ? 'opacity-50 cursor-not-allowed grayscale' : ''}
+                      ${item.disabled ? 'opacity-40 cursor-not-allowed' : ''}
                     `}
                   >
-                    {/* Active Indicator Bar */}
+                    {/* Active Glow Bar */}
                     {isActive && (
-                      <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-brand rounded-r-full" />
+                        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-brand rounded-r-full shadow-[0_0_12px_rgba(132,204,22,0.6)]" />
                     )}
 
                     <Icon 
-                      size={20} 
+                      size={collapsed ? 22 : 20} 
                       className={`
                         shrink-0 transition-transform duration-300
+                        ${isActive ? item.color : 'text-current'}
                         ${isActive ? 'scale-110' : 'group-hover:scale-105'}
                       `} 
                     />
 
                     {!collapsed && (
-                      <span className="ml-3 font-bold text-sm tracking-wide flex-1 text-left truncate">
+                      <span className={`ml-3 font-bold text-sm tracking-wide flex-1 text-left truncate ${isActive ? 'font-extrabold' : 'font-medium'}`}>
                         {label}
                       </span>
                     )}
 
-                    {/* Tags (Beta/Lock) */}
+                    {/* Tags */}
                     {!collapsed && item.tag && (
-                      <span className="ml-2 px-1.5 py-0.5 rounded-md bg-purple-500/10 text-purple-500 text-[9px] font-extrabold border border-purple-500/20">
+                      <span className={`
+                        ml-2 px-1.5 py-[1px] rounded-md text-[9px] font-black border tracking-wide
+                        ${item.tag === 'NEW' ? 'bg-blue-500/10 text-blue-500 border-blue-500/20' : ''}
+                        ${item.tag === 'BETA' ? 'bg-purple-500/10 text-purple-500 border-purple-500/20' : ''}
+                        ${item.tag === 'SOON' ? 'bg-gray-500/10 text-gray-500 border-gray-500/20' : ''}
+                      `}>
                         {item.tag}
                       </span>
                     )}
+                    
                     {!collapsed && item.disabled && !item.tag && (
                       <Lock size={12} className="ml-2 opacity-30" />
-                    )}
-
-                    {/* Tooltip for Collapsed State */}
-                    {collapsed && (
-                      <div className="absolute left-full ml-4 px-3 py-2 bg-gray-900 text-white text-xs font-bold rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50 shadow-xl">
-                        {label}
-                        {item.tag && <span className="ml-2 opacity-50">({item.tag})</span>}
-                      </div>
                     )}
                   </button>
                 );
@@ -177,31 +194,32 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, onOpen
         ))}
       </div>
 
-      {/* --- Footer Area --- */}
-      <div className="p-4 border-t border-gray-100 dark:border-white/5 shrink-0 bg-gray-50/50 dark:bg-white/5 backdrop-blur-sm">
+      {/* --- Footer Settings --- */}
+      <div className="p-4 border-t border-gray-200 dark:border-white/5 shrink-0">
         <button 
             onClick={onOpenSettings}
             className={`
               w-full flex items-center 
               ${collapsed ? 'justify-center' : 'gap-3 px-3'} 
-              py-3 rounded-xl 
+              py-3 rounded-2xl 
               text-gray-500 dark:text-gray-400 
-              hover:bg-white dark:hover:bg-white/10 hover:text-brand 
-              transition-all group border border-transparent hover:border-gray-200 dark:hover:border-white/10
+              hover:bg-gray-100 dark:hover:bg-white/10 
+              transition-all group
             `}
         >
           <div className={`
-             relative w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 
+             relative w-9 h-9 rounded-xl bg-gray-100 dark:bg-gray-800 
+             border border-gray-200 dark:border-white/5
              flex items-center justify-center shrink-0 overflow-hidden
-             group-hover:ring-2 ring-brand ring-offset-2 dark:ring-offset-black transition-all
+             group-hover:border-brand/50 transition-colors
           `}>
-             <Settings size={16} className="group-hover:rotate-90 transition-transform duration-500" />
+             <Settings size={18} className="group-hover:rotate-90 transition-transform duration-500 text-gray-600 dark:text-gray-300" />
           </div>
 
           {!collapsed && (
-            <div className="flex flex-col text-left overflow-hidden">
-               <span className="text-xs font-extrabold text-gray-800 dark:text-white truncate">Settings</span>
-               <span className="text-[10px] text-gray-400 font-medium truncate">Preferences & Data</span>
+            <div className="flex flex-col text-left overflow-hidden animate-fade-in-left">
+               <span className="text-xs font-bold text-gray-800 dark:text-white truncate">{isZh ? "设置" : "Settings"}</span>
+               <span className="text-[10px] text-gray-400 font-medium truncate">Preferences</span>
             </div>
           )}
         </button>

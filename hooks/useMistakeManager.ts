@@ -30,7 +30,8 @@ export const useMistakeManager = () => {
             questionType: targetWidget.type,
             context: screen.header || 'Practice',
             widget: targetWidget,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            reviewCount: 0
         };
 
         setSessionMistakes(prev => {

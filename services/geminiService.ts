@@ -8,5 +8,7 @@ export {
     validateUserCode, 
     generateReviewLesson, 
     generateSyntaxClinicPlan, 
-    generateAiAssistance 
+    generateAiAssistance,
+    generateVariantLesson,
+    generateDailyWorkoutPlan
 } from "./ai/generator";

@@ -1,20 +1,21 @@
 
 import React, { useState, useMemo } from 'react';
 import { UserStats, UserPreferences, ProgressMap, MistakeRecord } from '../types';
-import { PROBLEM_CATEGORIES } from '../constants';
+import { PROBLEM_CATEGORIES, PROBLEM_MAP } from '../constants';
 import { 
     Flame, Trophy, Zap, Edit2, Check, 
-    Hexagon, Activity, TrendingUp, 
-    ShieldAlert, MapPin, Share2, ShieldCheck
+    Hexagon, Activity, Share2, MapPin,
+    Sprout, BookOpen, Crown, Lock, ArrowRight
 } from 'lucide-react';
 
 interface ProfileViewProps {
     stats: UserStats;
     progressMap: ProgressMap;
-    mistakes: MistakeRecord[]; // Added real data source
+    mistakes: MistakeRecord[]; 
     language: 'Chinese' | 'English';
     preferences: UserPreferences;
     onUpdateName: (name: string) => void;
+    onSelectProblem?: (id: string, name: string, level: number) => void;
 }
 
 // --- Sub-Components ---
@@ -54,7 +55,6 @@ const RADAR_LABELS: Record<string, { en: string, zh: string }> = {
 };
 
 const getRadarData = (progressMap: Record<string, number>, isZh: boolean) => {
-    // Mapping Units to Dimensions
     const dimensions = [
         { key: 'DP', units: ['unit_dp_basic', 'unit_dp_adv'] }, 
         { key: 'DS', units: ['unit_hashing', 'unit_stack_queue', 'unit_linkedlist'] }, 
@@ -67,8 +67,8 @@ const getRadarData = (progressMap: Record<string, number>, isZh: boolean) => {
     return dimensions.map(dim => {
         const label = isZh ? RADAR_LABELS[dim.key].zh : RADAR_LABELS[dim.key].en;
         
-        if (dim.key === 'Sys') return { key: dim.key, label, value: 15 }; // Starter value
-        if (dim.key === 'Vel') return { key: dim.key, label, value: 40 }; // Starter value
+        if (dim.key === 'Sys') return { key: dim.key, label, value: 15 }; 
+        if (dim.key === 'Vel') return { key: dim.key, label, value: 40 }; 
 
         let totalLevels = 0;
         let completedLevels = 0;
@@ -77,14 +77,13 @@ const getRadarData = (progressMap: Record<string, number>, isZh: boolean) => {
             const category = PROBLEM_CATEGORIES.find(c => c.id === uid);
             if (category) {
                 category.problems.forEach(pid => {
-                    totalLevels += 6; // Max level per problem
+                    totalLevels += 6; 
                     completedLevels += Math.min(6, progressMap[pid] || 0);
                 });
             }
         });
 
         const percentage = totalLevels === 0 ? 0 : Math.round((completedLevels / totalLevels) * 100);
-        // Normalize: ensure it's at least 20 so the chart looks ok for beginners
         const normalized = percentage === 0 ? 20 : Math.max(20, percentage); 
         return { key: dim.key, label, value: normalized };
     });
@@ -95,7 +94,6 @@ const getContributionData = (history: Record<string, number> = {}) => {
     const today = new Date();
     const safeHistory = history || {}; 
     
-    // Generate last ~16 weeks (16 * 7 = 112 days) to fill the width nicely
     for (let i = 111; i >= 0; i--) {
         const d = new Date();
         d.setDate(today.getDate() - i);
@@ -113,50 +111,59 @@ const getContributionData = (history: Record<string, number> = {}) => {
     return days;
 };
 
-const getRetentionData = (mistakes: MistakeRecord[], progressMap: Record<string, number>) => {
-    // 1. Identify problems with mistakes (High Risk)
-    const mistakeCounts: Record<string, number> = {};
-    mistakes.forEach(m => {
-        mistakeCounts[m.problemName] = (mistakeCounts[m.problemName] || 0) + 1;
+// --- KANBAN LOGIC ---
+const getKanbanData = (progressMap: Record<string, number>, mistakes: MistakeRecord[]) => {
+    const fresh: {id: string, name: string, level: number}[] = [];
+    const pending: {id: string, name: string, level: number}[] = [];
+    const mastered: {id: string, name: string, level: number}[] = [];
+
+    // Helper: Check if problem has recent mistakes
+    const hasMistakes = (name: string) => mistakes.some(m => m.problemName === name);
+
+    Object.entries(progressMap).forEach(([id, level]) => {
+        const name = PROBLEM_MAP[id];
+        if (!name) return;
+
+        if (level > 0 && level < 6) {
+            // Level 1-5: In Progress -> Fresh
+            fresh.push({ id, name, level });
+        } else if (level >= 6) {
+            // Level 6: Mastered... but is it retained?
+            // Simple logic: If you have mistakes recorded for this problem, it's Pending.
+            // Otherwise, it's Mastered.
+            if (hasMistakes(name)) {
+                pending.push({ id, name, level });
+            } else {
+                mastered.push({ id, name, level });
+            }
+        }
     });
 
-    // Map to array
-    const riskItems = Object.entries(mistakeCounts).map(([name, count]) => ({
-        name,
-        decay: Math.max(20, 100 - (count * 15)), // More mistakes = lower retention %
-        type: 'Mistake',
-        riskLevel: count > 2 ? 'high' : 'medium'
-    }));
-
-    // Sort by lowest retention (highest risk)
-    return riskItems.sort((a, b) => a.decay - b.decay).slice(0, 4); // Top 4
+    return { fresh, pending, mastered };
 };
 
 // --- Main Component ---
 
-export const ProfileView: React.FC<ProfileViewProps> = ({ stats, progressMap, mistakes, language, preferences, onUpdateName }) => {
+export const ProfileView: React.FC<ProfileViewProps> = ({ stats, progressMap, mistakes, language, preferences, onUpdateName, onSelectProblem }) => {
     const isZh = language === 'Chinese';
     const [isEditing, setIsEditing] = useState(false);
     const [tempName, setTempName] = useState(preferences.userName);
 
-    // Data Calculations
     const langProgress = (progressMap && progressMap[preferences.targetLanguage]) || {};
     const radarData = useMemo(() => getRadarData(langProgress, isZh), [langProgress, isZh]);
     const heatmapData = useMemo(() => getContributionData(stats?.history), [stats?.history]);
-    const retentionData = useMemo(() => getRetentionData(mistakes, langProgress), [mistakes, langProgress]);
+    const kanbanData = useMemo(() => getKanbanData(langProgress, mistakes), [langProgress, mistakes]);
 
     // SVG Radar Logic
-    const radius = 70; // Slightly smaller to fit labels
-    const centerX = 110; // Center in 220x220 viewbox
+    const radius = 70;
+    const centerX = 110;
     const centerY = 110;
     const angleSlice = (Math.PI * 2) / 6;
-    
     const getPoint = (index: number, value: number) => {
         const angle = index * angleSlice - Math.PI / 2; 
         const r = (value / 100) * radius;
         return `${centerX + r * Math.cos(angle)},${centerY + r * Math.sin(angle)}`;
     };
-
     const radarPath = radarData.map((d, i) => getPoint(i, d.value)).join(' ');
     
     // Rank Logic
@@ -167,18 +174,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ stats, progressMap, mi
         { name: isZh ? '黄金架构师' : 'Gold Architect', threshold: 1500, color: 'text-yellow-500' },
         { name: isZh ? '钻石算法神' : 'Diamond Algo-God', threshold: 3000, color: 'text-purple-500' },
     ];
-    
-    // Find current rank
     let currentRank = rankLevels[0];
     let nextRank = rankLevels[1];
-    
     for (let i = 0; i < rankLevels.length; i++) {
         if (currentXP >= rankLevels[i].threshold) {
             currentRank = rankLevels[i];
             nextRank = rankLevels[i + 1] || { name: 'MAX', threshold: currentXP * 2, color: 'text-brand' };
         }
     }
-
     const xpForNext = nextRank.threshold - currentXP;
     const progressToNext = Math.min(100, ((currentXP - currentRank.threshold) / (nextRank.threshold - currentRank.threshold)) * 100);
 
@@ -187,27 +190,20 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ stats, progressMap, mi
             
             {/* Top Grid: Identity & Quick Stats */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                
-                {/* 1. Identity Card (Left Large) */}
+                {/* Identity Card */}
                 <div className="lg:col-span-2 bg-white dark:bg-dark-card rounded-3xl border border-gray-200 dark:border-gray-700 p-6 md:p-8 relative overflow-hidden shadow-xl">
-                    {/* Ambient Background */}
                     <div className="absolute top-0 right-0 w-64 h-64 bg-brand/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
-                    
                     <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center gap-6 md:gap-8">
-                        {/* Avatar Box */}
                         <div className="relative group">
                             <div className="w-24 h-24 md:w-32 md:h-32 bg-gradient-to-br from-gray-800 to-black rounded-2xl flex items-center justify-center border-4 border-white dark:border-gray-700 shadow-2xl overflow-hidden">
                                 <span className="text-4xl md:text-5xl font-black text-brand select-none">
                                     {(preferences.userName || 'U').slice(0, 2).toUpperCase()}
                                 </span>
-                                <div className="absolute inset-0 bg-brand mix-blend-overlay opacity-0 group-hover:opacity-20 transition-opacity cursor-pointer"></div>
                             </div>
                             <div className="absolute -bottom-3 -right-3 bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-700 px-3 py-1 rounded-full text-xs font-bold text-brand shadow-sm flex items-center gap-1">
                                 <MapPin size={10} /> Lv.{Math.floor(currentXP / 500) + 1}
                             </div>
                         </div>
-
-                        {/* Info & Edit */}
                         <div className="flex-1 w-full">
                             <div className="flex items-center justify-between mb-2">
                                 {isEditing ? (
@@ -231,12 +227,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ stats, progressMap, mi
                                     </div>
                                 )}
                             </div>
-
                             <div className="text-lg text-gray-500 dark:text-gray-400 font-medium mb-6 flex items-center gap-2">
                                 <span className={`font-bold ${currentRank.color}`}>[{currentRank.name}]</span>
                             </div>
-
-                            {/* XP Progress */}
                             <div className="w-full bg-gray-100 dark:bg-gray-800 h-4 rounded-full overflow-hidden mb-2 border border-gray-200 dark:border-gray-700 relative">
                                 <div 
                                     className="h-full bg-gradient-to-r from-brand to-brand-light relative transition-all duration-1000"
@@ -255,214 +248,162 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ stats, progressMap, mi
                     </div>
                 </div>
 
-                {/* 2. Stats Stack (Right Column) */}
+                {/* Stats Stack */}
                 <div className="grid grid-rows-3 gap-4">
-                    <StatBox 
-                        icon={<Flame size={20} />} 
-                        value={stats?.streak || 0} 
-                        label={isZh ? "连胜天数" : "Day Streak"} 
-                        subLabel={isZh ? "保持火热!" : "On Fire!"}
-                        colorClass="bg-orange-500"
-                    />
-                    <StatBox 
-                        icon={<Zap size={20} />} 
-                        value={stats?.xp || 0} 
-                        label={isZh ? "总经验值" : "Total XP"} 
-                        subLabel="Lifetime"
-                        colorClass="bg-yellow-500"
-                    />
-                    <StatBox 
-                        icon={<Trophy size={20} />} 
-                        value={stats?.gems || 0} 
-                        label={isZh ? "宝石数" : "Gems"} 
-                        subLabel={isZh ? "可兑换" : "Spendable"}
-                        colorClass="bg-purple-500"
-                    />
+                    <StatBox icon={<Flame size={20} />} value={stats?.streak || 0} label={isZh ? "连胜天数" : "Day Streak"} subLabel={isZh ? "保持火热!" : "On Fire!"} colorClass="bg-orange-500" />
+                    <StatBox icon={<Zap size={20} />} value={stats?.xp || 0} label={isZh ? "总经验值" : "Total XP"} subLabel="Lifetime" colorClass="bg-yellow-500" />
+                    <StatBox icon={<Trophy size={20} />} value={stats?.gems || 0} label={isZh ? "宝石数" : "Gems"} subLabel={isZh ? "可兑换" : "Spendable"} colorClass="bg-purple-500" />
                 </div>
             </div>
 
             {/* Middle Grid: Radar & Heatmap */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                
-                {/* 3. Competency Radar (Left) */}
                 <div className="bg-white dark:bg-dark-card rounded-3xl border border-gray-200 dark:border-gray-700 p-6 flex flex-col shadow-sm h-full min-h-[300px]">
-                    <SectionHeader 
-                        icon={<Hexagon size={16} className="text-purple-500" />}
-                        title={isZh ? "能力雷达" : "Competency Radar"}
-                    />
+                    <SectionHeader icon={<Hexagon size={16} className="text-purple-500" />} title={isZh ? "能力雷达" : "Competency Radar"} />
                     <div className="flex-1 flex items-center justify-center relative">
                         <svg viewBox="-10 -10 240 240" className="w-full h-full max-w-[280px] drop-shadow-xl">
-                            {/* Background Grid */}
-                            {[20, 40, 60, 80, 100].map(r => (
-                                <circle key={r} cx={centerX} cy={centerY} r={(r/100)*radius} fill="none" stroke="currentColor" className="text-gray-100 dark:text-gray-800" strokeWidth="1" />
-                            ))}
-                            {/* Spokes */}
+                            {[20, 40, 60, 80, 100].map(r => ( <circle key={r} cx={centerX} cy={centerY} r={(r/100)*radius} fill="none" stroke="currentColor" className="text-gray-100 dark:text-gray-800" strokeWidth="1" /> ))}
                             {[0, 1, 2, 3, 4, 5].map(i => {
                                 const angle = i * angleSlice - Math.PI / 2;
-                                return (
-                                    <line 
-                                        key={i}
-                                        x1={centerX} y1={centerY}
-                                        x2={centerX + radius * Math.cos(angle)}
-                                        y2={centerY + radius * Math.sin(angle)}
-                                        stroke="currentColor"
-                                        className="text-gray-100 dark:text-gray-800"
-                                        strokeWidth="1"
-                                    />
-                                );
+                                return ( <line key={i} x1={centerX} y1={centerY} x2={centerX + radius * Math.cos(angle)} y2={centerY + radius * Math.sin(angle)} stroke="currentColor" className="text-gray-100 dark:text-gray-800" strokeWidth="1" /> );
                             })}
-                            {/* The Radar Polygon */}
                             <polygon points={radarPath} fill="rgba(132, 204, 22, 0.2)" stroke="#84cc16" strokeWidth="2" className="transition-all duration-1000 ease-out" />
-                            
-                            {/* Labels */}
                             {radarData.map((d, i) => {
                                 const angle = i * angleSlice - Math.PI / 2;
-                                // Push labels out further
                                 const x = centerX + (radius + 25) * Math.cos(angle);
                                 const y = centerY + (radius + 25) * Math.sin(angle);
-                                return (
-                                    <text 
-                                        key={i} 
-                                        x={x} y={y} 
-                                        textAnchor="middle" 
-                                        dominantBaseline="middle" 
-                                        className="text-[10px] font-bold fill-gray-500 dark:fill-gray-400 uppercase tracking-wider"
-                                    >
-                                        {d.label}
-                                    </text>
-                                );
+                                return ( <text key={i} x={x} y={y} textAnchor="middle" dominantBaseline="middle" className="text-[10px] font-bold fill-gray-500 dark:fill-gray-400 uppercase tracking-wider">{d.label}</text> );
                             })}
                         </svg>
-                        
-                        {/* Overlay Stats */}
-                        <div className="absolute bottom-0 right-0 flex flex-col items-end">
-                            <div className="text-2xl font-black text-gray-800 dark:text-white">
-                                {Math.round(radarData.reduce((a, b) => a + b.value, 0) / 6)}
-                            </div>
-                            <div className="text-[10px] text-gray-400 font-bold uppercase">Avg Score</div>
-                        </div>
                     </div>
                 </div>
 
-                {/* 4. Activity Heatmap (Right Wide) */}
                 <div className="lg:col-span-2 bg-white dark:bg-dark-card rounded-3xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm h-full flex flex-col">
-                    <SectionHeader 
-                        icon={<Activity size={16} className="text-green-500" />}
-                        title={isZh ? "贡献热力图" : "Contribution Graph"}
-                        action={
-                            <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-400 transition-colors">
-                                <Share2 size={16} />
-                            </button>
-                        }
-                    />
-                    
+                    <SectionHeader icon={<Activity size={16} className="text-green-500" />} title={isZh ? "贡献热力图" : "Contribution Graph"} action={<button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-400 transition-colors"><Share2 size={16} /></button>} />
                     <div className="flex flex-col justify-center flex-1">
                         <div className="flex justify-center overflow-hidden">
                             <div className="grid grid-rows-7 grid-flow-col gap-1">
                                 {heatmapData.map((day, i) => (
-                                    <div 
-                                        key={day.date}
-                                        title={`${day.date}: ${day.xp} XP`}
-                                        className={`
-                                            w-3 h-3 md:w-4 md:h-4 rounded-[2px] transition-all hover:scale-125 hover:z-10 border border-transparent hover:border-black/20 dark:hover:border-white/20
-                                            ${day.level === 0 ? 'bg-gray-100 dark:bg-gray-800' : ''}
-                                            ${day.level === 1 ? 'bg-emerald-200 dark:bg-emerald-900/60' : ''}
-                                            ${day.level === 2 ? 'bg-emerald-300 dark:bg-emerald-700' : ''}
-                                            ${day.level === 3 ? 'bg-emerald-400 dark:bg-emerald-600' : ''}
-                                            ${day.level === 4 ? 'bg-emerald-500 dark:bg-emerald-500' : ''}
-                                        `}
-                                    />
+                                    <div key={day.date} title={`${day.date}: ${day.xp} XP`} className={`w-3 h-3 md:w-4 md:h-4 rounded-[2px] transition-all ${day.level === 0 ? 'bg-gray-100 dark:bg-gray-800' : ''} ${day.level === 1 ? 'bg-emerald-200 dark:bg-emerald-900/60' : ''} ${day.level === 2 ? 'bg-emerald-300 dark:bg-emerald-700' : ''} ${day.level === 3 ? 'bg-emerald-400 dark:bg-emerald-600' : ''} ${day.level === 4 ? 'bg-emerald-500 dark:bg-emerald-500' : ''}`} />
                                 ))}
-                            </div>
-                        </div>
-                        
-                        <div className="flex items-center justify-between text-xs text-gray-400 pt-4 px-4">
-                            <span className="font-mono text-[10px] hidden md:block">{heatmapData[0]?.date}</span>
-                            <div className="flex items-center gap-2 ml-auto">
-                                <span className="text-[10px] uppercase font-bold">Less</span>
-                                <div className="flex gap-1">
-                                    <div className="w-3 h-3 bg-gray-100 dark:bg-gray-800 rounded-[2px]"></div>
-                                    <div className="w-3 h-3 bg-emerald-200 dark:bg-emerald-900/60 rounded-[2px]"></div>
-                                    <div className="w-3 h-3 bg-emerald-400 dark:bg-emerald-600 rounded-[2px]"></div>
-                                    <div className="w-3 h-3 bg-emerald-500 dark:bg-emerald-500 rounded-[2px]"></div>
-                                </div>
-                                <span className="text-[10px] uppercase font-bold">More</span>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            {/* Bottom: Retention & Risk Monitor */}
-            <div className="bg-gray-900 dark:bg-black rounded-3xl p-6 md:p-8 text-white relative overflow-hidden border border-gray-800 shadow-2xl">
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-500 via-orange-500 to-brand"></div>
+            {/* Bottom: Knowledge Kanban Board */}
+            <div>
+                <div className="flex items-center gap-2 mb-4 px-2">
+                    <BookOpen size={20} className="text-gray-800 dark:text-white" />
+                    <h2 className="text-xl font-extrabold text-gray-800 dark:text-white uppercase tracking-wide">
+                        {isZh ? "记忆资产看板" : "Knowledge Assets"}
+                    </h2>
+                </div>
                 
-                {/* Conditional Render: Healthy vs Risk */}
-                {retentionData.length === 0 ? (
-                    <div className="relative z-10 flex flex-col items-center justify-center py-8 text-center">
-                        <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mb-4 animate-pulse">
-                            <ShieldCheck size={32} className="text-green-400"/>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {/* Column 1: Fresh */}
+                    <div className="flex flex-col gap-4">
+                        <div className="flex items-center gap-2 pb-2 border-b-4 border-green-400">
+                            <Sprout size={18} className="text-green-500" />
+                            <span className="font-bold text-gray-600 dark:text-gray-300 uppercase text-sm">
+                                {isZh ? "刚学会 (In Progress)" : "Fresh / In Progress"}
+                            </span>
+                            <span className="ml-auto bg-gray-100 dark:bg-gray-800 text-gray-500 text-xs px-2 py-0.5 rounded-full font-bold">
+                                {kanbanData.fresh.length}
+                            </span>
                         </div>
-                        <h3 className="text-2xl font-bold mb-2 text-green-400">
-                            {isZh ? "大脑状态极佳" : "Brain Health: Excellent"}
-                        </h3>
-                        <p className="text-gray-400 text-sm max-w-md">
-                            {isZh 
-                             ? "目前没有检测到明显的记忆衰退风险。继续保持！" 
-                             : "No significant memory decay detected based on your recent activity. Keep it up!"}
-                        </p>
-                    </div>
-                ) : (
-                    <div className="relative z-10 flex flex-col md:flex-row gap-8">
-                        <div className="md:w-1/3">
-                            <div className="flex items-center gap-2 text-red-400 font-black text-sm uppercase tracking-widest mb-4">
-                                <ShieldAlert size={18} />
-                                {isZh ? "记忆衰退警告" : "Retention Decay Monitor"}
-                            </div>
-                            <h3 className="text-2xl font-bold mb-2">
-                                {isZh ? `${retentionData.length} 个知识点急需修复` : `${retentionData.length} Concepts At Risk`}
-                            </h3>
-                            <p className="text-gray-400 text-sm leading-relaxed mb-6">
-                                {isZh 
-                                ? "根据你的错题记录和艾宾浩斯遗忘曲线分析，以下知识点的记忆强度已降至危险水平。" 
-                                : "Based on your mistake history and Ebbinghaus Forgetting Curve, retention for these concepts has dropped to critical levels."}
-                            </p>
-                            <button className="px-6 py-3 bg-white text-black rounded-xl font-bold text-sm hover:bg-gray-200 transition-colors flex items-center gap-2">
-                                <TrendingUp size={16} />
-                                {isZh ? "一键修复 (快速复习)" : "Quick Repair Session"}
-                            </button>
-                        </div>
-
-                        <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            {retentionData.map((item, i) => (
-                                <div key={i} className="bg-white/5 border border-white/10 p-4 rounded-xl flex items-center justify-between group hover:bg-white/10 transition-colors">
-                                    <div>
-                                        <div className="flex items-center gap-2 mb-1">
-                                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
-                                                item.riskLevel === 'high' ? 'border-red-500/50 text-red-400 bg-red-500/10' : 'border-yellow-500/50 text-yellow-400 bg-yellow-500/10'
-                                            }`}>
-                                                {item.riskLevel === 'high' ? 'HIGH RISK' : 'DECAY'}
-                                            </span>
-                                            <span className="font-bold text-sm truncate max-w-[120px]">{item.name}</span>
-                                        </div>
-                                        <div className="text-xs text-gray-500 font-mono">Analysis: High Error Rate</div>
+                        <div className="flex flex-col gap-3">
+                            {kanbanData.fresh.map(item => (
+                                <button 
+                                    key={item.id} 
+                                    onClick={() => onSelectProblem && onSelectProblem(item.id, item.name, item.level)}
+                                    className="bg-white dark:bg-dark-card p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md hover:border-green-400 transition-all text-left group"
+                                >
+                                    <div className="flex justify-between items-start mb-2">
+                                        <span className="text-xs font-mono text-gray-400">Lv.{item.level}</span>
+                                        <ArrowRight size={14} className="text-gray-300 group-hover:text-green-500 transition-colors" />
                                     </div>
-                                    <div className="flex flex-col items-end gap-1">
-                                        <span className={`font-mono font-bold text-lg ${item.riskLevel === 'high' ? 'text-red-500' : 'text-yellow-500'}`}>
-                                            {item.decay}%
-                                        </span>
-                                        <div className="w-16 h-1 bg-gray-700 rounded-full overflow-hidden">
-                                            <div 
-                                                className={`h-full rounded-full ${item.riskLevel === 'high' ? 'bg-red-500' : 'bg-yellow-500'}`} 
-                                                style={{ width: `${item.decay}%` }}
-                                            />
-                                        </div>
+                                    <div className="font-bold text-gray-800 dark:text-gray-200 text-sm">{item.name}</div>
+                                    <div className="w-full bg-gray-100 dark:bg-gray-800 h-1.5 mt-3 rounded-full overflow-hidden">
+                                        <div className="bg-green-500 h-full rounded-full" style={{width: `${(item.level/6)*100}%`}}></div>
                                     </div>
-                                </div>
+                                </button>
                             ))}
+                            {kanbanData.fresh.length === 0 && (
+                                <div className="text-center py-8 text-gray-400 text-xs italic border-2 border-dashed border-gray-200 dark:border-gray-800 rounded-xl">
+                                    {isZh ? "暂无正在学习的内容" : "No active learning"}
+                                </div>
+                            )}
                         </div>
                     </div>
-                )}
+
+                    {/* Column 2: Pending */}
+                    <div className="flex flex-col gap-4">
+                        <div className="flex items-center gap-2 pb-2 border-b-4 border-blue-400">
+                            <Lock size={18} className="text-blue-500" />
+                            <span className="font-bold text-gray-600 dark:text-gray-300 uppercase text-sm">
+                                {isZh ? "待精通 (Pending)" : "Pending Mastery"}
+                            </span>
+                            <span className="ml-auto bg-gray-100 dark:bg-gray-800 text-gray-500 text-xs px-2 py-0.5 rounded-full font-bold">
+                                {kanbanData.pending.length}
+                            </span>
+                        </div>
+                        <div className="flex flex-col gap-3">
+                            {kanbanData.pending.map(item => (
+                                <button 
+                                    key={item.id} 
+                                    onClick={() => onSelectProblem && onSelectProblem(item.id, item.name, item.level)}
+                                    className="bg-white dark:bg-dark-card p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md hover:border-blue-400 transition-all text-left group relative overflow-hidden"
+                                >
+                                    <div className="absolute top-0 right-0 w-12 h-12 bg-blue-500/5 rounded-bl-full -mr-2 -mt-2"></div>
+                                    <div className="font-bold text-gray-800 dark:text-gray-200 text-sm mb-1">{item.name}</div>
+                                    <div className="text-xs text-blue-500 font-bold flex items-center gap-1">
+                                        <Activity size={12}/> {isZh ? "需要复习" : "Needs Review"}
+                                    </div>
+                                </button>
+                            ))}
+                             {kanbanData.pending.length === 0 && (
+                                <div className="text-center py-8 text-gray-400 text-xs italic border-2 border-dashed border-gray-200 dark:border-gray-800 rounded-xl">
+                                    {isZh ? "没有待巩固的知识点" : "Nothing pending"}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Column 3: Mastered */}
+                    <div className="flex flex-col gap-4">
+                        <div className="flex items-center gap-2 pb-2 border-b-4 border-yellow-400">
+                            <Crown size={18} className="text-yellow-500" />
+                            <span className="font-bold text-gray-600 dark:text-gray-300 uppercase text-sm">
+                                {isZh ? "已掌握 (Retained)" : "Mastered"}
+                            </span>
+                            <span className="ml-auto bg-gray-100 dark:bg-gray-800 text-gray-500 text-xs px-2 py-0.5 rounded-full font-bold">
+                                {kanbanData.mastered.length}
+                            </span>
+                        </div>
+                        <div className="flex flex-col gap-3">
+                            {kanbanData.mastered.map(item => (
+                                <button 
+                                    key={item.id} 
+                                    onClick={() => onSelectProblem && onSelectProblem(item.id, item.name, item.level)}
+                                    className="bg-white dark:bg-dark-card p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md hover:border-yellow-400 transition-all text-left group bg-gradient-to-br from-white to-yellow-50/50 dark:from-dark-card dark:to-yellow-900/10"
+                                >
+                                    <div className="flex items-center justify-between mb-1">
+                                        <div className="font-bold text-gray-800 dark:text-gray-200 text-sm">{item.name}</div>
+                                        <Crown size={14} className="text-yellow-500 fill-yellow-500" />
+                                    </div>
+                                    <div className="text-xs text-gray-400 font-mono">{isZh ? "记忆强度: 极佳" : "Retention: High"}</div>
+                                </button>
+                            ))}
+                             {kanbanData.mastered.length === 0 && (
+                                <div className="text-center py-8 text-gray-400 text-xs italic border-2 border-dashed border-gray-200 dark:border-gray-800 rounded-xl">
+                                    {isZh ? "继续努力解锁成就" : "Keep learning to master"}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
             </div>
 
         </div>

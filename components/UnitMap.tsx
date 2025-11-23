@@ -137,15 +137,15 @@ export const UnitMap: React.FC<UnitMapProps> = ({ problemName, currentLevel, sav
           </div>
       )}
 
-      {/* Header */}
-      <div className="fixed top-0 left-0 right-0 z-30 bg-white/90 dark:bg-dark-card/90 backdrop-blur-md border-b border-gray-200 dark:border-gray-800 px-6 md:px-12 py-4 flex items-center justify-between shadow-sm">
+      {/* Modern Floating Header */}
+      <div className="sticky top-4 z-30 mx-4 md:mx-8 mt-4 rounded-2xl bg-white/90 dark:bg-dark-card/90 backdrop-blur-xl border border-gray-200 dark:border-gray-700 px-6 py-3 flex items-center justify-between shadow-lg">
         <div className="flex items-center gap-4">
             <button onClick={onBack} className="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-white p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
                 <ArrowLeft size={24} />
             </button>
             <div>
-                <h1 className="text-xl font-extrabold text-gray-900 dark:text-white tracking-tight leading-none">{problemName}</h1>
-                <p className="text-brand font-bold text-xs uppercase tracking-wide mt-1">{t.unit}</p>
+                <h1 className="text-lg md:text-xl font-extrabold text-gray-900 dark:text-white tracking-tight leading-none truncate max-w-[200px] md:max-w-full">{problemName}</h1>
+                <p className="text-brand font-bold text-[10px] uppercase tracking-wide mt-0.5">{t.unit}</p>
             </div>
         </div>
         
@@ -156,7 +156,7 @@ export const UnitMap: React.FC<UnitMapProps> = ({ problemName, currentLevel, sav
       </div>
 
       {/* Grid Container */}
-      <div className="flex-1 pt-32 pb-24 px-4 md:px-16 w-full max-w-5xl mx-auto animate-fade-in-up">
+      <div className="flex-1 pt-8 pb-24 px-4 md:px-16 w-full max-w-5xl mx-auto animate-fade-in-up">
         
         <div className="grid grid-cols-2 md:grid-cols-3 gap-6 md:gap-10">
             {pathNodes.map((node) => {

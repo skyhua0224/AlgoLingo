@@ -84,5 +84,30 @@ export const getLessonPlanSystemInstruction = (
   `;
 };
 
+export const getVariantSystemInstruction = (
+    targetLang: string, 
+    speakLang: string
+) => {
+    return `
+    ${BASE_SYSTEM_INSTRUCTION}
+    
+    TASK: GENERATE A VARIANT LESSON SCREEN
+    - You will receive a JSON representing a widget the user failed.
+    - Your goal is to create a **single-screen lesson plan** containing a **VARIATION** of that specific problem.
+    - The variation must test the **same underlying logic** but with different values, context, or variable names.
+    - Example: If original was "Two Sum", variant could be "Find two numbers summing to target in a list of prices".
+    - Example: If original was a Parsons puzzle about a 'for' loop, generate a similar 'for' loop puzzle with different iterator names.
+    
+    TARGET LANGUAGE: ${targetLang}
+    USER LANGUAGE: ${speakLang}
+
+    OUTPUT RULES:
+    - Generate a valid 'LessonPlan' with exactly 1 screen.
+    - The screen MUST contain the variant interactive widget.
+    - You may add a short 'callout' before the interactive widget to explain the variation context.
+    `;
+};
+
 export { getLeetCodeContextSystemInstruction } from "./stages/leetcode";
 export { getJudgeSystemInstruction } from "./judge";
+export { getDailyWorkoutSystemInstruction } from "./stages/workout";

@@ -49,22 +49,10 @@ export default function App() {
         );
     }
     
-    // Lesson Runner
+    // Lesson Runner is now an overlay handled outside standard flow
+    // but kept here in 'view' state logic for switching
     if (view === 'runner' && currentLessonPlan) {
-        return (
-            <LessonRunner 
-                plan={currentLessonPlan}
-                nodeIndex={activeNodeIndex}
-                onComplete={actions.handleLessonComplete}
-                onExit={() => actions.setView(activeTab === 'review' ? 'dashboard' : 'unit-map')}
-                onRegenerate={actions.handleRetryLoading}
-                language={preferences.spokenLanguage}
-                preferences={preferences}
-                isReviewMode={state.loadingContext === 'review'}
-                isSkipContext={isSkipAttempt}
-                stats={stats}
-            />
-        );
+        return null; // Rendered as Overlay below
     }
 
     // Main Tabs
@@ -77,6 +65,7 @@ export default function App() {
                 language={preferences.spokenLanguage} 
                 preferences={preferences} 
                 onUpdateName={(name) => actions.updatePreferences({userName: name})} 
+                onSelectProblem={actions.handleSelectProblem}
             />
         );
     }
@@ -87,8 +76,9 @@ export default function App() {
                 mistakeCount={mistakes.length} 
                 mistakes={mistakes}
                 onStartReview={() => actions.handleStartReview('ai')} 
-                onStartMistakePractice={(mode) => actions.handleStartReview(mode)} 
+                onStartMistakePractice={(strategy, targetId) => actions.handleStartReview(strategy, targetId)} 
                 onStartSyntaxClinic={actions.handleStartClinic}
+                onGenerateVariant={actions.handleGenerateVariant}
                 onBack={() => actions.setActiveTab('learn')} 
                 targetLanguage={preferences.targetLanguage} 
             />
@@ -96,7 +86,6 @@ export default function App() {
     }
     
     // Learning Views (Default Fallback)
-    // Use 'dashboard' as catch-all if not in specific sub-views
     if (view === 'unit-map' && activeProblem) {
         return (
             <UnitMap 
@@ -112,7 +101,7 @@ export default function App() {
         );
     }
 
-    // Default to Dashboard if no other view matches
+    // Default to Dashboard
     return (
         <Dashboard 
             progressMap={progressMap[preferences.targetLanguage] || {}} 
@@ -125,17 +114,37 @@ export default function App() {
 
   // --- 3. Layout Wrapper ---
   return (
-    <Layout 
-        activeTab={activeTab} 
-        onTabChange={actions.setActiveTab}
-        preferences={preferences}
-        onUpdatePreferences={actions.updatePreferences}
-        onExportData={actions.handleExportData}
-        onImportData={actions.handleImportData}
-        onResetData={actions.onResetData}
-        hideMobileNav={view === 'runner' || view === 'loading'}
-    >
-        {renderContent()}
-    </Layout>
+    <>
+        {/* Overlay Runner */}
+        {view === 'runner' && currentLessonPlan && (
+            <LessonRunner 
+                plan={currentLessonPlan}
+                nodeIndex={activeNodeIndex}
+                onComplete={actions.handleLessonComplete}
+                onExit={() => actions.setView(activeTab === 'review' ? 'dashboard' : 'unit-map')}
+                onRegenerate={actions.handleRetryLoading}
+                language={preferences.spokenLanguage}
+                preferences={preferences}
+                isReviewMode={state.loadingContext === 'review'}
+                isSkipContext={isSkipAttempt}
+                stats={stats}
+            />
+        )}
+
+        <Layout 
+            activeTab={activeTab} 
+            onTabChange={actions.setActiveTab}
+            preferences={preferences}
+            onUpdatePreferences={actions.updatePreferences}
+            onExportData={actions.handleExportData}
+            onImportData={actions.handleImportData}
+            onResetData={actions.onResetData}
+            // We no longer hide nav/sidebar via props, as the runner is now an overlay
+            hideMobileNav={view === 'loading'} 
+            hideSidebar={view === 'loading'} 
+        >
+            {renderContent()}
+        </Layout>
+    </>
   );
 }

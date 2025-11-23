@@ -26,6 +26,13 @@ export interface Achievement {
     unlockedAt?: number;
 }
 
+export interface RetentionRecord {
+    lastReview: number; // Timestamp
+    interval: number;   // Days until next review
+    stability: number;  // 0-100 score
+    nextReview: number; // Timestamp
+}
+
 export interface UserStats {
   streak: number;
   xp: number;
@@ -36,6 +43,9 @@ export interface UserStats {
   league?: League;
   quests?: DailyQuest[];
   achievements?: Achievement[];
+  
+  // Spaced Repetition Data
+  retention?: Record<string, RetentionRecord>;
 }
 
 export type AppTheme = 'light' | 'dark' | 'system';
@@ -65,4 +75,3 @@ export interface UserPreferences {
   notificationConfig: NotificationConfig;
   syncConfig: SyncConfig;
 }
-    

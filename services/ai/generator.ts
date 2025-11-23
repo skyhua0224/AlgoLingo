@@ -1,8 +1,9 @@
 
 import { getClient } from "./client";
-import { getLessonPlanSystemInstruction, getLeetCodeContextSystemInstruction, getJudgeSystemInstruction } from "./prompts";
+import { getLessonPlanSystemInstruction, getLeetCodeContextSystemInstruction, getJudgeSystemInstruction, getVariantSystemInstruction, getDailyWorkoutSystemInstruction } from "./prompts";
 import { lessonPlanSchema, leetCodeContextSchema, judgeResultSchema } from "./schemas";
 import { UserPreferences, MistakeRecord, LessonPlan, Widget, LeetCodeContext, SavedLesson } from "../../types";
+import { PROBLEM_MAP } from "../../constants";
 
 // --- CUSTOM ERROR CLASS ---
 export class AIGenerationError extends Error {
@@ -229,8 +230,61 @@ export const generateLessonPlan = async (
   }
 };
 
-// --- OTHER GENERATORS (Simplified for brevity, assume similar error handling pattern) ---
-// (Keeping existing implementations but they should technically be wrapped similarly if strict)
+export const generateDailyWorkoutPlan = async (
+    mistakes: MistakeRecord[],
+    learnedProblemIds: string[],
+    preferences: UserPreferences
+): Promise<LessonPlan> => {
+    // Resolve IDs to Names
+    const learnedProblemNames = learnedProblemIds.map(id => PROBLEM_MAP[id]).filter(n => !!n);
+    
+    // If no learned problems, fallback to a basic intro
+    if (learnedProblemNames.length === 0) {
+        return generateLessonPlan("Two Sum", 0, preferences);
+    }
+
+    const topMistakes = mistakes.slice(0, 5);
+    const mistakeContext = topMistakes.map(m => `Problem: ${m.problemName}, Failed Logic: ${m.context}`).join('\n');
+
+    const systemInstruction = getDailyWorkoutSystemInstruction(preferences.targetLanguage, preferences.spokenLanguage);
+    const prompt = `
+    GENERATE DAILY WORKOUT
+    
+    LEARNED PROBLEMS (ALLOWED CONTENT):
+    ${learnedProblemNames.join(', ')}
+
+    RECENT MISTAKES (PRIORITIZE FIXING THESE):
+    ${mistakeContext || "None. Focus on general reinforcement of learned topics."}
+    `;
+
+    const text = await callAI(preferences, systemInstruction, prompt, lessonPlanSchema, true);
+    const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
+    
+    const plan: LessonPlan = JSON.parse(cleanText);
+    plan.title = preferences.spokenLanguage === 'Chinese' ? "📅 今日智能特训" : "📅 Daily Smart Workout";
+    return plan;
+};
+
+export const generateVariantLesson = async (
+    mistake: MistakeRecord,
+    preferences: UserPreferences
+): Promise<LessonPlan> => {
+    const systemInstruction = getVariantSystemInstruction(preferences.targetLanguage, preferences.spokenLanguage);
+    const prompt = `
+    ORIGINAL MISTAKE CONTEXT:
+    Problem: ${mistake.problemName}
+    Widget Data: ${JSON.stringify(mistake.widget)}
+    
+    INSTRUCTION:
+    Create a VARIANT of this specific widget. Keep the difficulty similar but change the scenario.
+    `;
+
+    const text = await callAI(preferences, systemInstruction, prompt, lessonPlanSchema, true);
+    const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
+    return JSON.parse(cleanText);
+};
+
+// --- OTHER GENERATORS ---
 
 export const generateLeetCodeContext = async (
     problemName: string,
@@ -271,20 +325,12 @@ export const validateUserCode = async (code: string, problemDesc: string, prefer
 };
 
 export const generateReviewLesson = async (mistakes: MistakeRecord[], preferences: UserPreferences): Promise<LessonPlan> => {
-    return {
-        title: preferences.spokenLanguage === 'Chinese' ? "智能复习" : "Smart Review",
-        description: "AI generated review based on your recent mistakes.",
-        suggestedQuestions: [],
-        screens: mistakes.map((m, i) => ({
-            id: `review_${i}`,
-            header: `Review: ${m.problemName}`,
-            widgets: [m.widget!],
-            isRetry: true
-        }))
-    };
+    // Legacy fallback wrapper, should be replaced by DailyWorkout mostly
+    return generateDailyWorkoutPlan(mistakes, ["p_1"], preferences);
 };
 
 export const generateSyntaxClinicPlan = async (preferences: UserPreferences): Promise<LessonPlan> => {
+    // Hardcoded simple clinic for now, could be AI powered later
     return generateLessonPlan("Syntax Clinic", 1, preferences); 
 }
 

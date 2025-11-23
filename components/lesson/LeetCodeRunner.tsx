@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { LessonPlan, LeetCodeContext, UserPreferences } from '../../types';
 import { VirtualWorkspace } from '../VirtualWorkspace';
 import { generateLeetCodeContext } from '../../services/geminiService';
-import { Loader2, PanelRightClose, PanelRightOpen, Lightbulb, Code } from 'lucide-react';
+import { Loader2, Lightbulb, Code } from 'lucide-react';
 import { FlipCardWidget } from '../widgets/FlipCard';
 import { InteractiveCodeWidget } from '../widgets/InteractiveCode';
 import { GlobalAiAssistant } from '../GlobalAiAssistant';
@@ -68,28 +68,22 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
     if (!data) return <div className="p-8 text-center text-red-500">Failed to load simulation.</div>;
 
     return (
-        <div className="flex h-full relative bg-gray-50 dark:bg-dark-bg">
+        <div className="flex h-full relative bg-gray-50 dark:bg-dark-bg overflow-hidden">
             <GlobalAiAssistant problemName={plan.title} preferences={preferences} language={language} />
 
             {/* Main Workspace */}
-            <div className={`h-full ${sidebarOpen ? 'w-full md:w-3/4' : 'w-full'} p-4 relative transition-all duration-300 ease-in-out`}>
+            <div className={`h-full ${sidebarOpen ? 'w-full md:w-3/4' : 'w-full'} flex flex-col transition-all duration-300 ease-in-out`}>
                 <VirtualWorkspace 
                     context={data} 
                     preferences={preferences} 
                     onSuccess={onSuccess}
+                    isSidebarOpen={sidebarOpen}
+                    onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
                 />
-                
-                <button 
-                    onClick={() => setSidebarOpen(!sidebarOpen)}
-                    className="absolute top-6 right-6 z-20 px-3 py-2 bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-600 rounded-full shadow-md text-gray-500 hover:text-brand flex items-center gap-2 font-bold text-xs transition-all"
-                >
-                    {!sidebarOpen && <span>{language === 'Chinese' ? "查看 AI 题解" : "View Solutions"}</span>}
-                    {sidebarOpen ? <PanelRightClose size={18}/> : <PanelRightOpen size={18}/>}
-                </button>
             </div>
 
             {/* Right Sidebar */}
-            <div className={`${sidebarOpen ? 'w-full md:w-1/4 border-l' : 'w-0 overflow-hidden'} h-full flex-col border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-bg overflow-y-auto custom-scrollbar transition-all duration-300 ease-in-out`}>
+            <div className={`${sidebarOpen ? 'w-full md:w-1/4 border-l' : 'w-0 overflow-hidden'} h-full flex-col border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-bg overflow-y-auto custom-scrollbar transition-all duration-300 ease-in-out absolute md:relative right-0 z-30 md:z-0 shadow-2xl md:shadow-none`}>
                 <div className="p-4 space-y-4 min-w-[300px]">
                      <div className="mb-2">
                         <p className="text-xs text-gray-400 font-bold uppercase tracking-wider text-center">
