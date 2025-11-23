@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Dashboard } from './components/Dashboard';
 import { UnitMap } from './components/UnitMap';
-import { LessonRunner } from './components/LessonRunner';
+import { LessonRunner } from './components/lesson/LessonRunner';
 import { Layout } from './components/Layout';
 import { ReviewHub } from './components/ReviewHub';
 import { LoadingScreen } from './components/LoadingScreen';
@@ -46,6 +46,7 @@ export default function App() {
   // Track what we are loading to support retry
   const [loadingContext, setLoadingContext] = useState<'lesson' | 'review' | 'clinic'>('lesson');
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [generationRawError, setGenerationRawError] = useState<string | null>(null);
 
   // Theme Effect
   useEffect(() => {
@@ -63,23 +64,17 @@ export default function App() {
     const loadedMistakes = localStorage.getItem('algolingo_mistakes');
     const loadedPrefs = localStorage.getItem('algolingo_prefs');
 
-    // Progress Migration: Flat -> Nested
     if (loadedProgress) {
         try {
             const parsed = JSON.parse(loadedProgress);
-            // FIX: Ensure parsed is a valid object (not null) before using Object.keys
             if (parsed && typeof parsed === 'object') {
                 const keys = Object.keys(parsed);
                 if (keys.length > 0) {
-                    // Detect if it's the old flat structure (Value is number)
                     const sampleKey = keys[0];
                     if (typeof parsed[sampleKey] === 'number') {
-                        // Migrate to nested structure under default target language (Python)
                         const defaultLang = loadedPrefs ? JSON.parse(loadedPrefs).targetLanguage || 'Python' : 'Python';
-                        console.log(`[Migration] Converting flat progress to nested for ${defaultLang}`);
                         const nested = { [defaultLang]: parsed };
                         setProgressMap(nested);
-                        // Update local storage immediately
                         localStorage.setItem('algolingo_progress_v2', JSON.stringify(nested));
                     } else {
                         setProgressMap(parsed);
@@ -88,7 +83,6 @@ export default function App() {
                     setProgressMap({});
                 }
             } else {
-                // Fallback for null/invalid loaded progress
                 setProgressMap({});
             }
         } catch (e) {
@@ -97,19 +91,15 @@ export default function App() {
         }
     }
     
-    // Hydrate stats and calculate streak
     if (loadedStats) {
         try {
             const parsedStats: UserStats = JSON.parse(loadedStats);
-            // FIX: Ensure parsedStats is not null
             if (parsedStats && typeof parsedStats === 'object') {
                 const realStreak = calculateRealStreak(parsedStats.history || {});
-                // Merge with INITIAL_STATS to ensure new fields (League, Quests) exist
                 const mergedStats = { 
                     ...INITIAL_STATS, 
                     ...parsedStats, 
                     streak: realStreak,
-                    // Ensure quests exist if missing
                     quests: parsedStats.quests && parsedStats.quests.length ? parsedStats.quests : [
                         { id: 'q1', description: 'Complete 1 Lesson', target: 1, current: 0, rewardGems: 10, completed: false },
                         { id: 'q2', description: 'Fix 3 Mistakes', target: 3, current: 0, rewardGems: 20, completed: false }
@@ -219,9 +209,7 @@ export default function App() {
       localStorage.setItem('algolingo_prefs', JSON.stringify(updated));
   }
 
-  // --- UNIVERSAL DATA LOADER ---
   const handleDataLoad = (data: any) => {
-      // Basic Validation
       if (!data.version) {
           alert("Invalid data format.");
           return;
@@ -244,13 +232,10 @@ export default function App() {
           localStorage.setItem('algolingo_saved_lessons', JSON.stringify(data.savedLessons));
       }
       
-      // Update prefs if available
       if (data.preferences) {
-          // Merge but prioritize existing API keys if restored ones are empty (safety)
           const mergedPrefs = { 
               ...preferences, 
               ...data.preferences,
-              // IMPORTANT: Force onboarded true so we skip/exit onboarding immediately
               hasOnboarded: true 
           };
           
@@ -261,29 +246,23 @@ export default function App() {
           setPreferences(mergedPrefs);
           localStorage.setItem('algolingo_prefs', JSON.stringify(mergedPrefs));
       } else {
-          // If no prefs in data, still mark as onboarded
           updatePreferences({ hasOnboarded: true });
       }
 
-      // NO RELOAD: Direct State Update
       setView('dashboard');
   };
 
-  // --- IMPORT FUNCTIONALITY (FILE) ---
   const handleImportData = async (file: File) => {
       try {
           const text = await file.text();
           const data = JSON.parse(text);
           handleDataLoad(data);
-          // Removed alert to prevent blocking UI which might feel like a crash to some users
-          // The state update in handleDataLoad will switch the view, which is feedback enough.
       } catch (e) {
           console.error(e);
           alert(preferences.spokenLanguage === 'Chinese' ? "导入失败：文件格式错误" : "Import failed: Invalid file format");
       }
   };
 
-  // --- EXPORT FUNCTIONALITY ---
   const handleExportData = () => {
       const data = {
           stats,
@@ -315,7 +294,6 @@ export default function App() {
     setView('unit-map');
   };
 
-  // --- MAIN ENTRY: Start a Node ---
   const handleStartNode = async (nodeIndex: number, isSkip: boolean = false) => {
     if (!activeProblem) return;
     
@@ -323,10 +301,8 @@ export default function App() {
     setActiveNodeIndex(nodeIndex);
     setLoadingContext('lesson');
     setGenerationError(null);
+    setGenerationRawError(null);
     
-    // --- SPECIAL CASE: LEETCODE MODE (Phase 7 / Index 6) ---
-    // Do NOT go to loading screen. Go straight to runner with a dummy plan.
-    // The LessonRunner will handle the async fetch of the sidebar content.
     if (nodeIndex === 6) {
          const dummyPlan: LessonPlan = {
              title: activeProblem.name,
@@ -338,8 +314,7 @@ export default function App() {
                      id: 'lc-widget',
                      type: 'leetcode',
                      leetcode: {
-                         // Generate slug from name (basic heuristic, backup logic in runner or service)
-                         problemSlug: "two-sum", // This is a placeholder, sidebar generator will fix or use prop
+                         problemSlug: "two-sum",
                          concept: { front: "Loading...", back: "..." },
                          exampleCode: { language: preferences.targetLanguage, lines: [] }
                      }
@@ -362,12 +337,18 @@ export default function App() {
     } catch (e: any) {
       console.error(e);
       setGenerationError(e.message || "Unknown Error");
+      // Check for rawOutput from our custom error class
+      if (e.rawOutput) {
+          setGenerationRawError(e.rawOutput);
+      }
     }
   };
 
   const handleStartReview = async (isUnitContext: boolean = false, strategy: 'ai' | 'all' | 'due' = 'ai') => {
     setLoadingContext('review');
     setGenerationError(null);
+    setGenerationRawError(null);
+    setActiveNodeIndex(0); // Reset index to prevent LeetCode view override
     
     if (strategy === 'all' || strategy === 'due') {
         const candidates = mistakes.filter(m => m.widget);
@@ -383,6 +364,7 @@ export default function App() {
              isLocalReplay: true, 
              screens: candidates.map((m) => ({
                  id: `replay_${m.id}`,
+                 header: m.problemName ? `Review: ${m.problemName}` : 'Review Mistake',
                  widgets: [m.widget as Widget],
                  isRetry: true
              }))
@@ -400,12 +382,15 @@ export default function App() {
     } catch (e: any) {
         console.error(e);
         setGenerationError(e.message || "Review Generation Failed");
+        if (e.rawOutput) setGenerationRawError(e.rawOutput);
     }
   };
 
   const handleStartSyntaxClinic = async () => {
       setLoadingContext('clinic');
       setGenerationError(null);
+      setGenerationRawError(null);
+      setActiveNodeIndex(0); // Reset index
       setView('loading');
       try {
           const plan = await generateSyntaxClinicPlan(preferences);
@@ -414,11 +399,13 @@ export default function App() {
       } catch (e: any) {
           console.error(e);
           setGenerationError(e.message || "Clinic Generation Failed");
+          if (e.rawOutput) setGenerationRawError(e.rawOutput);
       }
   }
 
   const handleRetryLoading = () => {
       setGenerationError(null);
+      setGenerationRawError(null);
       if (loadingContext === 'lesson') {
           handleStartNode(activeNodeIndex, isSkipAttempt);
       } else if (loadingContext === 'review') {
@@ -435,7 +422,6 @@ export default function App() {
 
     const newStreak = calculateRealStreak(newHistory);
 
-    // Update Quests
     const updatedQuests = (stats.quests || []).map(q => {
         if (q.completed) return q;
         let newCurrent = q.current;
@@ -475,7 +461,6 @@ export default function App() {
         const currentMax = currentLangProg[activeProblem.id] || 0;
         
         if (shouldSave) {
-             // Skip logic or Progression
              if (isSkipAttempt && activeNodeIndex === 5) {
                 if (newMistakes.length <= 2) {
                     const updatedProg = { ...currentLangProg, [activeProblem.id]: 6 };
@@ -487,7 +472,6 @@ export default function App() {
                     updatePreferences({ failedSkips: { ...existingFails, [activeProblem.name]: true } });
                 }
             } else {
-                // Normal Progression: Advance if current level was the max level
                 if (activeNodeIndex < 6 && activeNodeIndex === currentMax) { 
                     const updatedProg = { ...currentLangProg, [activeProblem.id]: activeNodeIndex + 1 };
                     saveProgressForCurrentLang(updatedProg);
@@ -495,8 +479,6 @@ export default function App() {
                 }
             }
 
-            // Save Lesson for History (and LeetCode Caching)
-            // We save if it's LeetCode (Index 6) OR if it's a passed standard lesson
             if (activeNodeIndex === 6 || activeNodeIndex < 6) {
                  const newSaved = {
                     id: Date.now().toString(),
@@ -507,7 +489,6 @@ export default function App() {
                     language: preferences.targetLanguage
                 };
                 
-                // Avoid duplicates if saving multiple times (e.g. LeetCode re-run)
                 const filteredSaved = savedLessons.filter(l => 
                     !(l.problemId === activeProblem.id && l.nodeIndex === activeNodeIndex && l.language === preferences.targetLanguage)
                 );
@@ -523,7 +504,6 @@ export default function App() {
     setIsSkipAttempt(false);
     setView(activeTab === 'review' ? 'dashboard' : 'unit-map');
 
-    // Auto-Sync Hook (Triggered on ANY completion)
     if (preferences.syncConfig?.enabled && preferences.syncConfig.githubToken && preferences.syncConfig.gistId) {
         console.log("Auto-syncing...");
         const syncData = {
@@ -561,6 +541,7 @@ export default function App() {
                 language={preferences.spokenLanguage} 
                 onRetry={handleRetryLoading}
                 error={generationError}
+                rawErrorOutput={generationRawError}
                 onCancel={() => setView(activeTab === 'review' ? 'dashboard' : 'unit-map')}
             />
         );
@@ -578,6 +559,7 @@ export default function App() {
                 preferences={preferences}
                 isReviewMode={loadingContext === 'review'}
                 isSkipContext={isSkipAttempt}
+                stats={stats}
             />
         );
     }

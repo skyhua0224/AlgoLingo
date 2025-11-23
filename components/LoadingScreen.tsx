@@ -1,6 +1,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, Zap, Brain, ChevronDown, ChevronUp, Sparkles, AlertCircle, RotateCcw, Clock, Loader2, XCircle, ArrowLeft } from 'lucide-react';
+import { Brain, Sparkles, Clock, Zap } from 'lucide-react';
+import { ChainOfThought } from './loading/ChainOfThought';
+import { GenerationError } from './loading/GenerationError';
 
 interface LoadingScreenProps {
     problemName?: string;
@@ -8,6 +10,7 @@ interface LoadingScreenProps {
     language: 'Chinese' | 'English';
     onRetry?: () => void;
     error?: string | null;
+    rawErrorOutput?: string | null; // New prop for raw data
     onCancel?: () => void;
 }
 
@@ -69,22 +72,20 @@ const LOGS_TEMPLATE_EN = [
     "[READY] Awaiting final bytes...",
 ];
 
-export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase = 0, language, onRetry, error, onCancel }) => {
+export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase = 0, language, onRetry, error, rawErrorOutput, onCancel }) => {
   const [progress, setProgress] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [logs, setLogs] = useState<string[]>([]);
   const [currentTip, setCurrentTip] = useState(0);
   const [showTerminal, setShowTerminal] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
-  const logsEndRef = useRef<HTMLDivElement>(null);
 
   const isChinese = language === 'Chinese';
   const tips = isChinese ? TIPS_ZH : TIPS_EN;
   const baseLogs = isChinese ? LOGS_TEMPLATE_ZH : LOGS_TEMPLATE_EN;
 
-  // --- 1. Slowed Progress Logic (40s to 99%) ---
+  // --- 1. Slowed Progress Logic ---
   useEffect(() => {
-    // If error exists, we don't need to update progress, but hook must run.
     if (error) return; 
 
     const updateIntervalMs = 40;
@@ -95,7 +96,6 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
     const interval = setInterval(() => {
       setProgress(prev => {
         if (prev >= 99) return 99; // Hard cap
-        // Add slight random variance to look natural
         const variance = (Math.random() * 0.05) - 0.025;
         return Math.min(99, prev + incrementPerStep + variance); 
       });
@@ -134,82 +134,34 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
     return () => clearInterval(interval);
   }, [tips.length, error]);
 
-  // Auto-scroll logs
-  useEffect(() => {
-      if (logsEndRef.current) {
-          logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
-      }
-  }, [logs, showTerminal]);
-
   const handleRetry = () => {
       setIsRetrying(true);
       setProgress(0);
       setElapsedSeconds(0);
       setLogs([]);
       if (onRetry) onRetry();
-      // Keep retrying state for a bit to show feedback
       setTimeout(() => setIsRetrying(false), 5000);
   };
 
-  const showRetry = elapsedSeconds > 45; // Show after 45 seconds
-
-  // --- RENDER LOGIC ---
-
-  // Error View (Rendered conditionally HERE, after all hooks)
+  // --- ERROR RENDER ---
   if (error) {
     return (
-        <div className="fixed inset-0 z-[100] w-full h-full bg-gray-50 dark:bg-dark-bg flex flex-col items-center justify-center p-6 animate-fade-in-up transition-colors">
-            <div className="max-w-md w-full bg-white dark:bg-dark-card rounded-3xl shadow-2xl border-2 border-red-100 dark:border-red-900/50 p-8 text-center relative overflow-hidden">
-                {/* Background Pattern */}
-                <div className="absolute top-0 left-0 w-full h-2 bg-red-500"></div>
-                
-                <div className="w-20 h-20 mx-auto mb-6 bg-red-50 dark:bg-red-900/20 rounded-full flex items-center justify-center">
-                    <XCircle size={40} className="text-red-500" />
-                </div>
-                
-                <h2 className="text-2xl font-extrabold text-gray-800 dark:text-white mb-2">
-                    {language === 'Chinese' ? "生成遇到了问题" : "Generation Issue"}
-                </h2>
-                
-                <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-xl mb-6 border border-red-100 dark:border-red-900/30">
-                    <p className="text-xs text-red-600 dark:text-red-400 font-mono break-words">
-                        {error}
-                    </p>
-                </div>
-                
-                <p className="text-gray-500 dark:text-gray-400 text-sm mb-8 font-medium">
-                    {language === 'Chinese' 
-                        ? "AI 生成过程可能不稳定。请点击下方按钮重新尝试。" 
-                        : "AI generation can be unstable. Please try regenerating."}
-                </p>
-
-                <div className="flex flex-col gap-3">
-                    <button 
-                        onClick={handleRetry}
-                        className="w-full py-4 rounded-xl font-bold text-white bg-brand hover:bg-brand-dark transition-all shadow-lg hover:shadow-xl active:scale-[0.98] flex items-center justify-center gap-2"
-                    >
-                        <RotateCcw size={18} />
-                        {language === 'Chinese' ? "重新生成" : "Regenerate Lesson"}
-                    </button>
-                    
-                    <button 
-                        onClick={onCancel}
-                        className="w-full py-3 rounded-xl font-bold text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all flex items-center justify-center gap-2"
-                    >
-                        <ArrowLeft size={18} />
-                        {language === 'Chinese' ? "返回" : "Go Back"}
-                    </button>
-                </div>
-            </div>
-        </div>
+        <GenerationError 
+            error={error}
+            rawOutput={rawErrorOutput || null}
+            onRetry={handleRetry}
+            onCancel={onCancel || (() => {})}
+            language={language}
+        />
     );
   }
 
+  // --- LOADING RENDER ---
   return (
     <div className="fixed inset-0 z-[100] w-full h-full bg-gray-50 dark:bg-dark-bg flex flex-col items-center justify-center p-6 transition-colors">
       
-      <div className="max-w-md w-full relative z-10">
-        <div className="bg-white dark:bg-dark-card rounded-3xl shadow-2xl border border-white/50 dark:border-white/5 p-8 text-center backdrop-blur-xl mb-6 transition-colors">
+      <div className="max-w-md w-full relative z-10 flex flex-col items-center">
+        <div className="bg-white dark:bg-dark-card rounded-3xl shadow-2xl border border-white/50 dark:border-white/5 p-8 text-center backdrop-blur-xl mb-6 transition-colors w-full">
             
             {/* Icon Animation */}
             <div className="relative w-20 h-20 mx-auto mb-6">
@@ -245,37 +197,6 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
                 <span>{Math.floor(progress)}%</span>
             </div>
 
-            {/* Expectation Warning */}
-            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-100 dark:border-yellow-900/50 rounded-xl p-3 mb-6 flex items-start gap-2 text-left">
-                <AlertCircle size={16} className="text-yellow-500 shrink-0 mt-0.5" />
-                <p className="text-xs text-yellow-700 dark:text-yellow-500 leading-relaxed font-medium">
-                    {isChinese 
-                        ? "AI 生成包含复杂的逻辑推理与代码构建，可能会消耗 1 分钟或更久，请耐心等待。" 
-                        : "AI generation involves complex logical reasoning and code construction. This may take 1 minute or longer."}
-                </p>
-            </div>
-
-            {/* Retry Button */}
-            {showRetry && onRetry && (
-                 <div className="mb-6 animate-fade-in-down">
-                     <button 
-                        onClick={handleRetry}
-                        disabled={isRetrying}
-                        className={`w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 border-2 transition-all active:scale-95 
-                        ${isRetrying 
-                            ? 'bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-500 cursor-wait' 
-                            : 'bg-white dark:bg-dark-card border-red-200 dark:border-red-900/50 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 hover:border-red-300'
-                        }`}
-                     >
-                         {isRetrying ? (
-                             <><Loader2 size={16} className="animate-spin"/> {isChinese ? "正在重试..." : "Retrying..."}</>
-                         ) : (
-                             <><RotateCcw size={16} /> {isChinese ? "耗时过久？点击重试" : "Taking too long? Retry"}</>
-                         )}
-                     </button>
-                 </div>
-            )}
-
             {/* Tips Box */}
             <div className="bg-brand-bg/50 dark:bg-brand/10 rounded-xl p-4 border border-brand/20 min-h-[80px] flex items-center justify-center transition-all duration-500">
                 <p className="text-sm text-brand-dark dark:text-brand-light font-medium leading-relaxed animate-fade-in-up">
@@ -285,46 +206,14 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
             </div>
         </div>
 
-        {/* Terminal Toggle */}
-        <div className="flex flex-col items-center">
-            <button 
-                onClick={() => setShowTerminal(!showTerminal)}
-                className="flex items-center gap-2 text-xs font-bold text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors bg-white/80 dark:bg-dark-card/80 px-4 py-2 rounded-full shadow-sm border border-gray-200 dark:border-gray-700"
-            >
-                <Terminal size={14} />
-                {showTerminal 
-                    ? (isChinese ? "隐藏思维链" : "Hide Chain-of-Thought") 
-                    : (isChinese ? "查看 AI 思维链" : "View AI Chain-of-Thought")
-                }
-                {showTerminal ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            </button>
-
-            {showTerminal && (
-                <div className="w-full mt-4 bg-gray-900 rounded-xl p-4 shadow-2xl border border-gray-800 font-mono text-xs text-green-400 h-48 overflow-hidden flex flex-col animate-scale-in">
-                    <div className="flex items-center gap-2 border-b border-gray-800 pb-2 mb-2 text-gray-500">
-                        <div className="flex gap-1.5">
-                            <div className="w-2.5 h-2.5 rounded-full bg-red-500/50"/>
-                            <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/50"/>
-                            <div className="w-2.5 h-2.5 rounded-full bg-green-500/50"/>
-                        </div>
-                        <span className="ml-auto">gemini-thinking-process.log</span>
-                    </div>
-                    <div className="flex-1 overflow-y-auto custom-scrollbar space-y-1">
-                        {logs.map((log, i) => (
-                            <div key={i} className="opacity-80 hover:opacity-100">
-                                <span className="text-gray-600 mr-2">[{new Date().toLocaleTimeString().split(' ')[0]}]</span>
-                                {log}
-                            </div>
-                        ))}
-                        <div ref={logsEndRef} />
-                        <div className="animate-pulse flex items-center gap-1 mt-2">
-                            <span className="text-brand">{'>'}</span>
-                            <span className="w-2 h-4 bg-brand block"></span>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
+        {/* Enhanced Chain of Thought Component */}
+        <ChainOfThought 
+            visible={showTerminal}
+            onToggle={() => setShowTerminal(!showTerminal)}
+            logs={logs}
+            isChinese={isChinese}
+            progress={progress}
+        />
       </div>
     </div>
   );
