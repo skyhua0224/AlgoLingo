@@ -76,6 +76,20 @@ export default function App() {
 
     // Main Tabs based on activeTab (which is now of type AppView)
     switch (activeTab) {
+        case 'review':
+            return (
+                <ReviewHub 
+                    mistakeCount={mistakes.length}
+                    mistakes={mistakes}
+                    onStartReview={() => actions.handleStartReview('ai')}
+                    onStartMistakePractice={actions.handleStartReview}
+                    onStartSyntaxClinic={actions.handleStartClinic}
+                    onGenerateVariant={actions.handleGenerateVariant}
+                    onBack={() => actions.setActiveTab('algorithms')}
+                    targetLanguage={preferences.targetLanguage}
+                    retentionStats={stats.retention}
+                />
+            );
         case 'engineering':
             return (
                 <EngineeringHub 

@@ -444,22 +444,24 @@ export const useAppManager = () => {
         saveStats(newStats);
 
         // --- MISTAKE MANAGEMENT LOGIC ---
-        const mistakeMap = new Map(mistakes.map(m => [m.id, m]));
+        const mistakeMap = new Map<string, MistakeRecord>(mistakes.map(m => [m.id, m]));
         const getKey = (m: MistakeRecord) => `${m.problemName}|${m.context}|${m.questionType}`;
-        const contentKeyMap = new Map(mistakes.map(m => [getKey(m), m.id]));
+        const contentKeyMap = new Map<string, string>(mistakes.map(m => [getKey(m), m.id]));
 
         newMistakes.forEach(nm => {
             const key = getKey(nm);
             const existingId = contentKeyMap.get(key);
 
             if (existingId) {
-                const existing = mistakeMap.get(existingId)!;
-                mistakeMap.set(existingId, {
-                    ...existing,
-                    timestamp: Date.now(), 
-                    failureCount: (existing.failureCount || 1) + 1,
-                    isResolved: false 
-                });
+                const existing = mistakeMap.get(existingId);
+                if (existing) {
+                    mistakeMap.set(existingId, {
+                        ...existing,
+                        timestamp: Date.now(), 
+                        failureCount: (existing.failureCount || 1) + 1,
+                        isResolved: false 
+                    });
+                }
             } else {
                 mistakeMap.set(nm.id, { 
                     ...nm, 

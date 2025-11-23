@@ -10,6 +10,7 @@ import {
   Code2, 
   ChevronLeft, 
   ChevronRight, 
+  RotateCcw
 } from 'lucide-react';
 import { AppView } from '../../types';
 
@@ -29,6 +30,7 @@ const MENU_CONFIG = [
     group: "CORE",
     items: [
       { id: 'algorithms', icon: Brain, label: { zh: '核心算法', en: 'Algorithms' }, color: 'text-brand' },
+      { id: 'review', icon: RotateCcw, label: { zh: '复习中心', en: 'Review Hub' }, color: 'text-pink-500' },
       { id: 'engineering', icon: Cpu, label: { zh: '工程中心', en: 'Engineering' }, color: 'text-blue-500' },
     ]
   },

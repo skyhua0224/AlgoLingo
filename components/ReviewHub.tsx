@@ -119,7 +119,7 @@ export const ReviewHub: React.FC<ReviewHubProps> = ({
     // 1. Calculate Decay (Forgetting Curve)
     const decayedItems = useMemo(() => {
         const now = Date.now();
-        return Object.entries(retentionStats).filter(([id, record]) => {
+        return (Object.entries(retentionStats) as [string, RetentionRecord][]).filter(([id, record]) => {
             // If time elapsed > interval, it's decayed
             return now > record.nextReview;
         }).map(([id, record]) => ({
