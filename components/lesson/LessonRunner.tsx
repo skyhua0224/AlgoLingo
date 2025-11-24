@@ -11,7 +11,7 @@ import { LessonSummary } from './LessonSummary';
 import { StreakCelebration } from './StreakCelebration';
 import { GlobalAiAssistant } from '../GlobalAiAssistant';
 import { Button } from '../Button';
-import { LogOut, X, Maximize2, Minimize2 } from 'lucide-react';
+import { LogOut, X, Maximize2, Minimize2, HeartCrack, AlertTriangle } from 'lucide-react';
 
 // Direct Widget Imports
 import { DialogueWidget } from '../widgets/Dialogue';
@@ -40,14 +40,12 @@ type RunnerPhase = 'lesson' | 'mistake_intro' | 'mistake_loop' | 'summary' | 'st
 
 export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
   
-  // LeetCode Mode (Index 6) - Full Screen Window
+  // LeetCode / Sandbox Mode (Index 6 or explicit 'leetcode' widget logic override)
   if (props.nodeIndex === 6) {
+    const windowTitle = props.plan.description === "LeetCode Simulator" ? "AlgoLingo Simulator" : "IDE Workspace";
+    
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-100/90 dark:bg-black/90 backdrop-blur-md p-0 md:p-3">
-            {/* 
-                FIX: Increased height from 96vh to h-full on mobile, and md:h-[96vh] on desktop.
-                This removes the large gap at the bottom while keeping the 'window' aesthetic on large screens.
-            */}
             <div className="w-full h-full md:w-[98vw] md:h-[96vh] bg-white dark:bg-dark-bg md:rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 dark:border-gray-700 relative animate-scale-in">
                 {/* Window Controls */}
                 <div className="h-10 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center px-4 bg-gray-50 dark:bg-dark-card shrink-0 select-none">
@@ -60,7 +58,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
                             <div className="w-3 h-3 rounded-full bg-green-500"/>
                         </div>
                         <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider ml-2 border-l border-gray-300 dark:border-gray-600 pl-2">
-                            AlgoLingo Simulator
+                            {windowTitle}
                         </span>
                     </div>
                     <span className="text-xs font-bold text-gray-600 dark:text-gray-300 hidden md:block">{props.plan.title}</span>
@@ -89,7 +87,6 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       setSessionMistakes(prev => [...prev, ...mistakes]);
 
       if (phase === 'lesson') {
-          // ENABLED FOR REVIEW MODE TOO: If mistakes exist, go to repair loop.
           if (mistakes.length > 0) {
               setPhase('mistake_intro');
           } else {
@@ -104,7 +101,9 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
     plan: props.plan,
     nodeIndex: props.nodeIndex,
     onComplete: handleEngineComplete,
-    isReviewMode: props.isReviewMode
+    isReviewMode: props.isReviewMode,
+    // Enforce 3 Lives (2 Mistakes Max) in Skip Context
+    maxMistakes: props.isSkipContext ? 2 : undefined
   });
 
   const [widgetState, setWidgetState] = useState<WidgetState>({});
@@ -115,7 +114,6 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
     setWidgetState({});
   }, [engine.currentScreen?.id]);
 
-  // Determine if the current screen requires user interaction to pass
   const activeWidget = engine.currentScreen.widgets.find(w => 
     ['quiz', 'parsons', 'fill-in', 'steps-list'].includes(w.type) || 
     (w.type === 'flipcard' && w.flipcard?.mode === 'assessment')
@@ -134,10 +132,8 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
   };
 
   const handleStartRepair = () => {
-      // Prioritize truly interactive widgets for repair
       let mistakesToRepair = sessionMistakes.filter(m => m.widget && m.widget.type !== 'dialogue' && m.widget.type !== 'callout');
       
-      // Fallback
       if (mistakesToRepair.length === 0 && sessionMistakes.length > 0) {
           mistakesToRepair = sessionMistakes;
       }
@@ -176,6 +172,41 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
           props.onComplete({ xp: engine.xpGained, streak: engine.streak }, true, sessionMistakes);
       }
   };
+
+  // --- FAILURE SCREEN (Skip Mode) ---
+  if (engine.isFailed) {
+      return (
+          <div className="fixed inset-0 z-[120] bg-black/80 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in-up">
+              <div className="bg-white dark:bg-dark-card rounded-3xl p-8 w-full max-w-md text-center shadow-2xl border-4 border-red-500 relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-full h-2 bg-red-500"></div>
+                  
+                  <div className="w-20 h-20 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-6 animate-pulse">
+                      <HeartCrack size={40} className="text-red-500 fill-current" />
+                  </div>
+                  
+                  <h2 className="text-3xl font-black text-gray-900 dark:text-white mb-2 uppercase tracking-tight">
+                      {props.language === 'Chinese' ? "挑战失败" : "Challenge Failed"}
+                  </h2>
+                  <p className="text-gray-600 dark:text-gray-300 mb-6 font-medium">
+                      {props.language === 'Chinese' 
+                        ? "生命值耗尽。跳级挑战需要极高的准确率。" 
+                        : "Out of hearts. Skipping requires high accuracy."}
+                  </p>
+                  
+                  <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-xl mb-8 border border-red-100 dark:border-red-900/50">
+                      <div className="flex items-center gap-2 text-red-600 dark:text-red-400 text-sm font-bold justify-center">
+                          <AlertTriangle size={16}/>
+                          <span>{props.language === 'Chinese' ? "建议按顺序完成基础课程" : "Recommendation: Complete basic lessons first"}</span>
+                      </div>
+                  </div>
+
+                  <Button variant="primary" onClick={props.onExit} className="w-full py-4 shadow-xl border-red-700 bg-red-600 hover:bg-red-500">
+                      {props.language === 'Chinese' ? "退出挑战" : "Exit Challenge"}
+                  </Button>
+              </div>
+          </div>
+      );
+  }
 
   if (phase === 'mistake_intro') {
       return (
@@ -254,7 +285,6 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       );
   }
 
-  // STANDARD LESSON VIEW
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-100/80 dark:bg-black/80 backdrop-blur-sm p-0 md:p-4">
       <div className="w-full h-full md:max-w-5xl md:h-[96vh] bg-white dark:bg-dark-bg md:rounded-3xl md:shadow-2xl flex flex-col overflow-hidden relative border border-gray-200 dark:border-gray-700 transition-all">
@@ -274,7 +304,6 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
             language={props.language}
         />
 
-        {/* Content Area - Full Height with padding adjustment */}
         <div className="flex-1 overflow-y-auto custom-scrollbar p-0 md:p-8 pb-32 md:pb-32 w-full bg-gray-50/30 dark:bg-dark-bg/30">
             <div className="mx-auto max-w-2xl transition-all duration-300 px-4 pt-4 md:px-0 md:pt-0">
                 {engine.currentScreen.widgets.map((widget, idx) => (
@@ -314,6 +343,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
                                 widget={widget}
                                 onUpdateAnswers={(ans) => setWidgetState(s => ({ ...s, fillInAnswers: ans }))}
                                 language={props.language}
+                                status={engine.status}
                             />
                         )}
 

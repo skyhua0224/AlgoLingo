@@ -16,7 +16,6 @@ type ViewState = 'dashboard' | 'unit-map' | 'runner' | 'loading';
 export const useAppManager = () => {
     // --- STATE ---
     const [view, setView] = useState<ViewState>('dashboard');
-    // Initialize with 'algorithms' instead of 'learn'
     const [activeTab, setActiveTab] = useState<AppView>('algorithms');
     
     // Data Stores
@@ -47,6 +46,30 @@ export const useAppManager = () => {
     const [generationError, setGenerationError] = useState<string | null>(null);
     const [generationRawError, setGenerationRawError] = useState<string | null>(null);
 
+    // --- HELPER: ENGINEERING DATA ---
+    // Scans for dynamic keys used by the Language Console
+    const getEngineeringData = () => {
+        const data: Record<string, any> = {};
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith('algolingo_syntax_v3_')) {
+                try {
+                    data[key] = JSON.parse(localStorage.getItem(key)!);
+                } catch (e) {}
+            }
+        }
+        return data;
+    };
+
+    const saveEngineeringData = (data: Record<string, any>) => {
+        if (!data) return;
+        Object.entries(data).forEach(([key, value]) => {
+            if (key.startsWith('algolingo_syntax_v3_')) {
+                localStorage.setItem(key, JSON.stringify(value));
+            }
+        });
+    };
+
     // --- PERSISTENCE & INIT ---
     
     // Theme Effect
@@ -69,7 +92,6 @@ export const useAppManager = () => {
 
                 if (loadedProgress) {
                     const parsed = JSON.parse(loadedProgress);
-                    // Migration Logic: If old flat format, wrap in language
                     const keys = Object.keys(parsed);
                     if (keys.length > 0 && typeof parsed[keys[0]] === 'number') {
                          const lang = loadedPrefs ? JSON.parse(loadedPrefs).targetLanguage || 'Python' : 'Python';
@@ -87,7 +109,6 @@ export const useAppManager = () => {
                     setPreferences(prev => ({
                         ...prev,
                         ...p,
-                        // Deep merge crucial nested configs to prevent crashes if missing in old data
                         apiConfig: { ...DEFAULT_API_CONFIG, ...p.apiConfig },
                         syncConfig: { enabled: false, githubToken: '', ...p.syncConfig },
                         notificationConfig: { enabled: false, webhookUrl: '', type: 'custom', ...p.notificationConfig }
@@ -125,27 +146,22 @@ export const useAppManager = () => {
         localStorage.setItem('algolingo_progress_v2', JSON.stringify(newMap));
     };
 
-    // Unified Data Loader (Used by File Import and Gist Sync)
     const handleDataLoaded = (data: any) => {
         try {
-            // 1. Merge and Save Stats
             if (data.stats) {
                 const mergedStats = { ...INITIAL_STATS, ...data.stats };
                 if (!mergedStats.league) mergedStats.league = INITIAL_STATS.league;
                 saveStats(mergedStats);
             }
-
-            // 2. Merge and Save Progress
             if (data.progressMap || data.progress) {
                 saveProgress(data.progressMap || data.progress || {});
             }
-
-            // 3. Merge and Save Mistakes
             if (data.mistakes) {
                 saveMistakes(data.mistakes);
             }
-
-            // 4. Merge and Save Preferences
+            if (data.engineeringData) {
+                saveEngineeringData(data.engineeringData);
+            }
             if (data.preferences) {
                 const mergedPrefs = { 
                     ...preferences, 
@@ -158,7 +174,6 @@ export const useAppManager = () => {
             } else {
                 updatePreferences({ hasOnboarded: true });
             }
-
             setView('dashboard');
             setActiveTab('algorithms');
         } catch (e) {
@@ -173,7 +188,7 @@ export const useAppManager = () => {
             try {
                 const data = JSON.parse(e.target?.result as string);
                 handleDataLoaded(data);
-                alert(preferences.spokenLanguage === 'Chinese' ? "数据导入成功" : "Data imported successfully");
+                alert(preferences.spokenLanguage === 'Chinese' ? "数据导入成功 (包含工程中心配置)" : "Data imported successfully (Includes Engineering Hub)");
             } catch (err) {
                 alert("Import failed: Invalid JSON");
             }
@@ -188,14 +203,15 @@ export const useAppManager = () => {
             mistakes,
             savedLessons,
             preferences,
-            version: "3.0",
+            engineeringData: getEngineeringData(), // Now exports all language profiles
+            version: "3.2",
             exportedAt: new Date().toISOString()
         };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `algolingo_backup_${new Date().toISOString().split('T')[0]}.json`;
+        a.download = `algolingo_full_backup_${new Date().toISOString().split('T')[0]}.json`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -244,13 +260,11 @@ export const useAppManager = () => {
         }
     };
 
-    // Extended to support 'type' and 'time' strategies
     const handleStartReview = async (strategy: 'ai' | 'all' | 'specific' | 'category' | 'type' | 'time' | 'urgent', targetId?: string) => {
         setLoadingContext('review');
         setGenerationError(null);
         setActiveNodeIndex(0); 
         
-        // AI Daily Smart Workout (Real AI Generation)
         if (strategy === 'ai') {
             setView('loading');
             try {
@@ -267,16 +281,11 @@ export const useAppManager = () => {
             return;
         }
 
-        // Filter mostly ACTIVE mistakes for urgent/specific review, but 'vault' shows all
         let allCandidates = mistakes.filter(m => m.widget);
         let activeCandidates = allCandidates.filter(m => !m.isResolved);
-        
         let candidates = activeCandidates.length > 0 ? activeCandidates : allCandidates;
 
-        // Strategy Logic
-        if (strategy === 'specific' && targetId) {
-            candidates = allCandidates.filter(m => m.id === targetId);
-        }
+        if (strategy === 'specific' && targetId) candidates = allCandidates.filter(m => m.id === targetId);
         else if (strategy === 'category' && targetId) {
             const unit = PROBLEM_CATEGORIES.find(u => u.id === targetId);
             if (unit) {
@@ -284,9 +293,7 @@ export const useAppManager = () => {
                 candidates = candidates.filter(m => problemNames.includes(m.problemName));
             }
         }
-        else if (strategy === 'type' && targetId) {
-            candidates = candidates.filter(m => m.questionType === targetId);
-        }
+        else if (strategy === 'type' && targetId) candidates = candidates.filter(m => m.questionType === targetId);
         else if (strategy === 'time' && targetId) {
             const now = Date.now();
             const oneDay = 24 * 60 * 60 * 1000;
@@ -321,16 +328,9 @@ export const useAppManager = () => {
         const isZh = preferences.spokenLanguage === 'Chinese';
         let planTitle = isZh ? "复习会话" : "Review Session";
         
-        if (strategy === 'specific' && candidates.length > 0) {
-            planTitle = isZh ? `复习: ${candidates[0].problemName}` : `Review: ${candidates[0].problemName}`;
-        } else if (strategy === 'category' && targetId) {
-            const unit = PROBLEM_CATEGORIES.find(u => u.id === targetId);
-            planTitle = unit ? (isZh ? `单元复习: ${unit.title_zh.split('：')[1] || unit.title_zh}` : `Review: ${unit.title}`) : "Unit Review";
-        } else if (strategy === 'time') {
-            planTitle = isZh ? "记忆曲线强化" : "Retention Drill";
-        } else if (strategy === 'urgent') {
-            planTitle = isZh ? "⚡ 快速修复 (Top 5)" : "⚡ Quick Repair (Top 5)";
-        }
+        if (strategy === 'specific' && candidates.length > 0) planTitle = isZh ? `复习: ${candidates[0].problemName}` : `Review: ${candidates[0].problemName}`;
+        else if (strategy === 'time') planTitle = isZh ? "记忆曲线强化" : "Retention Drill";
+        else if (strategy === 'urgent') planTitle = isZh ? "⚡ 快速修复 (Top 5)" : "⚡ Quick Repair (Top 5)";
 
         setCurrentLessonPlan({
             title: planTitle,
@@ -381,6 +381,15 @@ export const useAppManager = () => {
         }
     };
 
+    // NEW: Handle Custom Lessons (Engineering Hub)
+    // Supports Skip Mode for mastery exams
+    const handleStartCustomLesson = (plan: LessonPlan, isSkip: boolean = false) => {
+        setCurrentLessonPlan(plan);
+        setActiveNodeIndex(0);
+        setIsSkipAttempt(isSkip); // Set skip context
+        setView('runner');
+    };
+
     const handleRetryLoading = () => {
         if (loadingContext === 'lesson') handleStartNode(activeNodeIndex, isSkipAttempt);
         else if (loadingContext === 'review') handleStartReview('ai');
@@ -400,27 +409,23 @@ export const useAppManager = () => {
             else newStreak = 1;
         }
 
-        // --- SPACED REPETITION UPDATE ---
+        // Retention Update Logic
         const updatedRetention = { ...(stats.retention || {}) };
         if (activeProblem) {
-            // If we just completed a lesson for a specific problem
             const pid = activeProblem.id;
             const existing = updatedRetention[pid];
             const hasFailedThisSession = newMistakes.length > 0;
 
-            let nextInterval = 1; // Default 1 day
+            let nextInterval = 1; 
             let stability = 50;
 
             if (hasFailedThisSession) {
-                // Reset interval on failure
                 nextInterval = 1; 
                 stability = 20;
             } else if (existing) {
-                // Success! Exponential backoff (Spaced Repetition)
                 nextInterval = Math.ceil(existing.interval * 2);
                 stability = Math.min(100, existing.stability + 15);
             } else {
-                // New mastery
                 nextInterval = 1;
                 stability = 50;
             }
@@ -443,7 +448,7 @@ export const useAppManager = () => {
         };
         saveStats(newStats);
 
-        // --- MISTAKE MANAGEMENT LOGIC ---
+        // Mistake Management Logic
         const mistakeMap = new Map<string, MistakeRecord>(mistakes.map(m => [m.id, m]));
         const getKey = (m: MistakeRecord) => `${m.problemName}|${m.context}|${m.questionType}`;
         const contentKeyMap = new Map<string, string>(mistakes.map(m => [getKey(m), m.id]));
@@ -497,8 +502,53 @@ export const useAppManager = () => {
         setMistakes(updatedMistakes);
         saveMistakes(updatedMistakes);
 
+        // --- PROGRESS SAVE LOGIC ---
         let finalProgress = progressMap;
-        if (activeProblem && currentLessonPlan && !currentLessonPlan.isLocalReplay && shouldSave) {
+        
+        // 1. SYNTAX PROGRESS (Engineering Hub)
+        if (shouldSave && currentLessonPlan?.context?.type === 'syntax') {
+            const { language, unitId, lessonId, phaseIndex } = currentLessonPlan.context;
+            const key = `algolingo_syntax_v3_${language}`;
+            try {
+                const raw = localStorage.getItem(key);
+                if (raw) {
+                    const profile = JSON.parse(raw);
+                    const unit = profile.roadmap.find((u: any) => u.id === unitId);
+                    const lesson = unit?.lessons.find((l: any) => l.id === lessonId);
+                    
+                    if (lesson && phaseIndex !== undefined) {
+                        // If we successfully completed the current phase, advance
+                        // Special Case: Skip Mode (isSkipAttempt)
+                        if (isSkipAttempt && phaseIndex === 5) { // If skipped to Master and passed
+                             // Unlock everything
+                             lesson.currentPhaseIndex = 6;
+                             lesson.status = 'completed';
+                             // Unlock next lesson in unit if exists
+                             const lIdx = unit.lessons.findIndex((l: any) => l.id === lessonId);
+                             if (unit.lessons[lIdx + 1]) {
+                                 unit.lessons[lIdx + 1].status = 'active';
+                             }
+                        } else if (phaseIndex >= lesson.currentPhaseIndex) {
+                            lesson.currentPhaseIndex = Math.min(6, phaseIndex + 1);
+                            if (lesson.currentPhaseIndex === 6) {
+                                lesson.status = 'completed';
+                                const lIdx = unit.lessons.findIndex((l: any) => l.id === lessonId);
+                                if (unit.lessons[lIdx + 1]) {
+                                    unit.lessons[lIdx + 1].status = 'active';
+                                }
+                            }
+                        }
+                        localStorage.setItem(key, JSON.stringify(profile));
+                        // Note: LanguageConsole will auto-refresh via its useEffect on key change if mounted, 
+                        // or on remount. Since we are returning to dashboard, it effectively refreshes.
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to save syntax progress", e);
+            }
+        }
+        // 2. ALGORITHM PROGRESS (Standard Top 100)
+        else if (activeProblem && currentLessonPlan && !currentLessonPlan.isLocalReplay && shouldSave) {
             const lang = preferences.targetLanguage;
             const currentLangProg = progressMap[lang] || {};
             const currentLevel = currentLangProg[activeProblem.id] || 0;
@@ -529,7 +579,8 @@ export const useAppManager = () => {
                 stats: newStats,
                 progress: finalProgress,
                 mistakes: updatedMistakes,
-                preferences
+                preferences,
+                engineeringData: getEngineeringData() // Include Engineering Hub data in sync
             });
         }
 
@@ -555,6 +606,7 @@ export const useAppManager = () => {
             handleStartReview,
             handleStartClinic,
             handleGenerateVariant,
+            handleStartCustomLesson,
             handleRetryLoading,
             handleLessonComplete,
             onResetData: () => { localStorage.clear(); window.location.reload(); }

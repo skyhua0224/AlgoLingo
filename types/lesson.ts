@@ -23,6 +23,13 @@ export interface LessonPlan {
   screens: LessonScreen[];
   suggestedQuestions: string[]; 
   isLocalReplay?: boolean; 
+  context?: {
+      type: 'syntax' | 'algo';
+      language?: string;
+      unitId?: string;
+      lessonId?: string;
+      phaseIndex?: number;
+  };
 }
 
 export interface SavedLesson {

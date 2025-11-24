@@ -2,26 +2,29 @@
 import React, { useState, useEffect } from 'react';
 import { Widget } from '../../../types';
 import { BaseWidget } from '../BaseWidget';
-import { Keyboard } from 'lucide-react';
+import { Keyboard, Check } from 'lucide-react';
 
 interface FillInProps {
     widget: Widget;
     onUpdateAnswers: (answers: string[]) => void;
     language: 'Chinese' | 'English';
+    status?: string; // Added status prop
 }
 
 const WIDGET_LOCALE = {
     Chinese: {
-        keys: "辅助按键"
+        keys: "辅助按键",
+        correctAnswer: "正确答案:"
     },
     English: {
-        keys: "Helper Keys"
+        keys: "Helper Keys",
+        correctAnswer: "Correct Answer:"
     }
 };
 
-export const FillInWidget: React.FC<FillInProps> = ({ widget, onUpdateAnswers, language }) => {
+export const FillInWidget: React.FC<FillInProps> = ({ widget, onUpdateAnswers, language, status }) => {
     if (!widget.fillIn) return null;
-    const { code, options, inputMode } = widget.fillIn;
+    const { code, options, correctValues, inputMode } = widget.fillIn;
     const parts = code ? code.split('__BLANK__') : [];
     const [answers, setAnswers] = useState<string[]>([]);
     const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
@@ -38,6 +41,8 @@ export const FillInWidget: React.FC<FillInProps> = ({ widget, onUpdateAnswers, l
     }, [answers]);
 
     const fill = (val: string) => {
+        if (status !== 'idle' && status !== undefined) return;
+        
         const targetIndex = focusedIndex !== null ? focusedIndex : answers.findIndex(a => !a);
         if (targetIndex !== -1) {
             const newAnswers = [...answers];
@@ -51,12 +56,14 @@ export const FillInWidget: React.FC<FillInProps> = ({ widget, onUpdateAnswers, l
     };
 
     const handleTextChange = (val: string, idx: number) => {
+         if (status !== 'idle' && status !== undefined) return;
          const newAnswers = [...answers];
          newAnswers[idx] = val;
          setAnswers(newAnswers);
     };
 
     const clear = (idx: number) => {
+        if (status !== 'idle' && status !== undefined) return;
         const newAnswers = [...answers];
         newAnswers[idx] = "";
         setAnswers(newAnswers);
@@ -67,7 +74,7 @@ export const FillInWidget: React.FC<FillInProps> = ({ widget, onUpdateAnswers, l
 
     return (
         <BaseWidget>
-             <div className="bg-[#1e1e1e] p-5 rounded-xl mb-6 border-l-4 border-brand overflow-x-auto shadow-lg max-w-[calc(100vw-3rem)] md:max-w-full mx-auto">
+             <div className="bg-[#1e1e1e] p-5 rounded-xl mb-4 border-l-4 border-brand overflow-x-auto shadow-lg max-w-[calc(100vw-3rem)] md:max-w-full mx-auto">
                  <pre className="font-mono text-sm text-gray-300 leading-loose whitespace-pre-wrap font-medium">
                      {parts.map((part, i) => (
                          <React.Fragment key={i}>
@@ -79,13 +86,14 @@ export const FillInWidget: React.FC<FillInProps> = ({ widget, onUpdateAnswers, l
                                         value={answers[i] || ''}
                                         onFocus={() => setFocusedIndex(i)}
                                         onChange={(e) => handleTextChange(e.target.value, i)}
-                                        className={`bg-gray-800 border-b-2 text-brand-light font-bold px-2 mx-1 min-w-[60px] h-6 focus:outline-none focus:border-brand text-center transition-colors ${focusedIndex === i ? 'border-brand bg-gray-700' : 'border-gray-500'}`}
+                                        className={`bg-gray-800 border-b-2 text-brand-light font-bold px-2 mx-1 min-w-[60px] h-6 focus:outline-none focus:border-brand text-center transition-colors ${focusedIndex === i ? 'border-brand bg-gray-700' : 'border-gray-500'} ${status === 'wrong' ? 'text-red-400 border-red-500' : ''}`}
                                         placeholder="..."
+                                        readOnly={status !== 'idle' && status !== undefined}
                                     />
                                 ) : (
                                  <span 
                                     onClick={() => clear(i)}
-                                    className={`inline-flex items-center justify-center px-2 min-w-[60px] h-6 mx-1 border-b-2 rounded cursor-pointer align-middle transition-all select-none ${answers[i] ? 'text-brand-light border-brand-light bg-brand/20 font-bold' : 'border-gray-600 bg-gray-800 hover:bg-gray-700 animate-pulse'}`}
+                                    className={`inline-flex items-center justify-center px-2 min-w-[60px] h-6 mx-1 border-b-2 rounded cursor-pointer align-middle transition-all select-none ${answers[i] ? (status === 'wrong' ? 'text-red-300 border-red-500 bg-red-900/20' : 'text-brand-light border-brand-light bg-brand/20 font-bold') : 'border-gray-600 bg-gray-800 hover:bg-gray-700 animate-pulse'}`}
                                  >
                                      {answers[i] || '?'}
                                  </span>
@@ -95,8 +103,25 @@ export const FillInWidget: React.FC<FillInProps> = ({ widget, onUpdateAnswers, l
                      ))}
                  </pre>
              </div>
+
+             {/* Answer Reveal */}
+             {status === 'wrong' && correctValues && (
+                 <div className="mb-6 p-4 bg-green-50 dark:bg-green-900/20 border-2 border-green-200 dark:border-green-900/50 rounded-xl animate-fade-in-up shadow-sm flex items-start gap-3">
+                    <Check size={18} className="text-green-600 dark:text-green-400 mt-0.5 shrink-0"/>
+                    <div>
+                        <h4 className="text-green-800 dark:text-green-300 font-extrabold text-xs uppercase mb-1 tracking-wider">
+                            {t.correctAnswer}
+                        </h4>
+                        <div className="flex flex-wrap gap-2 font-mono text-sm text-green-700 dark:text-green-200 font-bold">
+                            {correctValues.map((val, idx) => (
+                                <span key={idx} className="underline decoration-2 underline-offset-2 decoration-green-400/50">{val}</span>
+                            ))}
+                        </div>
+                    </div>
+                 </div>
+             )}
              
-             {!isTypeMode && (
+             {(!status || status === 'idle') && !isTypeMode && (
                 <div className="flex flex-wrap gap-3 justify-center">
                     {(options || []).map((opt, idx) => (
                         <button 
@@ -109,7 +134,8 @@ export const FillInWidget: React.FC<FillInProps> = ({ widget, onUpdateAnswers, l
                     ))}
                 </div>
              )}
-             {isTypeMode && (
+             
+             {(!status || status === 'idle') && isTypeMode && (
                  <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-xl">
                      <div className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase mb-2">
                          <Keyboard size={14} />

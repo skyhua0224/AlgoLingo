@@ -12,24 +12,31 @@ interface SyncData {
     progress: ProgressMap;
     mistakes: MistakeRecord[];
     preferences: Partial<UserPreferences>;
+    engineeringData?: Record<string, any>; // Dynamic key-value store for language profiles
 }
 
 export const syncWithGist = async (
     token: string, 
     gistId: string | undefined, 
-    currentData: { stats: UserStats, progress: ProgressMap, mistakes: MistakeRecord[], preferences: UserPreferences }
+    currentData: { 
+        stats: UserStats, 
+        progress: ProgressMap, 
+        mistakes: MistakeRecord[], 
+        preferences: UserPreferences,
+        engineeringData?: Record<string, any>
+    }
 ): Promise<{ success: boolean, data?: Partial<SyncData>, newGistId?: string, error?: string, action?: 'pulled' | 'pushed' | 'none' }> => {
     
     if (!token) return { success: false, error: "No Token" };
 
     // 1. Construct Payload
-    // Robustly handle potentially null stats from local storage by falling back to INITIAL_STATS
     const payload: SyncData = {
-        version: "3.0",
+        version: "3.1",
         updatedAt: Date.now(),
         stats: currentData.stats || INITIAL_STATS,
         progress: currentData.progress || {},
         mistakes: currentData.mistakes || [],
+        engineeringData: currentData.engineeringData || {},
         preferences: {
             userName: currentData.preferences?.userName,
             targetLanguage: currentData.preferences?.targetLanguage,
@@ -54,7 +61,6 @@ export const syncWithGist = async (
             
             if (res.ok) {
                 const gist = await res.json();
-                // DEFENSIVE CODING: Use Optional Chaining for safe access
                 const file = gist.files?.[GIST_FILENAME];
                 
                 if (file && file.content) {

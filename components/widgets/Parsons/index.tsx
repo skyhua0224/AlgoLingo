@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Widget } from '../../../types';
 import { BaseWidget } from '../BaseWidget';
@@ -25,8 +26,15 @@ const WIDGET_LOCALE = {
     }
 };
 
-const cleanCodeLine = (line: string) => {
-    return line.replace(/\s*#.*$/, '').replace(/\s*\/\/.*$/, '').trim();
+// Shared cleaning logic: Removes comments, trailing semicolons, and braces
+export const cleanCodeLine = (line: string) => {
+    // 1. Remove comments
+    let cleaned = line.replace(/\s*#.*$/, '').replace(/\s*\/\/.*$/, '');
+    // 2. Remove trailing semicolons and braces (open or close)
+    // This helps focus on logic, not syntax trivia
+    cleaned = cleaned.replace(/[;{}]+$/, '');
+    // 3. Trim whitespace
+    return cleaned.trim();
 };
 
 export const ParsonsWidget: React.FC<ParsonsProps> = ({ widget, onUpdateOrder, status, language }) => {
@@ -43,7 +51,10 @@ export const ParsonsWidget: React.FC<ParsonsProps> = ({ widget, onUpdateOrder, s
 
     useEffect(() => {
         if (widget.parsons?.lines) {
-            const original = widget.parsons.lines.map(cleanCodeLine).filter(line => line.length > 0);
+            // Clean and filter out empty lines (e.g. lines that were just '}')
+            const original = widget.parsons.lines
+                .map(cleanCodeLine)
+                .filter(line => line.length > 0);
             
             if (original.length <= 1) {
                  setItems(original);

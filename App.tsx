@@ -8,7 +8,7 @@ import { ReviewHub } from './components/ReviewHub';
 import { LoadingScreen } from './components/LoadingScreen';
 import { ProfileView } from './components/ProfileView';
 import { Onboarding } from './components/Onboarding';
-import { EngineeringHub } from './components/EngineeringHub';
+import { EngineeringHub } from './components/EngineeringHub/index';
 import { Forge } from './components/Forge';
 import { CareerLobby } from './components/CareerLobby';
 import { useAppManager } from './hooks/useAppManager';
@@ -22,6 +22,25 @@ export default function App() {
       activeProblem, activeNodeIndex, currentLessonPlan,
       generationError, generationRawError, isSkipAttempt
   } = state;
+
+  // Helper to start any arbitrary lesson plan (used by Engineering Hub)
+  const handleCustomLessonStart = (plan: any) => {
+      // Use a hacky internal action or expose a new one in useAppManager
+      // Since useAppManager manages 'currentLessonPlan', we can reuse setView('runner') logic
+      // Ideally, useAppManager should expose a `startCustomLesson(plan)` action.
+      // For now, we will directly mutate the state if possible, but clean is better.
+      
+      // We need to update useAppManager to support this cleanly.
+      // BUT, based on the existing code in useAppManager, 
+      // setCurrentLessonPlan is part of local state there, not directly exposed via 'actions'.
+      // We need to add a `handleStartCustomLesson` to useAppManager.
+      // HOWEVER, since I cannot edit useAppManager in this specific XML block (it's a separate file),
+      // I will assume I can't easily add it without editing that file too.
+      // WAIT, I CAN edit useAppManager in this response if I want.
+      
+      // Let's just update useAppManager first (see next file change).
+      actions.handleStartCustomLesson(plan);
+  };
 
   // --- 1. Onboarding Flow ---
   if (!preferences.hasOnboarded) {
@@ -74,7 +93,7 @@ export default function App() {
         );
     }
 
-    // Main Tabs based on activeTab (which is now of type AppView)
+    // Main Tabs based on activeTab
     switch (activeTab) {
         case 'review':
             return (
@@ -96,6 +115,7 @@ export default function App() {
                     preferences={preferences} 
                     onUpdatePreferences={actions.updatePreferences}
                     language={preferences.spokenLanguage}
+                    onStartLesson={actions.handleStartCustomLesson}
                 />
             );
         case 'forge':
@@ -127,9 +147,6 @@ export default function App() {
     }
   };
 
-  // --- 3. Layout Wrapper ---
-  // We cast activeTab to 'any' temporarily if strict typing complains about mismatched strings vs enum-like types
-  // in the Layout component props, though we updated types. 
   return (
     <>
         {/* Overlay Runner */}
@@ -149,7 +166,7 @@ export default function App() {
         )}
 
         <Layout 
-            activeTab={activeTab as any} 
+            activeTab={activeTab} 
             onTabChange={(tab) => actions.setActiveTab(tab)}
             preferences={preferences}
             onUpdatePreferences={actions.updatePreferences}

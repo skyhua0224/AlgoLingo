@@ -1,3 +1,4 @@
+
 import { Widget } from '../types';
 
 export interface WidgetState {
@@ -9,8 +10,16 @@ export interface WidgetState {
 
 // Helper to match the cleaning logic in ParsonsWidget
 const cleanCodeLine = (line: string) => {
-    return line.replace(/\s*#.*$/, '').replace(/\s*\/\/.*$/, '').trim();
+    // 1. Remove comments
+    let cleaned = line.replace(/\s*#.*$/, '').replace(/\s*\/\/.*$/, '');
+    // 2. Remove trailing semicolons and braces (open or close)
+    cleaned = cleaned.replace(/[;{}]+$/, '');
+    // 3. Trim whitespace
+    return cleaned.trim();
 };
+
+// Helper to normalize strings for comparison (removes all whitespace, lowercase)
+const normalize = (str: string) => str.replace(/\s+/g, '').toLowerCase();
 
 export const useWidgetValidator = () => {
     const validate = (widget: Widget, state: WidgetState): boolean => {
@@ -26,7 +35,6 @@ export const useWidgetValidator = () => {
             case 'parsons':
                 if (widget.parsons && state.parsonsOrder && widget.parsons.lines) {
                     // 1. Get the Correct Order (The original lines from the AI plan)
-                    // We must apply the same cleaning (remove comments/trim) because the UI does that.
                     const expectedOrder = widget.parsons.lines
                         .map(cleanCodeLine)
                         .filter(l => l.length > 0);
@@ -52,10 +60,10 @@ export const useWidgetValidator = () => {
                     
                     if (userAnswers.length !== correctValues.length) return false;
 
-                    // Case-insensitive comparison
+                    // Case-insensitive + Whitespace-insensitive comparison
                     return correctValues.every((expected, index) => {
                         const actual = userAnswers[index] || '';
-                        return actual.trim().toLowerCase() === expected.trim().toLowerCase();
+                        return normalize(actual) === normalize(expected);
                     });
                 }
                 return false;

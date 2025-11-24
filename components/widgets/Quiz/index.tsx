@@ -2,7 +2,7 @@
 import React from 'react';
 import { Widget } from '../../../types';
 import { BaseWidget } from '../BaseWidget';
-import { Bot } from 'lucide-react';
+import { Bot, Check } from 'lucide-react';
 import { MarkdownText } from '../../common/MarkdownText';
 
 interface QuizProps {
@@ -14,6 +14,9 @@ interface QuizProps {
 
 export const QuizWidget: React.FC<QuizProps> = ({ widget, selectedIdx, onSelect, status }) => {
     if (!widget.quiz) return null;
+    const correctIdx = widget.quiz.correctIndex;
+    const correctOptionText = widget.quiz.options[correctIdx];
+
     return (
         <BaseWidget>
             <div className="flex gap-4 mb-4">
@@ -28,9 +31,21 @@ export const QuizWidget: React.FC<QuizProps> = ({ widget, selectedIdx, onSelect,
             <div className="pl-14 space-y-3">
                 {(widget.quiz.options || []).map((opt, idx) => {
                     let style = "border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600 text-gray-600 dark:text-gray-400";
-                    if (status === 'idle' && selectedIdx === idx) style = "border-brand bg-brand-bg dark:bg-brand/20 text-brand-dark dark:text-brand-light ring-2 ring-brand ring-offset-1 dark:ring-offset-dark-bg";
-                    if (status === 'correct' && idx === widget.quiz!.correctIndex) style = "border-green-500 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200";
-                    if (status === 'wrong' && idx === selectedIdx) style = "border-red-500 bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200";
+                    
+                    // Idle: Highlight selected
+                    if (status === 'idle' && selectedIdx === idx) {
+                        style = "border-brand bg-brand-bg dark:bg-brand/20 text-brand-dark dark:text-brand-light ring-2 ring-brand ring-offset-1 dark:ring-offset-dark-bg";
+                    }
+                    
+                    // Result: Correct Answer (Always highlight correct one in green)
+                    if ((status === 'correct' || status === 'wrong') && idx === correctIdx) {
+                        style = "border-green-500 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200";
+                    }
+                    
+                    // Result: Wrong Selection (Highlight red)
+                    if (status === 'wrong' && idx === selectedIdx && idx !== correctIdx) {
+                        style = "border-red-500 bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200";
+                    }
                     
                     return (
                         <button 
@@ -43,6 +58,21 @@ export const QuizWidget: React.FC<QuizProps> = ({ widget, selectedIdx, onSelect,
                     )
                 })}
             </div>
+
+            {/* Explicit Answer Box for Wrong State */}
+            {status === 'wrong' && (
+                 <div className="ml-14 mt-6 p-4 bg-green-50 dark:bg-green-900/20 border-2 border-green-200 dark:border-green-900/50 rounded-xl animate-fade-in-up shadow-sm flex items-start gap-3">
+                    <Check size={18} className="text-green-600 dark:text-green-400 mt-0.5 shrink-0"/>
+                    <div>
+                        <h4 className="text-green-800 dark:text-green-300 font-extrabold text-xs uppercase mb-1 tracking-wider">
+                            Correct Answer
+                        </h4>
+                        <div className="font-medium text-green-700 dark:text-green-200 text-sm">
+                            <MarkdownText content={correctOptionText} />
+                        </div>
+                    </div>
+                 </div>
+            )}
         </BaseWidget>
     )
 }

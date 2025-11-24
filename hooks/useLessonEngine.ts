@@ -9,16 +9,18 @@ interface UseLessonEngineProps {
     nodeIndex: number;
     onComplete: (stats: { xp: number; streak: number }, shouldSave: boolean, mistakes: MistakeRecord[]) => void;
     isReviewMode?: boolean;
+    maxMistakes?: number; // Optional limit for Skip/Exam modes
 }
 
 export type EngineStatus = 'idle' | 'correct' | 'wrong';
 
-export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = false }: UseLessonEngineProps) => {
+export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = false, maxMistakes }: UseLessonEngineProps) => {
     // Core State
     const [screens, setScreens] = useState<LessonScreen[]>(plan.screens || []);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [status, setStatus] = useState<EngineStatus>('idle');
     const [isFinished, setIsFinished] = useState(false);
+    const [isFailed, setIsFailed] = useState(false);
     
     // Gamification State
     const [streak, setStreak] = useState(0);
@@ -26,7 +28,7 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
 
     // Helpers
     const mistakeManager = useMistakeManager();
-    const timer = useTimer(status !== 'correct' && status !== 'wrong' && !isFinished);
+    const timer = useTimer(status !== 'correct' && status !== 'wrong' && !isFinished && !isFailed);
 
     const currentScreen = screens[currentIndex];
     const isLastScreen = currentIndex === screens.length - 1;
@@ -38,6 +40,7 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
         setCurrentIndex(0);
         setStatus('idle');
         setIsFinished(false);
+        setIsFailed(false);
         mistakeManager.startReviewLoop();
     }, [mistakeManager]);
 
@@ -50,6 +53,17 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
             setStatus('wrong');
             setStreak(0);
             
+            // Check Failure Condition (Lives System)
+            // If maxMistakes is defined, and we reached it (current session mistakes + 1 for this one > max)
+            // Note: sessionMistakes doesn't update instantly in this render cycle, so we check current length
+            const currentMistakeCount = mistakeManager.sessionMistakes.length;
+            
+            if (maxMistakes !== undefined && currentMistakeCount >= maxMistakes) {
+                mistakeManager.recordMistake(currentScreen, plan.title, nodeIndex);
+                setIsFailed(true);
+                return; // Stop processing
+            }
+
             if (mistakeManager.isInMistakeLoop) {
                 // If in review mode and wrong, push copy to end of queue to ensure mastery
                 setScreens(prev => [...prev, { ...currentScreen, id: currentScreen.id + '_retry_' + Date.now() }]);
@@ -58,9 +72,11 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
                 mistakeManager.recordMistake(currentScreen, plan.title, nodeIndex);
             }
         }
-    }, [currentScreen, plan.title, nodeIndex, mistakeManager, mistakeManager.isInMistakeLoop]);
+    }, [currentScreen, plan.title, nodeIndex, mistakeManager, mistakeManager.isInMistakeLoop, maxMistakes]);
 
     const handleNext = useCallback(() => {
+        if (isFailed) return; // Block next if failed
+
         if (!isLastScreen) {
             setStatus('idle');
             setCurrentIndex(prev => prev + 1);
@@ -72,7 +88,7 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
                 mistakeManager.sessionMistakes
             );
         }
-    }, [isLastScreen, onComplete, xpGained, streak, mistakeManager.sessionMistakes]);
+    }, [isLastScreen, onComplete, xpGained, streak, mistakeManager.sessionMistakes, isFailed]);
 
     const retryCurrent = useCallback(() => {
         setStatus('idle');
@@ -89,6 +105,7 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
         timerSeconds: timer.seconds,
         isMistakeLoop: mistakeManager.isInMistakeLoop,
         mistakeCount: mistakeManager.sessionMistakes.length,
+        isFailed,
         
         // Actions
         checkAnswer: handleCheck,

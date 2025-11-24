@@ -1,0 +1,7 @@
+
+{
+  "units": [
+    { "id": "cs_1", "title": "OS Core", "topics": ["Process vs Thread", "Deadlocks", "Memory Paging"] },
+    { "id": "cs_2", "title": "Networking", "topics": ["TCP/IP", "HTTP/HTTPS", "DNS"] }
+  ]
+}

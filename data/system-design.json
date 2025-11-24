@@ -1,0 +1,7 @@
+
+{
+  "units": [
+    { "id": "sd_1", "title": "Components", "topics": ["Load Balancer", "API Gateway", "CDN"] },
+    { "id": "sd_2", "title": "Data Layer", "topics": ["Sharding", "Replication", "CAP Theorem"] }
+  ]
+}

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { LeetCodeContext, UserPreferences } from '../types';
-import { Play, RotateCcw, Terminal, Activity, CheckCircle, XCircle, ChevronDown, AlertTriangle, FileText, Code2, Layout, Columns, Rows, Loader2, Box, Check, X, Clock, Cpu, PanelRightClose, PanelRightOpen } from 'lucide-react';
+import { Play, RotateCcw, Terminal, Activity, CheckCircle, XCircle, ChevronDown, AlertTriangle, FileText, Code2, Layout, Columns, Rows, Loader2, Box, Check, X, Clock, Cpu, PanelRightClose, PanelRightOpen, Flag } from 'lucide-react';
 import { validateUserCode } from '../services/geminiService';
 
 // Declare Prism for highlighting
@@ -144,13 +144,10 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
                 setSelectedSuggestionIndex(0);
                 
                 // Calculate popup position (approximate based on lines/chars)
-                // A real implementation would measure spans, but for this single-file strictness, we estimate
                 const lines = textBeforeCursor.split('\n');
                 const lineIndex = lines.length - 1;
                 const charIndex = lines[lineIndex].length;
                 
-                // Base line height ~ 24px, char width ~ 8.5px (monospace 14px)
-                // Adjust based on your CSS values
                 setSuggestionPosition({
                     top: (lineIndex + 1) * 24, 
                     left: (charIndex * 8.5) + 40 // +40 for gutter
@@ -186,7 +183,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-        // 1. Handle Suggestions Navigation
         if (suggestions.length > 0) {
             if (e.key === 'ArrowDown') {
                 e.preventDefault();
@@ -209,7 +205,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
             }
         }
 
-        // 2. Handle Indentation (Tab)
         if (e.key === 'Tab') {
             e.preventDefault();
             const start = e.currentTarget.selectionStart;
@@ -222,18 +217,15 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
             return;
         }
 
-        // 3. Handle Auto-Indent on Enter
         if (e.key === 'Enter') {
             const start = e.currentTarget.selectionStart;
             const val = e.currentTarget.value;
             
-            // Get current line indentation
             const currentLineStart = val.lastIndexOf('\n', start - 1) + 1;
             const currentLine = val.substring(currentLineStart, start);
             const indentMatch = currentLine.match(/^\s*/);
             const indent = indentMatch ? indentMatch[0] : '';
             
-            // Check if previous line ended with colon (Python) or { (Java/C++)
             const trimmedLine = currentLine.trim();
             const extraIndent = (trimmedLine.endsWith(':') || trimmedLine.endsWith('{')) ? '    ' : '';
             
@@ -263,16 +255,12 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
         setIsRunning(true);
         setResult(null);
         setActiveConsoleTab('console');
-        setSelectedTestCaseIndex(0); // Reset selected tab
+        setSelectedTestCaseIndex(0);
 
         try {
             const res = await validateUserCode(code, context.problem.description, preferences, currentLanguage);
             setResult(res);
-            if (res.status === "Accepted") {
-                onSuccess();
-            }
         } catch (e) {
-            // Fallback error
             setResult({ 
                 status: "Runtime Error", 
                 error_message: "System Error: Could not connect to Judge AI.", 
@@ -370,7 +358,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
         const lines = code.split('\n');
         return (
             <div className="flex flex-col h-full bg-[#1e1e1e] relative">
-                {/* Line Numbers */}
                 <div className="flex-1 flex relative overflow-hidden">
                     <div className="w-10 bg-[#1e1e1e] border-r border-gray-700 text-right pr-2 pt-4 text-gray-600 font-mono text-[14px] leading-[1.5] select-none overflow-hidden shrink-0 z-10">
                         {lines.map((_, i) => (
@@ -378,9 +365,7 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
                         ))}
                     </div>
 
-                    {/* Editor Area */}
                     <div className="relative flex-1 overflow-hidden">
-                        {/* Highlighting Layer */}
                         <pre
                             ref={preRef}
                             aria-hidden="true"
@@ -397,7 +382,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
                             <br /> 
                         </pre>
 
-                        {/* Input Layer */}
                         <textarea 
                             ref={textareaRef}
                             value={code}
@@ -411,7 +395,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
                             autoCorrect="off"
                         />
 
-                        {/* Autocomplete Dropdown */}
                         {suggestions.length > 0 && (
                             <div 
                                 className="absolute z-50 w-64 bg-[#252526] border border-[#454545] shadow-2xl rounded-md overflow-hidden flex flex-col"
@@ -441,7 +424,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
         );
     };
 
-    // --- NEW CONSOLE RENDERER ---
     const renderConsole = () => {
         if (isRunning) {
              return (
@@ -461,7 +443,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
              );
         }
 
-        // Case: Compilation Error
         if (result.status === "Compile Error") {
             return (
                 <div className="h-full flex flex-col p-4">
@@ -477,7 +458,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
             );
         }
 
-        // Case: Accepted / Wrong Answer / Runtime Error
         const isAccepted = result.status === "Accepted";
         const statusColor = isAccepted ? "text-green-500" : "text-red-500";
         const StatusIcon = isAccepted ? CheckCircle : XCircle;
@@ -485,7 +465,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
 
         return (
             <div className="h-full flex flex-col p-4 overflow-hidden">
-                {/* Status Header */}
                 <div className={`font-extrabold text-xl mb-4 flex items-center gap-2 ${statusColor}`}>
                     <StatusIcon size={24}/>
                     {result.status}
@@ -496,7 +475,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
                     )}
                 </div>
                 
-                {/* Test Case Tabs */}
                 <div className="flex gap-2 mb-4 overflow-x-auto">
                     {result.test_cases.map((testCase, i) => (
                         <button 
@@ -512,7 +490,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
                     ))}
                 </div>
 
-                {/* Selected Case Details */}
                 {selectedCase && (
                     <div className="flex-1 overflow-y-auto custom-scrollbar space-y-4 font-mono text-xs">
                         <div>
@@ -548,7 +525,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
                     </div>
                 )}
 
-                {/* Runtime Stats */}
                 {result.stats && isAccepted && (
                     <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex items-center gap-6">
                          <div className="flex items-center gap-2 text-xs">
@@ -613,44 +589,58 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
 
             <div className="p-3 bg-white dark:bg-dark-card border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3 shrink-0">
                 <button onClick={() => setCode(context.starterCodeMap?.[currentLanguage] || context.starterCode)} className="px-4 py-2 text-gray-500 hover:text-gray-700 text-xs font-bold flex items-center gap-2"><RotateCcw size={14}/> Reset</button>
-                <button onClick={handleRun} disabled={isRunning} className={`px-6 py-2 rounded-xl text-sm font-bold text-white flex items-center gap-2 shadow-lg transition-all active:scale-95 ${isRunning ? 'bg-gray-400' : 'bg-brand hover:bg-brand-dark'}`}>{isRunning ? <Loader2 size={16} className="animate-spin"/> : <Play size={16} fill="currentColor"/>} Run Code</button>
+                
+                {/* Run Button */}
+                <button onClick={handleRun} disabled={isRunning} className={`px-6 py-2 rounded-xl text-sm font-bold text-white flex items-center gap-2 shadow-lg transition-all active:scale-95 ${isRunning ? 'bg-gray-400' : 'bg-brand hover:bg-brand-dark'}`}>
+                    {isRunning ? <Loader2 size={16} className="animate-spin"/> : <Play size={16} fill="currentColor"/>} Run Code
+                </button>
+
+                {/* Finish Button (Only if Accepted) */}
+                {result?.status === "Accepted" && (
+                    <button onClick={onSuccess} className="px-6 py-2 rounded-xl text-sm font-bold text-white bg-green-500 hover:bg-green-600 flex items-center gap-2 shadow-lg transition-all animate-bounce-in">
+                        <Flag size={16} fill="currentColor"/> Finish & Save
+                    </button>
+                )}
             </div>
         </div>
     );
 
-    // --- Main Render ---
     return (
-        <div className="flex flex-col h-full bg-white dark:bg-dark-card md:rounded-2xl md:border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm">
+        <div className="flex flex-col h-full w-full bg-white dark:bg-dark-card overflow-hidden">
             {renderHeader()}
-            <div className="flex-1 overflow-hidden relative">
+            
+            <div className="flex-1 flex overflow-hidden relative min-h-0">
                 {layoutMode === 'tabs' && (
-                    <div className="absolute inset-0 flex flex-col">
-                        <div className="flex-1 relative overflow-hidden">
-                            {activeTab === 'description' ? renderDescriptionPanel() : renderCodePanel()}
-                        </div>
-                        <div className="h-1/3 min-h-[250px] border-t border-gray-200 dark:border-gray-700">{renderBottomPanel()}</div>
+                    <div className="w-full h-full overflow-hidden">
+                        {activeTab === 'description' ? renderDescriptionPanel() : renderCodePanel()}
                     </div>
                 )}
+
                 {layoutMode === 'split-v' && (
-                    <div className="flex flex-col md:flex-row h-full">
-                        <div className="h-1/2 md:h-full md:w-1/2 border-b md:border-b-0 md:border-r border-gray-200 dark:border-gray-700 overflow-hidden">{renderDescriptionPanel()}</div>
-                        <div className="h-1/2 md:h-full md:w-1/2 flex flex-col">
-                            <div className="flex-1 overflow-hidden">{renderCodePanel()}</div>
-                            <div className="h-1/3 min-h-[250px] border-t border-gray-200 dark:border-gray-700">{renderBottomPanel()}</div>
+                    <>
+                        <div className="w-1/2 h-full border-r border-gray-200 dark:border-gray-700 overflow-hidden">
+                            {renderDescriptionPanel()}
                         </div>
-                    </div>
+                        <div className="w-1/2 h-full overflow-hidden">
+                            {renderCodePanel()}
+                        </div>
+                    </>
                 )}
+
                 {layoutMode === 'split-h' && (
-                    <div className="flex flex-col h-full">
-                         <div className="h-1/2 border-b border-gray-200 dark:border-gray-700 overflow-hidden">{renderDescriptionPanel()}</div>
-                        <div className="h-1/2 flex flex-col">
-                            <div className="flex-1 flex border-b border-gray-200 dark:border-gray-700 overflow-hidden">
-                                <div className="w-1/2 border-r border-gray-200 dark:border-gray-700">{renderCodePanel()}</div>
-                                <div className="w-1/2 h-full overflow-hidden">{renderBottomPanel()}</div>
-                            </div>
+                    <div className="flex flex-col w-full h-full">
+                        <div className="h-1/2 border-b border-gray-200 dark:border-gray-700 overflow-hidden">
+                            {renderDescriptionPanel()}
+                        </div>
+                        <div className="h-1/2 overflow-hidden">
+                            {renderCodePanel()}
                         </div>
                     </div>
                 )}
+            </div>
+
+            <div className="h-[35%] shrink-0 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-bg">
+                {renderBottomPanel()}
             </div>
         </div>
     );
