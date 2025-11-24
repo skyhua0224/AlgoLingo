@@ -63,10 +63,10 @@ export const LanguageConsole: React.FC<LanguageConsoleProps> = ({ currentLang, o
     const isZh = language === 'Chinese';
 
     return (
-        <div className="w-full h-[700px] bg-white dark:bg-dark-card rounded-3xl border border-gray-200 dark:border-gray-700 shadow-xl overflow-hidden relative flex flex-col">
+        <div className="w-full h-[700px] bg-white dark:bg-dark-card rounded-3xl border border-gray-200 dark:border-gray-700 shadow-xl relative flex flex-col z-10">
             
             {/* --- PERSISTENT HEADER --- */}
-            <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-white dark:bg-dark-card z-20 shadow-sm shrink-0">
+            <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-white dark:bg-dark-card z-50 shadow-sm shrink-0 rounded-t-3xl">
                 <div className="flex items-center gap-4">
                     {/* Main Selector */}
                     <LanguageSelector 
@@ -110,7 +110,7 @@ export const LanguageConsole: React.FC<LanguageConsoleProps> = ({ currentLang, o
             </div>
 
             {/* --- CONTENT AREA --- */}
-            <div className="flex-1 relative overflow-hidden bg-gray-50/50 dark:bg-black/20 flex flex-col">
+            <div className="flex-1 relative overflow-hidden bg-gray-50/50 dark:bg-black/20 flex flex-col rounded-b-3xl z-0">
                 {loading && (
                     <div className="absolute inset-0 z-50 bg-white/80 dark:bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
                         <div className="w-12 h-12 border-4 border-brand border-t-transparent rounded-full animate-spin"></div>

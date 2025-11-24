@@ -127,7 +127,7 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({ currentLang,
     };
 
     return (
-        <div className="relative z-50">
+        <div className="relative z-[60]">
             <button 
                 onClick={() => setIsOpen(!isOpen)}
                 className="flex items-center gap-3 pl-2 pr-4 py-2 bg-gray-100 dark:bg-gray-800/50 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-full transition-all border border-transparent hover:border-gray-300 dark:hover:border-gray-700 group min-w-[140px]"
@@ -141,8 +141,8 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({ currentLang,
 
             {isOpen && (
                 <>
-                    <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)}></div>
-                    <div className="absolute top-full left-0 mt-2 w-72 md:w-80 bg-white dark:bg-dark-card rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 p-3 z-50 animate-scale-in origin-top-left max-h-[80vh] flex flex-col">
+                    <div className="fixed inset-0 z-[55]" onClick={() => setIsOpen(false)}></div>
+                    <div className="absolute top-full left-0 mt-2 w-72 md:w-80 bg-white dark:bg-dark-card rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 p-3 z-[60] animate-scale-in origin-top-left max-h-[60vh] flex flex-col">
                         
                         {/* Search Bar */}
                         <div className="relative mb-3 shrink-0">
@@ -157,7 +157,7 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({ currentLang,
                             />
                         </div>
 
-                        <div className="overflow-y-auto custom-scrollbar flex-1 space-y-4 pr-1">
+                        <div className="overflow-y-auto custom-scrollbar flex-1 space-y-4 pr-1 pb-20">
                             
                             {/* Active Stack Section (Only show if no search or search matches stack items) */}
                             {myStack.length > 0 && !search && (
@@ -193,7 +193,7 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({ currentLang,
                         
                         {/* Footer Tip */}
                         {!search && (
-                            <div className="pt-3 mt-2 border-t border-gray-100 dark:border-gray-800 text-center">
+                            <div className="pt-3 mt-2 border-t border-gray-100 dark:border-gray-800 text-center shrink-0 bg-white dark:bg-dark-card absolute bottom-0 left-0 right-0 rounded-b-2xl p-3">
                                 <p className="text-[10px] text-gray-400">
                                     {isZh ? "点击任意语言以添加至技术栈" : "Select any language to add to stack"}
                                 </p>

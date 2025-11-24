@@ -21,6 +21,7 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
     const [status, setStatus] = useState<EngineStatus>('idle');
     const [isFinished, setIsFinished] = useState(false);
     const [isFailed, setIsFailed] = useState(false);
+    const [isLimitDisabled, setIsLimitDisabled] = useState(false);
     
     // Gamification State
     const [streak, setStreak] = useState(0);
@@ -44,6 +45,14 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
         mistakeManager.startReviewLoop();
     }, [mistakeManager]);
 
+    const continueAsPractice = useCallback(() => {
+        setIsFailed(false);
+        setIsLimitDisabled(true);
+        // Reset status so user can see the feedback or move on
+        // We keep status as 'wrong' so they can see why they failed, 
+        // or they can just click "Continue" in the footer.
+    }, []);
+
     const handleCheck = useCallback((isCorrect: boolean) => {
         if (isCorrect) {
             setStatus('correct');
@@ -54,11 +63,10 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
             setStreak(0);
             
             // Check Failure Condition (Lives System)
-            // If maxMistakes is defined, and we reached it (current session mistakes + 1 for this one > max)
-            // Note: sessionMistakes doesn't update instantly in this render cycle, so we check current length
             const currentMistakeCount = mistakeManager.sessionMistakes.length;
             
-            if (maxMistakes !== undefined && currentMistakeCount >= maxMistakes) {
+            // Only fail if limit is NOT disabled
+            if (maxMistakes !== undefined && !isLimitDisabled && currentMistakeCount >= maxMistakes) {
                 mistakeManager.recordMistake(currentScreen, plan.title, nodeIndex);
                 setIsFailed(true);
                 return; // Stop processing
@@ -72,7 +80,7 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
                 mistakeManager.recordMistake(currentScreen, plan.title, nodeIndex);
             }
         }
-    }, [currentScreen, plan.title, nodeIndex, mistakeManager, mistakeManager.isInMistakeLoop, maxMistakes]);
+    }, [currentScreen, plan.title, nodeIndex, mistakeManager, mistakeManager.isInMistakeLoop, maxMistakes, isLimitDisabled]);
 
     const handleNext = useCallback(() => {
         if (isFailed) return; // Block next if failed
@@ -106,11 +114,13 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
         isMistakeLoop: mistakeManager.isInMistakeLoop,
         mistakeCount: mistakeManager.sessionMistakes.length,
         isFailed,
+        isLimitDisabled,
         
         // Actions
         checkAnswer: handleCheck,
         nextScreen: handleNext,
         retryCurrent,
-        startMistakeRepair
+        startMistakeRepair,
+        continueAsPractice
     };
 };

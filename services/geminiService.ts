@@ -30,8 +30,6 @@ const callAI = async (
     const client = getClient(preferences);
     const modelId = preferences.apiConfig.gemini.model || 'gemini-2.5-flash';
     
-    // OpenAI Fallback logic would go here if configured
-    
     try {
         const response = await client.models.generateContent({
             model: modelId,
@@ -49,9 +47,6 @@ const callAI = async (
         throw e;
     }
 };
-
-// --- EXISTING GENERATORS (LessonPlan, DailyWorkout, etc...) ---
-// ... (Keeping existing exports below) ...
 
 export const generateLessonPlan = async (
   problemName: string, 
@@ -172,7 +167,6 @@ export const generateSyntaxRoadmap = async (profile: SyntaxProfile, preferences:
         const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
         const data = JSON.parse(cleanText);
         
-        // Hydrate with local state defaults
         return data.units.map((u: any, idx: number) => ({
             ...u,
             status: idx === 0 ? 'active' : 'locked',
@@ -195,8 +189,8 @@ export const generateSyntaxLesson = async (
     profile: SyntaxProfile, 
     preferences: UserPreferences
 ): Promise<LessonPlan> => {
-    // We now pass stageId (e.g. 'visual_concept') instead of just index
-    const systemInstruction = getSyntaxTrainerPrompt(profile, unit, lesson, stageId); 
+    // We pass spokenLanguage explicitly to the prompt generator
+    const systemInstruction = getSyntaxTrainerPrompt(profile, unit, lesson, stageId, preferences.spokenLanguage); 
     const langKey = preferences.spokenLanguage === 'Chinese' ? 'zh' : 'en';
     
     const prompt = `
@@ -210,7 +204,6 @@ export const generateSyntaxLesson = async (
         const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
         const plan: LessonPlan = JSON.parse(cleanText);
         
-        // --- INJECT CONTEXT FOR PROGRESS TRACKING ---
         plan.context = {
             type: 'syntax',
             language: profile.language,

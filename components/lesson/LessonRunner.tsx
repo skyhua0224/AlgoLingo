@@ -11,7 +11,7 @@ import { LessonSummary } from './LessonSummary';
 import { StreakCelebration } from './StreakCelebration';
 import { GlobalAiAssistant } from '../GlobalAiAssistant';
 import { Button } from '../Button';
-import { LogOut, X, Maximize2, Minimize2, HeartCrack, AlertTriangle } from 'lucide-react';
+import { LogOut, X, Maximize2, Minimize2, HeartCrack, AlertTriangle, ArrowRight } from 'lucide-react';
 
 // Direct Widget Imports
 import { DialogueWidget } from '../widgets/Dialogue';
@@ -189,20 +189,30 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
                   </h2>
                   <p className="text-gray-600 dark:text-gray-300 mb-6 font-medium">
                       {props.language === 'Chinese' 
-                        ? "生命值耗尽。跳级挑战需要极高的准确率。" 
-                        : "Out of hearts. Skipping requires high accuracy."}
+                        ? "生命值耗尽。跳级失败。" 
+                        : "Out of hearts. Skipping failed."}
                   </p>
                   
                   <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-xl mb-8 border border-red-100 dark:border-red-900/50">
                       <div className="flex items-center gap-2 text-red-600 dark:text-red-400 text-sm font-bold justify-center">
                           <AlertTriangle size={16}/>
-                          <span>{props.language === 'Chinese' ? "建议按顺序完成基础课程" : "Recommendation: Complete basic lessons first"}</span>
+                          <span>
+                              {props.language === 'Chinese' 
+                               ? "跳级功能将锁定，但你可以转为普通练习模式继续完成课程。" 
+                               : "Skip option locked. You can convert to practice mode to finish."}
+                          </span>
                       </div>
                   </div>
 
-                  <Button variant="primary" onClick={props.onExit} className="w-full py-4 shadow-xl border-red-700 bg-red-600 hover:bg-red-500">
-                      {props.language === 'Chinese' ? "退出挑战" : "Exit Challenge"}
-                  </Button>
+                  <div className="flex flex-col gap-3">
+                      <Button variant="primary" onClick={engine.continueAsPractice} className="w-full py-4 shadow-xl bg-brand hover:bg-brand-dark border-brand-dark flex items-center justify-center gap-2">
+                          {props.language === 'Chinese' ? "继续练习 (降级)" : "Continue as Practice"} <ArrowRight size={18}/>
+                      </Button>
+                      
+                      <button onClick={props.onExit} className="w-full py-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 font-bold text-sm">
+                          {props.language === 'Chinese' ? "退出" : "Exit"}
+                      </button>
+                  </div>
               </div>
           </div>
       );
@@ -297,7 +307,8 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
             streak={engine.streak}
             mistakeCount={engine.mistakeCount}
             timerSeconds={engine.timerSeconds}
-            isSkipMode={props.isSkipContext}
+            // If limit is disabled (practice mode downgrade), hide hearts
+            isSkipMode={props.isSkipContext && !engine.isLimitDisabled}
             isMistakeMode={phase === 'mistake_loop'}
             onExit={() => setShowExitConfirm(true)}
             headerTitle={engine.currentScreen.header}

@@ -6,10 +6,9 @@ export const FILL_IN_RULES = `
     - **CRITICAL - FORMATTING**:
         - Use '\\n' characters to ensure the code is multiline and readable.
         - Do NOT squash everything into one line.
-    - **CRITICAL - NO TRIVIAL BLANKS**:
-        - Do **NOT** place blanks in comments (e.g., # __BLANK__).
-        - Do **NOT** place blanks for simple closing braces/brackets like '}' or ']'.
-        - Do **NOT** place blanks for import statements unless it's a specific library lesson.
-        - **TARGET**: Control flow keywords (if, for, while, return), key variable names, specific method calls (e.g. .append, .push), or logic operators.
+    - **CRITICAL - QUALITY CONTROL**:
+        - **NO TRIVIAL ASSIGNMENTS**: Do **NOT** create blanks for simple literal values in assignments (e.g., 'x = __BLANK__', 'flag = __BLANK__'). This is too easy and meaningless.
+        - **NO COMMENTS**: Do **NOT** place blanks in comments.
+        - **TARGET**: Focus blanks on **Control Flow** (if, for, while, return), **Method Calls** (.append, .pop, .join), **Logic Operators** (and, or, not, in), or **Complex Variable Usage** (e.g. index access 'arr[__BLANK__]').
     - Ensure there is **AT LEAST ONE** __BLANK__ in the code.
 `;
