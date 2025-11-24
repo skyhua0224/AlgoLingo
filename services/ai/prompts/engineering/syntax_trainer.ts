@@ -91,6 +91,13 @@ export const getSyntaxTrainerPrompt = (
     ${specificInstructions}
     - **LENGTH**: You MUST generate EXACTLY 17 SCREENS (unless 'sandbox' mode which is 1).
     
+    **SCREEN COMPOSITION RULES (CRITICAL)**:
+    1. **COMBINE CONTEXT & ACTION**: Do NOT split "Teaching" and "Testing" into separate screens.
+       - **BAD**: Screen 1 (Dialogue explaining Loop), Screen 2 (Fill-in Loop).
+       - **GOOD**: Screen 1 (Dialogue explaining Loop + Fill-in Loop).
+    2. **MANDATORY INTERACTION**: Every single screen MUST contain EXACTLY ONE interactive widget ('quiz', 'fill-in', 'parsons', 'interactive-code' with clickable lines).
+       - Note: 'interactive-code' counts as interactive only if it has specific lines to inspect.
+    
     **CRITICAL LANGUAGE RULES**:
     1. **CODE**: ALL code snippets, variable names, function names, and syntax MUST remain in standard **ENGLISH**. Do NOT translate code logic.
     2. **INSTRUCTIONS**: All explanations, dialogue, quiz questions, callout text, and comments MUST be in **${spokenLanguage}**.

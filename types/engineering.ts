@@ -5,18 +5,16 @@ export type SkillLevel = 'Novice' | 'Junior' | 'Mid' | 'Senior' | 'Expert';
 
 // --- SYNTAX CONSOLE TYPES ---
 
-export type SyntaxOrigin = 'null' | 'mapped' | 'rusty' | 'augmented'; // Beginner, Migrator, Returning, AI-User
+export type SyntaxOrigin = 'null' | 'mapped' | 'rusty' | 'augmented'; 
 export type SyntaxObjective = 'backend' | 'data' | 'algo' | 'internals' | 'mastery' | 'academic' | 'custom'; 
-
-// New: Modality determines the "How", distinct from Origin/Objective
 export type LearningModality = 'drill' | 'deep' | 'audit' | 'rapid'; 
 
 export interface LearningAttributes {
-    handwriting: boolean; // Enforce typing over selecting
-    visual: boolean;      // Use more analogies/diagrams
-    internals: boolean;   // Explain memory/bytecode
-    audit: boolean;       // Focus on debugging/reviewing
-    repetition: boolean;  // More screens for the same concept
+    handwriting: boolean; 
+    visual: boolean;      
+    internals: boolean;   
+    audit: boolean;       
+    repetition: boolean;  
 }
 
 export interface LocalizedContent {
@@ -43,69 +41,88 @@ export interface SyntaxLesson {
     description: LocalizedContent;
     status: 'locked' | 'active' | 'completed';
     type: 'standard' | 'sandbox' | 'exam'; 
-    
-    // Dynamic Progression
-    currentPhaseIndex: number; // 0 to 5 (matches the 6-Phase standard)
-    phases?: LessonPhase[];     // Legacy support, but now we use fixed 6 phases
+    currentPhaseIndex: number; 
+    phases?: LessonPhase[];     
 }
 
 export interface SyntaxUnit {
     id: string;
     title: LocalizedContent;
     description: LocalizedContent;
-    lessons: SyntaxLesson[]; // Nested structure
+    lessons: SyntaxLesson[]; 
     status: 'locked' | 'active' | 'completed';
 }
 
 export interface SyntaxProfile {
     language: string; 
-    
-    // Identity Calibration
     origin: SyntaxOrigin;
-    sourceLanguage?: string; // For 'mapped' origin
-    
+    sourceLanguage?: string; 
     objective: SyntaxObjective;
     customObjective?: string;
-    
     modality: LearningModality;
-    attributes: LearningAttributes; // Derived from Modality + Tweaks
-    
-    // The Matrix Roadmap
+    attributes: LearningAttributes; 
     roadmap: SyntaxUnit[];
-    
     currentUnitId?: string;
-    
     strategyName: string;
     createdAt: number;
 }
 
-// --- PILLARS TYPES ---
+// --- ENGINEERING PILLARS & TRACKS SHARED TYPES ---
 
-export interface PillarUnit {
+export interface EngineeringStep {
     id: string;
-    title: string;
-    description: string;
-    status: 'locked' | 'active' | 'completed';
-    progress: number; // 0-100
-}
-
-// --- TRACKS TYPES ---
-
-export interface TrackChapter {
-    id: string;
-    title: string;
-    description: string;
+    title: LocalizedContent;
+    description: LocalizedContent;
+    focus: 'concept' | 'code' | 'debug' | 'design' | 'mastery'; 
     status: 'locked' | 'active' | 'completed';
 }
 
+// User progress profile for a specific topic/lesson
+export interface TopicProfile {
+    topicId: string;
+    pillarId: string; // 'system' | 'cs' | 'track'
+    trackId?: string; // If pillarId is 'track'
+    generatedAt: number;
+    roadmap: EngineeringStep[];
+    currentStepIndex: number;
+}
+
+export interface EngineeringTopic {
+    id: string;
+    title: LocalizedContent;
+    keywords: string[];
+}
+
+export interface EngineeringModule {
+    id: string;
+    level?: string; 
+    title: LocalizedContent;
+    description: LocalizedContent;
+    topics: EngineeringTopic[];
+}
+
+// Structure for Twin Pillars (Static Data)
+export interface EngineeringPillar {
+    id: string;
+    title: LocalizedContent;
+    description: LocalizedContent;
+    modules: EngineeringModule[];
+}
+
+// Structure for Dynamic Tracks (AI Generated Syllabus)
 export interface SkillTrack {
     id: string;
-    title: string;        
+    title: LocalizedContent | string; // Support both object and legacy string       
     icon: string;         
-    category: 'frontend' | 'backend' | 'game' | 'devops' | 'mobile' | 'other';
-    description: string;
-    chapters: TrackChapter[];
+    category: 'backend' | 'frontend' | 'mobile' | 'game' | 'ai' | 'data' | 'infra' | 'arch' | 'sec' | 'qa' | 'other';
+    description: LocalizedContent | string;
+    
+    // The Syllabus: Modules -> Topics (Hierarchical)
+    // This is populated by AI when the user first opens the track
+    modules?: EngineeringModule[]; 
+    
     progress: number;     
     isOfficial: boolean;  
     createdAt: number;
+    keywords?: string[]; // Context for AI generation
 }

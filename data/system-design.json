@@ -1,7 +1,183 @@
-
 {
-  "units": [
-    { "id": "sd_1", "title": "Components", "topics": ["Load Balancer", "API Gateway", "CDN"] },
-    { "id": "sd_2", "title": "Data Layer", "topics": ["Sharding", "Replication", "CAP Theorem"] }
+  "id": "system",
+  "title": { "en": "System Architecture", "zh": "系统架构师之路" },
+  "description": { "en": "From 'Hello World' to High Concurrency.", "zh": "从单机 CRUD 到百万并发的完整进阶路径。" },
+  "tiers": [
+    {
+      "id": "sd_lvl1_basics",
+      "title": { "en": "Level 1: The Single Server", "zh": "第一层：单机架构 (The Monolith)" },
+      "description": { "en": "Where everyone starts. Zero distributed complexity.", "zh": "一切的起点。理解没有分布式复杂性时的世界。" },
+      "topics": [
+        { 
+            "id": "basic_client_server", 
+            "title": { "en": "Client-Server Basics", "zh": "客户端-服务端模型" }, 
+            "keywords": ["Request/Response", "HTTP Headers", "DNS Lookup", "Latency"] 
+        },
+        { 
+            "id": "basic_db", 
+            "title": { "en": "Relational DB 101", "zh": "关系型数据库基础" }, 
+            "keywords": ["ACID", "Tables", "SQL vs NoSQL (Intro)", "Normalization"] 
+        },
+        { 
+            "id": "basic_scale_up", 
+            "title": { "en": "Vertical Scaling", "zh": "垂直扩容 (Scale Up)" }, 
+            "keywords": ["CPU/RAM Upgrades", "Cost Ceiling", "Single Point of Failure", "Hardware Limits"] 
+        }
+      ]
+    },
+    {
+      "id": "sd_lvl2_traffic",
+      "title": { "en": "Level 2: Traffic Is Growing", "zh": "第二层：流量增长 (Scaling Read)" },
+      "description": { "en": "The first bottleneck is usually reading data.", "zh": "通常第一个瓶颈是读数据。开始引入冗余。" },
+      "topics": [
+        { 
+            "id": "scale_lb", 
+            "title": { "en": "Load Balancing", "zh": "负载均衡器" }, 
+            "keywords": ["Nginx", "Round Robin", "Health Checks", "L4 vs L7"] 
+        },
+        { 
+            "id": "scale_cache_local", 
+            "title": { "en": "Local Caching", "zh": "本地缓存" }, 
+            "keywords": ["LRU", "Memory Hit", "Stale Data", "Cache Eviction"] 
+        },
+        { 
+            "id": "scale_repl", 
+            "title": { "en": "Database Replication", "zh": "读写分离" }, 
+            "keywords": ["Master-Slave", "Read Replicas", "Replication Lag", "Eventual Consistency"] 
+        }
+      ]
+    },
+    {
+      "id": "sd_lvl3_perf",
+      "title": { "en": "Level 3: Speed & State", "zh": "第三层：性能与状态管理" },
+      "description": { "en": "Decoupling logic and handling state correctly.", "zh": "解耦业务逻辑，正确处理会话状态。" },
+      "topics": [
+        { 
+            "id": "state_session", 
+            "title": { "en": "Stateless Architecture", "zh": "无状态架构" }, 
+            "keywords": ["Session Store", "Redis", "Sticky Sessions", "JWT Intro"] 
+        },
+        { 
+            "id": "perf_dist_cache", 
+            "title": { "en": "Distributed Caching", "zh": "分布式缓存" }, 
+            "keywords": ["Redis Cluster", "Cache-Aside", "Thundering Herd", "Cache Penetration"] 
+        },
+        { 
+            "id": "perf_cdn", 
+            "title": { "en": "CDN & Static Assets", "zh": "CDN 加速" }, 
+            "keywords": ["Edge Locations", "Push vs Pull", "Cache Invalidation", "Static Content"] 
+        }
+      ]
+    },
+    {
+      "id": "sd_lvl4_async",
+      "title": { "en": "Level 4: Async & Decoupling", "zh": "第四层：异步与解耦" },
+      "description": { "en": "Don't make the user wait.", "zh": "别让用户等。削峰填谷。" },
+      "topics": [
+        { 
+            "id": "async_mq", 
+            "title": { "en": "Message Queues", "zh": "消息队列 (MQ)" }, 
+            "keywords": ["Kafka/RabbitMQ", "Producer-Consumer", "Topics vs Queues", "Ack Mechanisms"] 
+        },
+        { 
+            "id": "async_worker", 
+            "title": { "en": "Background Workers", "zh": "后台任务处理" }, 
+            "keywords": ["Job Scheduling", "Retries", "Dead Letter Queue", "Idempotency"] 
+        },
+        { 
+            "id": "async_event", 
+            "title": { "en": "Event Driven Arch", "zh": "事件驱动架构" }, 
+            "keywords": ["Pub/Sub", "Loose Coupling", "Event Sourcing (Intro)", "Choreography"] 
+        }
+      ]
+    },
+    {
+      "id": "sd_lvl5_data_scale",
+      "title": { "en": "Level 5: Data at Scale", "zh": "第五层：海量数据存储" },
+      "description": { "en": "When one database is no longer enough.", "zh": "当单库无法承载时，我们开始切分数据。" },
+      "topics": [
+        { 
+            "id": "data_sharding", 
+            "title": { "en": "Database Sharding", "zh": "分库分表 (Sharding)" }, 
+            "keywords": ["Horizontal Partitioning", "Shard Key", "Rebalancing", "Cross-shard Joins"] 
+        },
+        { 
+            "id": "data_hash", 
+            "title": { "en": "Consistent Hashing", "zh": "一致性哈希" }, 
+            "keywords": ["Hash Ring", "Virtual Nodes", "Data Distribution", "Node Failure"] 
+        },
+        { 
+            "id": "data_id", 
+            "title": { "en": "Distributed IDs", "zh": "分布式 ID 生成器" }, 
+            "keywords": ["Snowflake Algo", "UUID", "Clock Skew", "Monotonicity"] 
+        }
+      ]
+    },
+    {
+      "id": "sd_lvl6_dist_core",
+      "title": { "en": "Level 6: Distributed Core", "zh": "第六层：分布式硬核原理" },
+      "description": { "en": "The hardest problems in computer science.", "zh": "计算机科学中最难的问题：共识与锁。" },
+      "topics": [
+        { 
+            "id": "dist_cap", 
+            "title": { "en": "CAP & PACELC", "zh": "CAP 定理深入" }, 
+            "keywords": ["Consistency", "Availability", "Partition Tolerance", "Trade-offs"] 
+        },
+        { 
+            "id": "dist_lock", 
+            "title": { "en": "Distributed Locks", "zh": "分布式锁" }, 
+            "keywords": ["Redlock", "ZooKeeper", "Lease Time", "Fencing Tokens"] 
+        },
+        { 
+            "id": "dist_consensus_1", 
+            "title": { "en": "Consensus I: Leader Election", "zh": "共识机制 I: 选主" }, 
+            "keywords": ["Raft", "Term", "Heartbeats", "Split Vote"] 
+        },
+        { 
+            "id": "dist_consensus_2", 
+            "title": { "en": "Consensus II: Log Replication", "zh": "共识机制 II: 日志复制" }, 
+            "keywords": ["Commit Index", "AppendEntries", "Log Matching", "Rollback"] 
+        }
+      ]
+    },
+    {
+      "id": "sd_lvl7_eng_ops",
+      "title": { "en": "Level 7: Engineering & Ops", "zh": "第七层：工程化与运维" },
+      "description": { "en": "Keeping it secure and running.", "zh": "生产环境的生存法则：安全与监控。" },
+      "topics": [
+        { 
+            "id": "ops_auth", 
+            "title": { "en": "Auth & Security", "zh": "认证与授权架构" }, 
+            "keywords": ["OAuth2", "JWT", "RBAC", "Gateway Auth"] 
+        },
+        { 
+            "id": "ops_obs", 
+            "title": { "en": "Observability", "zh": "可观测性" }, 
+            "keywords": ["Logging", "Metrics", "Distributed Tracing", "Alerting"] 
+        },
+        { 
+            "id": "ops_ci", 
+            "title": { "en": "CI/CD & Deployment", "zh": "持续集成与部署" }, 
+            "keywords": ["Blue/Green", "Canary", "Rolling Update", "Pipeline"] 
+        }
+      ]
+    },
+    {
+      "id": "sd_lvl8_ai",
+      "title": { "en": "Level 8: AI Native", "zh": "第八层：AI 原生架构" },
+      "description": { "en": "The new frontier of architecture.", "zh": "大模型时代的新型基础设施。" },
+      "topics": [
+        { 
+            "id": "ai_vec", 
+            "title": { "en": "Vector Databases", "zh": "向量数据库" }, 
+            "keywords": ["Embeddings", "HNSW", "Similarity Search", "ANN"] 
+        },
+        { 
+            "id": "ai_rag", 
+            "title": { "en": "RAG Architecture", "zh": "RAG 检索增强生成" }, 
+            "keywords": ["Retrieval", "Context Window", "Ranking", "Generation"] 
+        }
+      ]
+    }
   ]
 }

@@ -1,23 +1,19 @@
 
 import { getClient } from "./ai/client";
 import { getLessonPlanSystemInstruction, getLeetCodeContextSystemInstruction, getJudgeSystemInstruction, getVariantSystemInstruction, getDailyWorkoutSystemInstruction } from "./ai/prompts";
+import { getSystemArchitectPrompt } from "./ai/prompts/engineering/system_architect";
+import { getCSKernelPrompt } from "./ai/prompts/engineering/cs_kernel";
 import { getSyntaxRoadmapPrompt } from "./ai/prompts/engineering/syntax_roadmap";
 import { getSyntaxTrainerPrompt } from "./ai/prompts/engineering/syntax_trainer";
+import { getTrackSyllabusPrompt } from "./ai/prompts/engineering/track_generator";
+import { getTopicRoadmapPrompt } from "./ai/prompts/engineering/topic_roadmap";
+import { getTrackSuggestionPrompt } from "./ai/prompts/engineering/track_suggestions"; // Import new prompt
 import { lessonPlanSchema, leetCodeContextSchema, judgeResultSchema } from "./ai/schemas";
-import { UserPreferences, MistakeRecord, LessonPlan, Widget, LeetCodeContext, SavedLesson } from "../types";
-import { SyntaxProfile, SyntaxUnit, SyntaxLesson } from "../types/engineering";
-import { PROBLEM_MAP } from "../constants";
+import { UserPreferences, MistakeRecord, LessonPlan, Widget, LeetCodeContext, SavedLesson } from "../../types";
+import { PROBLEM_MAP } from "../../constants";
+import { SyntaxProfile, SyntaxUnit, SyntaxLesson, SkillTrack, EngineeringStep, EngineeringModule } from "../../types/engineering";
 import { Type } from "@google/genai";
-
-// --- CUSTOM ERROR CLASS ---
-export class AIGenerationError extends Error {
-    rawOutput?: string;
-    constructor(message: string, rawOutput?: string) {
-        super(message);
-        this.name = "AIGenerationError";
-        this.rawOutput = rawOutput;
-    }
-}
+import { AIGenerationError } from "./ai/generator";
 
 // --- HELPER: GENERIC API CALL ---
 const callAI = async (
@@ -116,7 +112,85 @@ export const validateUserCode = async (code: string, problemDesc: string, prefer
     }
 };
 
-// --- NEW: ENGINEERING HUB GENERATORS ---
+// --- ENGINEERING HUB GENERATORS ---
+
+export const generateEngineeringLesson = async (
+    pillar: 'system' | 'cs',
+    topic: string,
+    keywords: string[],
+    level: string, 
+    preferences: UserPreferences,
+    extraContext?: string
+): Promise<LessonPlan> => {
+    const systemInstruction = pillar === 'system' 
+        ? getSystemArchitectPrompt(topic, keywords, level, extraContext)
+        : getCSKernelPrompt(topic, keywords, level);
+        
+    const prompt = `Generate a comprehensive engineering lesson for: ${topic}. Level: ${level}. Context: ${extraContext || 'General'}`;
+
+    try {
+        const text = await callAI(preferences, systemInstruction, prompt, lessonPlanSchema, true);
+        const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
+        const plan = JSON.parse(cleanText);
+        plan.context = { type: 'pillar', pillar, topic, phaseIndex: 0, levelId: level }; 
+        return plan;
+    } catch (e: any) {
+        console.error("Engineering Lesson Generation Failed", e);
+        throw new AIGenerationError("Failed to generate engineering lesson.");
+    }
+};
+
+export const generateEngineeringRoadmap = async (
+    topic: string,
+    pillar: 'system' | 'cs' | 'track',
+    keywords: string[],
+    preferences: UserPreferences
+): Promise<EngineeringStep[]> => {
+    const systemInstruction = getTopicRoadmapPrompt(topic, pillar, keywords, preferences.spokenLanguage);
+    const prompt = `Generate syllabus for ${topic}`;
+    
+    const roadmapSchema = {
+        type: Type.OBJECT,
+        properties: {
+            roadmap: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        id: { type: Type.STRING },
+                        title: { 
+                            type: Type.OBJECT,
+                            properties: { en: { type: Type.STRING }, zh: { type: Type.STRING } },
+                            required: ["en", "zh"]
+                        },
+                        description: {
+                            type: Type.OBJECT,
+                            properties: { en: { type: Type.STRING }, zh: { type: Type.STRING } },
+                            required: ["en", "zh"]
+                        },
+                        focus: { type: Type.STRING, enum: ["concept", "code", "debug", "design", "mastery"] }
+                    },
+                    required: ["id", "title", "description", "focus"]
+                }
+            }
+        },
+        required: ["roadmap"]
+    };
+
+    try {
+        const text = await callAI(preferences, systemInstruction, prompt, roadmapSchema, true);
+        const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
+        const data = JSON.parse(cleanText);
+        
+        return data.roadmap.map((step: any, idx: number) => ({
+            ...step,
+            status: idx === 0 ? 'active' : 'locked'
+        }));
+    } catch (e) {
+        console.error("Roadmap Generation Failed", e);
+        throw new AIGenerationError("Failed to generate topic roadmap.");
+    }
+};
 
 export const generateSyntaxRoadmap = async (profile: SyntaxProfile, preferences: UserPreferences): Promise<SyntaxUnit[]> => {
     const prompt = getSyntaxRoadmapPrompt(profile);
@@ -173,7 +247,7 @@ export const generateSyntaxRoadmap = async (profile: SyntaxProfile, preferences:
             lessons: u.lessons.map((l: any, lIdx: number) => ({
                 ...l,
                 status: (idx === 0 && lIdx === 0) ? 'active' : 'locked',
-                currentStageIndex: 0
+                currentPhaseIndex: 0
             }))
         }));
     } catch (e: any) {
@@ -189,7 +263,6 @@ export const generateSyntaxLesson = async (
     profile: SyntaxProfile, 
     preferences: UserPreferences
 ): Promise<LessonPlan> => {
-    // We pass spokenLanguage explicitly to the prompt generator
     const systemInstruction = getSyntaxTrainerPrompt(profile, unit, lesson, stageId, preferences.spokenLanguage); 
     const langKey = preferences.spokenLanguage === 'Chinese' ? 'zh' : 'en';
     
@@ -216,6 +289,128 @@ export const generateSyntaxLesson = async (
     } catch (error: any) {
         console.error("Lesson Generation Failed", error);
         throw new AIGenerationError("Failed to generate lesson plan.", "");
+    }
+};
+
+// --- TRACK GENERATOR (Hierarchical) ---
+export const generateCustomTrack = async (
+    trackName: string, 
+    context: string, 
+    preferences: UserPreferences
+): Promise<SkillTrack> => {
+    const prompt = getTrackSyllabusPrompt(trackName, context, preferences.spokenLanguage);
+    
+    const localizedStringSchema = {
+        type: Type.OBJECT,
+        properties: {
+            en: { type: Type.STRING },
+            zh: { type: Type.STRING }
+        },
+        required: ["en", "zh"]
+    };
+
+    const trackSchema = {
+        type: Type.OBJECT,
+        properties: {
+            modules: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        id: { type: Type.STRING },
+                        title: localizedStringSchema,
+                        description: localizedStringSchema,
+                        topics: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    id: { type: Type.STRING },
+                                    title: localizedStringSchema,
+                                    keywords: { type: Type.ARRAY, items: { type: Type.STRING } }
+                                },
+                                required: ["id", "title", "keywords"]
+                            }
+                        }
+                    },
+                    required: ["id", "title", "description", "topics"]
+                }
+            }
+        },
+        required: ["modules"]
+    };
+
+    try {
+        const text = await callAI(preferences, "Curriculum Architect", prompt, trackSchema, true);
+        const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
+        const data = JSON.parse(cleanText);
+        
+        return {
+            id: `track_${Date.now()}`,
+            // Ensure localized structure for title/description
+            title: { en: trackName, zh: trackName }, 
+            description: { en: context.substring(0, 50) + "...", zh: context.substring(0, 50) + "..." },
+            icon: "Terminal",
+            category: 'other',
+            progress: 0,
+            isOfficial: false,
+            createdAt: Date.now(),
+            modules: data.modules // Populated via AI
+        };
+    } catch (e) {
+        console.error("Track Generation Failed", e);
+        throw new AIGenerationError("Failed to generate custom track.");
+    }
+};
+
+// --- NEW: Suggest Tracks (AI Refresh) ---
+export const generateTrackSuggestions = async (
+    category: string,
+    existingTitles: string[],
+    preferences: UserPreferences
+): Promise<SkillTrack[]> => {
+    const prompt = getTrackSuggestionPrompt(category, existingTitles);
+    const localizedStringSchema = {
+        type: Type.OBJECT,
+        properties: { en: { type: Type.STRING }, zh: { type: Type.STRING } },
+        required: ["en", "zh"]
+    };
+    const schema = {
+        type: Type.OBJECT,
+        properties: {
+            tracks: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        title: localizedStringSchema,
+                        description: localizedStringSchema,
+                        icon: { type: Type.STRING },
+                        keywords: { type: Type.ARRAY, items: { type: Type.STRING } }
+                    },
+                    required: ["title", "description", "icon", "keywords"]
+                }
+            }
+        },
+        required: ["tracks"]
+    };
+
+    try {
+        const text = await callAI(preferences, "Tech Career Mentor", prompt, schema, true);
+        const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
+        const data = JSON.parse(cleanText);
+        
+        return data.tracks.map((t: any, i: number) => ({
+            id: `suggested_${Date.now()}_${i}`,
+            category: category === 'all' ? 'other' : category,
+            progress: 0,
+            isOfficial: true, // Treat AI suggestions as semi-official
+            createdAt: Date.now(),
+            ...t
+        }));
+    } catch (e) {
+        console.error("Suggestion Failed", e);
+        throw new Error("Failed to generate suggestions");
     }
 };
 

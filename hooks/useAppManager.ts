@@ -47,12 +47,13 @@ export const useAppManager = () => {
     const [generationRawError, setGenerationRawError] = useState<string | null>(null);
 
     // --- HELPER: ENGINEERING DATA ---
-    // Scans for dynamic keys used by the Language Console
+    // Scans for dynamic keys used by the Language Console AND Engineering Pillars
     const getEngineeringData = () => {
         const data: Record<string, any> = {};
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
-            if (key && key.startsWith('algolingo_syntax_v3_')) {
+            // Support both Syntax Console (v3) and Engineering Pillars (eng_v3)
+            if (key && (key.startsWith('algolingo_syntax_v3_') || key.startsWith('algolingo_eng_v3_'))) {
                 try {
                     data[key] = JSON.parse(localStorage.getItem(key)!);
                 } catch (e) {}
@@ -64,7 +65,8 @@ export const useAppManager = () => {
     const saveEngineeringData = (data: Record<string, any>) => {
         if (!data) return;
         Object.entries(data).forEach(([key, value]) => {
-            if (key.startsWith('algolingo_syntax_v3_')) {
+            // Allow restoring both data types
+            if (key.startsWith('algolingo_syntax_v3_') || key.startsWith('algolingo_eng_v3_')) {
                 localStorage.setItem(key, JSON.stringify(value));
             }
         });
@@ -203,8 +205,8 @@ export const useAppManager = () => {
             mistakes,
             savedLessons,
             preferences,
-            engineeringData: getEngineeringData(), // Now exports all language profiles
-            version: "3.2",
+            engineeringData: getEngineeringData(), // Now exports all language profiles AND engineering roadmaps
+            version: "3.3",
             exportedAt: new Date().toISOString()
         };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -505,7 +507,7 @@ export const useAppManager = () => {
         // --- PROGRESS SAVE LOGIC ---
         let finalProgress = progressMap;
         
-        // 1. SYNTAX PROGRESS (Engineering Hub)
+        // 1. SYNTAX PROGRESS (Engineering Hub - Language Console)
         if (shouldSave && currentLessonPlan?.context?.type === 'syntax') {
             const { language, unitId, lessonId, phaseIndex } = currentLessonPlan.context;
             const key = `algolingo_syntax_v3_${language}`;
@@ -517,37 +519,36 @@ export const useAppManager = () => {
                     const lesson = unit?.lessons.find((l: any) => l.id === lessonId);
                     
                     if (lesson && phaseIndex !== undefined) {
-                        // If we successfully completed the current phase, advance
-                        // Special Case: Skip Mode (isSkipAttempt)
-                        if (isSkipAttempt && phaseIndex === 5) { // If skipped to Master and passed
-                             // Unlock everything
+                        if (isSkipAttempt && phaseIndex === 5) { 
                              lesson.currentPhaseIndex = 6;
                              lesson.status = 'completed';
-                             // Unlock next lesson in unit if exists
                              const lIdx = unit.lessons.findIndex((l: any) => l.id === lessonId);
-                             if (unit.lessons[lIdx + 1]) {
-                                 unit.lessons[lIdx + 1].status = 'active';
-                             }
+                             if (unit.lessons[lIdx + 1]) unit.lessons[lIdx + 1].status = 'active';
                         } else if (phaseIndex >= lesson.currentPhaseIndex) {
                             lesson.currentPhaseIndex = Math.min(6, phaseIndex + 1);
                             if (lesson.currentPhaseIndex === 6) {
                                 lesson.status = 'completed';
                                 const lIdx = unit.lessons.findIndex((l: any) => l.id === lessonId);
-                                if (unit.lessons[lIdx + 1]) {
-                                    unit.lessons[lIdx + 1].status = 'active';
-                                }
+                                if (unit.lessons[lIdx + 1]) unit.lessons[lIdx + 1].status = 'active';
                             }
                         }
                         localStorage.setItem(key, JSON.stringify(profile));
-                        // Note: LanguageConsole will auto-refresh via its useEffect on key change if mounted, 
-                        // or on remount. Since we are returning to dashboard, it effectively refreshes.
                     }
                 }
             } catch (e) {
                 console.error("Failed to save syntax progress", e);
             }
         }
-        // 2. ALGORITHM PROGRESS (Standard Top 100)
+        // 2. PILLAR PROGRESS (Engineering Hub - System/CS)
+        else if (shouldSave && currentLessonPlan?.context?.type === 'pillar') {
+            // Currently we don't auto-advance pillar steps on completion in the MVP
+            // But we should ensure the context is saved if we were to implement it.
+            // The current `EngineeringHub` generates profiles on-demand and stores them in local storage.
+            // No explicit "Next Step" logic is wired in `handleLessonComplete` for pillars yet, 
+            // as it relies on the user manually clicking the next node in `TopicMap`.
+            // However, ensuring the *Data Backup* works (which this file fix addresses) is the priority.
+        }
+        // 3. ALGORITHM PROGRESS (Standard Top 100)
         else if (activeProblem && currentLessonPlan && !currentLessonPlan.isLocalReplay && shouldSave) {
             const lang = preferences.targetLanguage;
             const currentLangProg = progressMap[lang] || {};

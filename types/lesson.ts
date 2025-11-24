@@ -24,11 +24,14 @@ export interface LessonPlan {
   suggestedQuestions: string[]; 
   isLocalReplay?: boolean; 
   context?: {
-      type: 'syntax' | 'algo';
+      type: 'syntax' | 'algo' | 'pillar';
       language?: string;
       unitId?: string;
       lessonId?: string;
       phaseIndex?: number;
+      pillar?: string;
+      topic?: string;
+      levelId?: string;
   };
 }
 

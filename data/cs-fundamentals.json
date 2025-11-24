@@ -1,7 +1,58 @@
-
 {
-  "units": [
-    { "id": "cs_1", "title": "OS Core", "topics": ["Process vs Thread", "Deadlocks", "Memory Paging"] },
-    { "id": "cs_2", "title": "Networking", "topics": ["TCP/IP", "HTTP/HTTPS", "DNS"] }
+  "id": "cs",
+  "title": { "en": "Under the Hood", "zh": "底层内功" },
+  "description": { "en": "Kernel, Internals, and Protocols.", "zh": "从内核到协议，理解代码如何运行。" },
+  "tiers": [
+    {
+      "id": "cs_os",
+      "title": { "en": "Kernel 1: OS & Concurrency", "zh": "内核一：OS 与并发" },
+      "description": { "en": "Threads, locks, and IO.", "zh": "线程、锁与 IO 模型。" },
+      "topics": [
+        { "id": "os_process", "title": { "en": "Process vs Thread", "zh": "进程与线程" }, "keywords": ["Context Switch", "Stack/Heap", "PCB", "User/Kernel Space"] },
+        { "id": "os_concur", "title": { "en": "Concurrency Primitives", "zh": "并发原语" }, "keywords": ["Mutex", "Semaphore", "Deadlock", "Race Condition"] },
+        { "id": "os_io", "title": { "en": "I/O Multiplexing", "zh": "I/O 多路复用" }, "keywords": ["Blocking vs Non-Blocking", "Select/Epoll", "Reactor Pattern", "Zero Copy"] }
+      ]
+    },
+    {
+      "id": "cs_db",
+      "title": { "en": "Kernel 2: Database Internals", "zh": "内核二：数据库引擎" },
+      "description": { "en": "How data is physically stored.", "zh": "数据存储的物理真相。" },
+      "topics": [
+        { 
+            "id": "db_index", 
+            "title": { "en": "Indexing Structures", "zh": "索引结构 (B+ Tree)" }, 
+            "keywords": ["B+ Tree", "LSM Tree", "Page Structure", "Write Amplification"] 
+        },
+        { 
+            "id": "db_trans", 
+            "title": { "en": "Transactions (ACID)", "zh": "事务与 ACID" }, 
+            "keywords": ["WAL (Redo Log)", "Undo Log", "Commit", "Rollback"] 
+        },
+        { 
+            "id": "db_iso", 
+            "title": { "en": "Isolation Levels", "zh": "隔离级别" }, 
+            "keywords": ["MVCC", "Dirty Read", "Phantom Read", "Serializable"] 
+        }
+      ]
+    },
+    {
+      "id": "cs_net",
+      "title": { "en": "Kernel 3: Network Stack", "zh": "内核三：网络协议" },
+      "description": { "en": "Packets on the wire.", "zh": "线缆上的比特流。" },
+      "topics": [
+        { "id": "net_tcp", "title": { "en": "TCP Internals", "zh": "TCP 深度解析" }, "keywords": ["3-Way Handshake", "Sliding Window", "Congestion Control", "Slow Start"] },
+        { "id": "net_http", "title": { "en": "HTTP Evolution", "zh": "HTTP 演进" }, "keywords": ["Keep-Alive", "HTTP/2 Multiplexing", "HTTP/3 QUIC", "Head-of-Line Blocking"] },
+        { "id": "net_tls", "title": { "en": "HTTPS & TLS", "zh": "HTTPS 与安全握手" }, "keywords": ["Public/Private Key", "Certificates", "Handshake", "Symmetric Key"] }
+      ]
+    },
+    {
+      "id": "cs_lang",
+      "title": { "en": "Kernel 4: Runtime Magic", "zh": "内核四：运行时内幕" },
+      "description": { "en": "GC and JIT.", "zh": "垃圾回收与即时编译。" },
+      "topics": [
+        { "id": "run_gc", "title": { "en": "Garbage Collection", "zh": "垃圾回收算法" }, "keywords": ["Mark-Sweep", "Generational", "Reference Counting", "STW Pause"] },
+        { "id": "run_jit", "title": { "en": "Compilation (JIT)", "zh": "JIT 编译原理" }, "keywords": ["Bytecode", "Machine Code", "Hot Path", "Inline Caching"] }
+      ]
+    }
   ]
 }

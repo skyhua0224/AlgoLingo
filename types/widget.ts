@@ -9,7 +9,11 @@ export type WidgetType =
     | 'fill-in'
     | 'leetcode' 
     | 'steps-list'
-    | 'callout';
+    | 'callout'
+    | 'terminal'
+    | 'code-walkthrough'
+    | 'mini-editor'
+    | 'arch-canvas';
 
 export interface Widget {
   id: string;
@@ -89,5 +93,38 @@ export interface Widget {
     text: string;
     variant: 'info' | 'warning' | 'success' | 'tip';
   };
+
+  // --- NEW ENGINEERING WIDGETS ---
+
+  terminal?: {
+      initialOutput?: string; // Welcome message or context
+      command: string; // The expected user command (regex supported)
+      feedback: string; // Output to show on success
+      hint?: string; // Placeholder or suggestion
+      allowedCommands?: string[]; // For auto-complete simulation
+  };
+
+  codeWalkthrough?: {
+      code: string;
+      language: string;
+      steps: {
+          lines: number[]; // [start, end] or [line]
+          content: string; // Explanation bubble text
+      }[];
+  };
+
+  miniEditor?: {
+      language: string;
+      startingCode: string; // Scaffold
+      solutionSnippet: string; // For static validation check
+      validationRegex?: string; // To check specific keywords
+      taskDescription: string;
+  };
+
+  archCanvas?: {
+      goal: string; // "Design a Twitter Feed"
+      initialComponents?: string[]; // Pre-placed components
+      requiredComponents: string[]; // e.g. ["LB", "Redis", "DB"]
+      requiredConnections?: { from: string, to: string }[]; // Basic topology check
+  };
 }
-    

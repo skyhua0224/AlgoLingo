@@ -22,8 +22,8 @@ export const interactiveCodeSchema: Schema = {
             items: {
                 type: Type.OBJECT,
                 properties: {
-                    code: { type: Type.STRING, description: "VALID CODE ONLY. NO COMMENTS OR TEXT." },
-                    explanation: { type: Type.STRING, description: "The technical explanation of this specific line." }
+                    code: { type: Type.STRING },
+                    explanation: { type: Type.STRING }
                 },
                 required: ["code", "explanation"]
             }
@@ -60,6 +60,60 @@ export const leetcodeSchema: Schema = {
     required: ["problemSlug", "concept", "exampleCode"]
 };
 
+// New Schemas
+export const terminalSchema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+        initialOutput: { type: Type.STRING },
+        command: { type: Type.STRING, description: "Regex string for validation" },
+        feedback: { type: Type.STRING, description: "Output on success" },
+        hint: { type: Type.STRING }
+    },
+    required: ["command", "feedback"]
+};
+
+export const codeWalkthroughSchema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+        code: { type: Type.STRING },
+        language: { type: Type.STRING },
+        steps: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    lines: { type: Type.ARRAY, items: { type: Type.INTEGER } },
+                    content: { type: Type.STRING }
+                },
+                required: ["lines", "content"]
+            }
+        }
+    },
+    required: ["code", "steps"]
+};
+
+export const miniEditorSchema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+        language: { type: Type.STRING },
+        startingCode: { type: Type.STRING },
+        solutionSnippet: { type: Type.STRING },
+        validationRegex: { type: Type.STRING },
+        taskDescription: { type: Type.STRING }
+    },
+    required: ["language", "startingCode", "taskDescription"]
+};
+
+export const archCanvasSchema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+        goal: { type: Type.STRING },
+        initialComponents: { type: Type.ARRAY, items: { type: Type.STRING } },
+        requiredComponents: { type: Type.ARRAY, items: { type: Type.STRING } }
+    },
+    required: ["goal", "requiredComponents"]
+};
+
 // Root Lesson Plan Schema
 export const lessonPlanSchema: Schema = {
     type: Type.OBJECT,
@@ -80,13 +134,17 @@ export const lessonPlanSchema: Schema = {
                     type: Type.OBJECT,
                     properties: {
                         id: { type: Type.STRING },
-                        type: { type: Type.STRING, enum: ['dialogue', 'flipcard', 'quiz', 'code', 'interactive-code', 'parsons', 'fill-in', 'callout', 'leetcode', 'steps-list'] },
+                        type: { type: Type.STRING }, // simplified enum for brevity in this file
                         dialogue: dialogueSchema,
                         interactiveCode: interactiveCodeSchema,
                         parsons: parsonsSchema,
                         fillIn: fillInSchema,
                         leetcode: leetcodeSchema,
                         stepsList: stepsListSchema,
+                        terminal: terminalSchema,
+                        codeWalkthrough: codeWalkthroughSchema,
+                        miniEditor: miniEditorSchema,
+                        archCanvas: archCanvasSchema,
                         callout: {
                             type: Type.OBJECT,
                             properties: {
@@ -138,7 +196,6 @@ export const lessonPlanSchema: Schema = {
     required: ["title", "screens"]
 };
 
-// --- LEETCODE CONTEXT SCHEMA ---
 export const leetCodeContextSchema: Schema = {
     type: Type.OBJECT,
     properties: {
@@ -148,8 +205,7 @@ export const leetCodeContextSchema: Schema = {
                 title: { type: Type.STRING },
                 difficulty: { type: Type.STRING, enum: ['Easy', 'Medium', 'Hard'] },
                 slug: { type: Type.STRING }
-            },
-            required: ["title", "difficulty", "slug"]
+            }
         },
         problem: {
             type: Type.OBJECT,
@@ -163,13 +219,11 @@ export const leetCodeContextSchema: Schema = {
                             input: { type: Type.STRING },
                             output: { type: Type.STRING },
                             explanation: { type: Type.STRING }
-                        },
-                        required: ["input", "output"]
+                        }
                     }
                 },
                 constraints: { type: Type.ARRAY, items: { type: Type.STRING } }
-            },
-            required: ["description", "examples"]
+            }
         },
         starterCode: { type: Type.STRING, description: "Standard template code (e.g. 'class Solution...')" },
         starterCodeMap: {
@@ -182,8 +236,7 @@ export const leetCodeContextSchema: Schema = {
                 JavaScript: { type: Type.STRING },
                 Go: { type: Type.STRING },
                 C: { type: Type.STRING }
-            },
-            required: ["Python", "Java", "C++", "JavaScript"]
+            }
         },
         sidebar: {
             type: Type.OBJECT,
@@ -193,8 +246,7 @@ export const leetCodeContextSchema: Schema = {
                     properties: {
                         front: { type: Type.STRING, description: "The name of the core algorithm concept (e.g. 'Sliding Window')." },
                         back: { type: Type.STRING, description: "A concise explanation of why this concept applies to this problem." }
-                    },
-                    required: ["front", "back"]
+                    }
                 },
                 codeSolution: interactiveCodeSchema,
                 assistantSuggestions: {
@@ -202,14 +254,11 @@ export const leetCodeContextSchema: Schema = {
                     items: { type: Type.STRING },
                     description: "3 smart follow-up questions the user might ask AI about this code."
                 }
-            },
-            required: ["concept", "codeSolution"]
+            }
         }
-    },
-    required: ["meta", "problem", "starterCode", "sidebar"]
+    }
 };
 
-// --- JUDGE RESULT SCHEMA ---
 export const judgeResultSchema: Schema = {
     type: Type.OBJECT,
     properties: {
@@ -227,8 +276,7 @@ export const judgeResultSchema: Schema = {
                     actual: { type: Type.STRING },
                     passed: { type: Type.BOOLEAN },
                     stdout: { type: Type.STRING, description: "Simulated standard output if print statements were used." }
-                },
-                required: ["input", "expected", "actual", "passed"]
+                }
             }
         },
         stats: {
@@ -246,9 +294,7 @@ export const judgeResultSchema: Schema = {
                 cons: { type: Type.ARRAY, items: { type: Type.STRING } },
                 timeComplexity: { type: Type.STRING },
                 spaceComplexity: { type: Type.STRING }
-            },
-            required: ["timeComplexity", "spaceComplexity"]
+            }
         }
-    },
-    required: ["status", "test_cases"]
+    }
 };
