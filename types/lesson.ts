@@ -25,7 +25,7 @@ export interface LessonPlan {
   suggestedQuestions: string[]; 
   isLocalReplay?: boolean; 
   context?: {
-      type: 'syntax' | 'algo' | 'pillar';
+      type: 'syntax' | 'algo' | 'pillar' | 'career_exam';
       language?: string;
       unitId?: string;
       lessonId?: string;
@@ -33,6 +33,8 @@ export interface LessonPlan {
       pillar?: string;
       topic?: string;
       levelId?: string;
+      companyName?: string; // For Career Exams
+      roleName?: string;    // For Career Exams
   };
 }
 

@@ -93,7 +93,19 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
     const [activeTab, setActiveTab] = useState<TabView>('description'); 
     const [activeConsoleTab, setActiveConsoleTab] = useState<ConsoleTab>('console');
     const [selectedTestCaseIndex, setSelectedTestCaseIndex] = useState(0);
-    const [code, setCode] = useState(context.starterCode);
+    
+    // --- ROBUSTNESS: Safe Access to Context ---
+    const safeContext = useMemo(() => {
+        return {
+            meta: context?.meta || { title: 'Untitled Problem', difficulty: 'Medium', slug: 'unknown' },
+            problem: context?.problem || { description: 'No description available.', examples: [], constraints: [] },
+            starterCode: context?.starterCode || '# Write your code here\n',
+            starterCodeMap: context?.starterCodeMap || {},
+            sidebar: context?.sidebar
+        };
+    }, [context]);
+
+    const [code, setCode] = useState(safeContext.starterCode);
     
     // State: Execution
     const [isRunning, setIsRunning] = useState(false);
@@ -109,15 +121,15 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
 
     // Update starter code
     useEffect(() => {
-        const map = context.starterCodeMap;
+        const map = safeContext.starterCodeMap;
         if (map && map[currentLanguage]) {
             setCode(map[currentLanguage]);
         } else if (currentLanguage === preferences.targetLanguage) {
-            setCode(context.starterCode);
+            setCode(safeContext.starterCode);
         } else {
             setCode(`# Write your ${currentLanguage} solution here...\n`);
         }
-    }, [currentLanguage, context.starterCode, context.starterCodeMap, preferences.targetLanguage]);
+    }, [currentLanguage, safeContext.starterCode, safeContext.starterCodeMap, preferences.targetLanguage]);
 
     // --- EDITOR LOGIC ---
 
@@ -258,7 +270,7 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
         setSelectedTestCaseIndex(0);
 
         try {
-            const res = await validateUserCode(code, context.problem.description, preferences, currentLanguage);
+            const res = await validateUserCode(code, safeContext.problem.description, preferences, currentLanguage);
             setResult(res);
         } catch (e) {
             setResult({ 
@@ -284,15 +296,17 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
                         <ChevronDown size={14} className="opacity-50"/>
                     </button>
                     <div className="absolute top-full left-0 mt-1 w-32 bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl overflow-hidden hidden group-hover:block z-50">
-                         {Object.keys(context.starterCodeMap || { 'Python': '' }).map(lang => (
+                         {Object.keys(safeContext.starterCodeMap).length > 0 ? Object.keys(safeContext.starterCodeMap).map(lang => (
                              <button 
                                 key={lang}
                                 onClick={() => setCurrentLanguage(lang as any)}
                                 className={`w-full text-left px-4 py-2 text-xs font-bold hover:bg-gray-100 dark:hover:bg-gray-800 ${currentLanguage === lang ? 'text-brand' : 'text-gray-600 dark:text-gray-400'}`}
-                             >
+                            >
                                  {lang}
                              </button>
-                         ))}
+                         )) : (
+                             <div className="p-2 text-xs text-gray-400">No languages</div>
+                         )}
                     </div>
                 </div>
 
@@ -325,15 +339,15 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
 
     const renderDescriptionPanel = () => (
         <div className="h-full overflow-y-auto custom-scrollbar p-6 bg-white dark:bg-dark-card">
-            <h2 className="text-2xl font-extrabold text-gray-800 dark:text-white mb-4">{context.meta.title}</h2>
+            <h2 className="text-2xl font-extrabold text-gray-800 dark:text-white mb-4">{safeContext.meta.title}</h2>
             <div className="prose dark:prose-invert prose-sm max-w-none">
                 <div className="whitespace-pre-wrap text-gray-600 dark:text-gray-300 leading-relaxed font-medium">
-                    {context.problem.description}
+                    {safeContext.problem.description}
                 </div>
                 
                 <h3 className="text-sm font-bold uppercase text-gray-400 mt-6 mb-3">Examples</h3>
                 <div className="space-y-4">
-                    {context.problem.examples.map((ex, i) => (
+                    {safeContext.problem.examples?.map((ex, i) => (
                         <div key={i} className="bg-gray-50 dark:bg-dark-bg p-4 rounded-xl border border-gray-100 dark:border-gray-700 font-mono text-xs">
                             <div className="mb-1"><span className="font-bold text-gray-500">Input:</span> {ex.input}</div>
                             <div className="mb-1"><span className="font-bold text-gray-500">Output:</span> {ex.output}</div>
@@ -342,11 +356,11 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
                     ))}
                 </div>
                 
-                {context.problem.constraints && (
+                {safeContext.problem.constraints && (
                     <>
                         <h3 className="text-sm font-bold uppercase text-gray-400 mt-6 mb-3">Constraints</h3>
                         <ul className="list-disc pl-5 space-y-1 text-xs font-mono text-gray-500">
-                            {context.problem.constraints.map((c, i) => <li key={i}>{c}</li>)}
+                            {safeContext.problem.constraints.map((c, i) => <li key={i}>{c}</li>)}
                         </ul>
                     </>
                 )}
@@ -461,7 +475,7 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
         const isAccepted = result.status === "Accepted";
         const statusColor = isAccepted ? "text-green-500" : "text-red-500";
         const StatusIcon = isAccepted ? CheckCircle : XCircle;
-        const selectedCase = result.test_cases[selectedTestCaseIndex];
+        const selectedCase = result.test_cases?.[selectedTestCaseIndex];
 
         return (
             <div className="h-full flex flex-col p-4 overflow-hidden">
@@ -476,7 +490,7 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
                 </div>
                 
                 <div className="flex gap-2 mb-4 overflow-x-auto">
-                    {result.test_cases.map((testCase, i) => (
+                    {result.test_cases?.map((testCase, i) => (
                         <button 
                             key={i}
                             onClick={() => setSelectedTestCaseIndex(i)}
@@ -588,7 +602,7 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
             </div>
 
             <div className="p-3 bg-white dark:bg-dark-card border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3 shrink-0">
-                <button onClick={() => setCode(context.starterCodeMap?.[currentLanguage] || context.starterCode)} className="px-4 py-2 text-gray-500 hover:text-gray-700 text-xs font-bold flex items-center gap-2"><RotateCcw size={14}/> Reset</button>
+                <button onClick={() => setCode(safeContext.starterCodeMap?.[currentLanguage] || safeContext.starterCode)} className="px-4 py-2 text-gray-500 hover:text-gray-700 text-xs font-bold flex items-center gap-2"><RotateCcw size={14}/> Reset</button>
                 
                 {/* Run Button */}
                 <button onClick={handleRun} disabled={isRunning} className={`px-6 py-2 rounded-xl text-sm font-bold text-white flex items-center gap-2 shadow-lg transition-all active:scale-95 ${isRunning ? 'bg-gray-400' : 'bg-brand hover:bg-brand-dark'}`}>

@@ -11,6 +11,7 @@ interface ParsonsProps {
     onUpdateOrder: (newOrder: string[]) => void;
     status?: string; 
     language: 'Chinese' | 'English';
+    userOrder?: string[]; // New prop for review mode
 }
 
 const WIDGET_LOCALE = {
@@ -37,7 +38,7 @@ export const cleanCodeLine = (line: string) => {
     return cleaned.trim();
 };
 
-export const ParsonsWidget: React.FC<ParsonsProps> = ({ widget, onUpdateOrder, status, language }) => {
+export const ParsonsWidget: React.FC<ParsonsProps> = ({ widget, onUpdateOrder, status, language, userOrder }) => {
     if (!widget.parsons) return null;
     const [items, setItems] = useState<string[]>([]);
     const [indents, setIndents] = useState<number[]>([]);
@@ -51,6 +52,13 @@ export const ParsonsWidget: React.FC<ParsonsProps> = ({ widget, onUpdateOrder, s
 
     useEffect(() => {
         if (widget.parsons?.lines) {
+            // If userOrder is provided (Review Mode), use it directly
+            if (userOrder && userOrder.length > 0) {
+                setItems(userOrder);
+                setIndents(new Array(userOrder.length).fill(0)); // Simplified indentation for review
+                return;
+            }
+
             // Clean and filter out empty lines (e.g. lines that were just '}')
             const original = widget.parsons.lines
                 .map(cleanCodeLine)
@@ -101,7 +109,7 @@ export const ParsonsWidget: React.FC<ParsonsProps> = ({ widget, onUpdateOrder, s
             setItems(shuffled);
             setIndents(new Array(shuffled.length).fill(0));
         }
-    }, [widget.parsons, widget.id]);
+    }, [widget.parsons, widget.id, userOrder]);
 
     useEffect(() => {
         onUpdateOrder(items);

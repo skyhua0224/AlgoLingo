@@ -14,6 +14,12 @@ interface UseLessonEngineProps {
 
 export type EngineStatus = 'idle' | 'correct' | 'wrong';
 
+export interface ExamResult {
+    screenIndex: number;
+    isCorrect: boolean;
+    userState: any;
+}
+
 export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = false, maxMistakes }: UseLessonEngineProps) => {
     // Core State
     const [screens, setScreens] = useState<LessonScreen[]>(plan.screens || []);
@@ -22,6 +28,9 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
     const [isFinished, setIsFinished] = useState(false);
     const [isFailed, setIsFailed] = useState(false);
     const [isLimitDisabled, setIsLimitDisabled] = useState(false);
+    
+    // Exam State
+    const [examHistory, setExamHistory] = useState<ExamResult[]>([]);
     
     // Gamification State
     const [streak, setStreak] = useState(0);
@@ -82,6 +91,35 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
         }
     }, [currentScreen, plan.title, nodeIndex, mistakeManager, mistakeManager.isInMistakeLoop, maxMistakes, isLimitDisabled]);
 
+    // Special handler for Exam Mode - Records result but does NOT change status (silent advance)
+    const submitExamAnswer = useCallback((isCorrect: boolean, userState: any) => {
+        const result: ExamResult = {
+            screenIndex: currentIndex,
+            isCorrect,
+            userState
+        };
+        
+        setExamHistory(prev => [...prev, result]);
+        
+        if (!isCorrect) {
+            mistakeManager.recordMistake(currentScreen, plan.title, nodeIndex);
+        } else {
+            setXpGained(x => x + 10);
+        }
+
+        // Auto advance
+        if (!isLastScreen) {
+            setCurrentIndex(prev => prev + 1);
+        } else {
+            setIsFinished(true);
+            onComplete(
+                { xp: xpGained, streak },
+                true, 
+                mistakeManager.sessionMistakes
+            );
+        }
+    }, [currentIndex, currentScreen, isLastScreen, mistakeManager, nodeIndex, onComplete, plan.title, xpGained, streak]);
+
     const handleNext = useCallback(() => {
         if (isFailed) return; // Block next if failed
 
@@ -115,12 +153,14 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
         mistakeCount: mistakeManager.sessionMistakes.length,
         isFailed,
         isLimitDisabled,
+        examHistory,
         
         // Actions
         checkAnswer: handleCheck,
         nextScreen: handleNext,
         retryCurrent,
         startMistakeRepair,
-        continueAsPractice
+        continueAsPractice,
+        submitExamAnswer
     };
 };

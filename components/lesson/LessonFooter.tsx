@@ -1,22 +1,26 @@
 
 import React from 'react';
 import { Button } from '../Button';
-import { Check, X, AlertCircle } from 'lucide-react';
+import { Check, X, AlertCircle, ArrowRight, Flag } from 'lucide-react';
 
 interface LessonFooterProps {
   status: 'idle' | 'correct' | 'wrong';
   onCheck: () => void;
   onNext: () => void;
   language: 'Chinese' | 'English';
+  isExamMode?: boolean;
+  isLastQuestion?: boolean;
 }
 
-export const LessonFooter: React.FC<LessonFooterProps> = ({ status, onCheck, onNext, language }) => {
+export const LessonFooter: React.FC<LessonFooterProps> = ({ status, onCheck, onNext, language, isExamMode, isLastQuestion }) => {
   const isZh = language === 'Chinese';
   const t = {
     correct: isZh ? "正确!" : "Correct!",
     incorrect: isZh ? "错误" : "Incorrect",
     check: isZh ? "检查" : "CHECK",
-    continue: isZh ? "继续" : "CONTINUE"
+    continue: isZh ? "继续" : "CONTINUE",
+    next: isZh ? "下一题" : "Next Question",
+    submit: isZh ? "交卷" : "Submit Exam"
   };
 
   const getBgColor = () => {
@@ -32,7 +36,7 @@ export const LessonFooter: React.FC<LessonFooterProps> = ({ status, onCheck, onN
       <div className="max-w-2xl mx-auto flex items-center justify-between gap-4">
         {/* Feedback Area */}
         <div className="flex-1">
-            {status !== 'idle' && (
+            {status !== 'idle' && !isExamMode && (
                 <div className={`font-extrabold text-lg md:text-xl flex items-center gap-3 animate-fade-in-up ${status === 'correct' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                     <div className={`p-1 rounded-full ${status === 'correct' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}`}>
                         {status === 'correct' ? <Check size={24} /> : <X size={24} />}
@@ -45,11 +49,15 @@ export const LessonFooter: React.FC<LessonFooterProps> = ({ status, onCheck, onN
         {/* Action Button */}
         <Button 
             onClick={() => status === 'idle' ? onCheck() : onNext()}
-            variant={status === 'wrong' ? 'secondary' : 'primary'}
-            className={`w-36 md:w-48 shadow-xl transition-all ${status === 'wrong' ? 'border-red-200 text-red-600' : ''}`}
+            variant={status === 'wrong' && !isExamMode ? 'secondary' : 'primary'}
+            className={`w-36 md:w-48 shadow-xl transition-all flex items-center justify-center gap-2 ${status === 'wrong' && !isExamMode ? 'border-red-200 text-red-600' : ''}`}
             size="lg"
         >
-            {status === 'idle' ? t.check : t.continue}
+            {isExamMode ? (
+                isLastQuestion ? <><Flag size={18}/> {t.submit}</> : <>{t.next} <ArrowRight size={18}/></>
+            ) : (
+                status === 'idle' ? t.check : t.continue
+            )}
         </Button>
       </div>
     </div>

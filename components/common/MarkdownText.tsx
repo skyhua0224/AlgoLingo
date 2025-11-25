@@ -2,16 +2,29 @@
 import React from 'react';
 
 interface MarkdownTextProps {
-  content: string | undefined | null;
+  content: any;
   className?: string;
 }
 
 export const MarkdownText: React.FC<MarkdownTextProps> = ({ content, className = '' }) => {
   if (!content) return null;
 
+  // Robustness: Ensure content is a string before splitting
+  let textString = "";
+  if (typeof content === 'string') {
+      textString = content;
+  } else if (typeof content === 'number') {
+      textString = String(content);
+  } else if (typeof content === 'object') {
+      // Try to salvage common patterns if AI returns object (e.g. localized strings or wrapped text)
+      textString = content.text || content.en || content.content || JSON.stringify(content);
+  } else {
+      textString = String(content);
+  }
+
   // Split by bold (**text**) and code (`text`) markers
   // Regex captures delimiters to include them in the split array
-  const parts = content.split(/(\*\*.*?\*\*|`.*?`)/g);
+  const parts = textString.split(/(\*\*.*?\*\*|`.*?`)/g);
 
   return (
     <span className={`leading-relaxed ${className}`}>

@@ -1,13 +1,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { LessonPlan, MistakeRecord, UserPreferences, Widget, LessonScreen, UserStats } from '../../types';
-import { useLessonEngine } from '../../hooks/useLessonEngine';
+import { useLessonEngine, ExamResult } from '../../hooks/useLessonEngine';
 import { useWidgetValidator, WidgetState } from '../../hooks/useWidgetValidator';
 import { LessonHeader } from './LessonHeader';
 import { LessonFooter } from './LessonFooter';
 import { LeetCodeRunner } from './LeetCodeRunner';
 import { MistakeIntro } from './MistakeIntro';
 import { LessonSummary } from './LessonSummary';
+import { ExamSummary } from './ExamSummary'; // New Import
 import { StreakCelebration } from './StreakCelebration';
 import { GlobalAiAssistant } from '../GlobalAiAssistant';
 import { Button } from '../Button';
@@ -45,7 +46,7 @@ interface LessonRunnerProps {
   stats: UserStats;
 }
 
-type RunnerPhase = 'lesson' | 'mistake_intro' | 'mistake_loop' | 'summary' | 'streak_celebration';
+type RunnerPhase = 'lesson' | 'mistake_intro' | 'mistake_loop' | 'summary' | 'streak_celebration' | 'exam_summary';
 
 export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
   
@@ -88,11 +89,17 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
   const [sessionMistakes, setSessionMistakes] = useState<MistakeRecord[]>([]);
   const [hasRepaired, setHasRepaired] = useState(false);
   
+  // Detect Exam Mode
+  const isExamMode = props.plan.context?.type === 'career_exam';
+  const examTimeLimit = 600; // 10 minutes for exam
+
   const handleEngineComplete = (stats: { xp: number; streak: number }, shouldSave: boolean, mistakes: MistakeRecord[]) => {
       setSessionMistakes(prev => [...prev, ...mistakes]);
 
       if (phase === 'lesson') {
-          if (mistakes.length > 0) {
+          if (isExamMode) {
+              setPhase('exam_summary');
+          } else if (mistakes.length > 0) {
               setPhase('mistake_intro');
           } else {
               setPhase('summary');
@@ -126,16 +133,26 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
   const isInteractiveScreen = !!activeWidget;
 
   const handleCheck = () => {
+    // If non-interactive, just next
     if (!isInteractiveScreen) {
         engine.nextScreen();
         return;
     }
 
     const isCorrect = validator.validate(activeWidget as Widget, widgetState);
-    if (['terminal', 'code-walkthrough', 'mini-editor', 'arch-canvas', 'mermaid', 'visual-quiz', 'comparison-table'].includes(activeWidget?.type || '')) {
-        engine.checkAnswer(true);
+    
+    // Auto-correct specialized engineering widgets
+    const isAutoPass = ['terminal', 'code-walkthrough', 'mini-editor', 'arch-canvas', 'mermaid', 'visual-quiz', 'comparison-table'].includes(activeWidget?.type || '');
+    
+    const finalResult = isAutoPass ? true : isCorrect;
+
+    if (isExamMode) {
+        // In exam mode, record answer silently and move next
+        // We pass current widgetState so it can be stored in history
+        engine.submitExamAnswer(finalResult, widgetState);
     } else {
-        engine.checkAnswer(isCorrect);
+        // Standard mode: show feedback
+        engine.checkAnswer(finalResult);
     }
   };
 
@@ -170,6 +187,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       }
   };
 
+  // --- RENDER: FAILED SCREEN ---
   if (engine.isFailed) {
       return (
           <div className="fixed inset-0 z-[120] bg-black/80 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in-up">
@@ -194,6 +212,20 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       );
   }
 
+  // --- RENDER: EXAM SUMMARY ---
+  if (phase === 'exam_summary') {
+      return (
+          <ExamSummary 
+              screens={props.plan.screens}
+              results={engine.examHistory}
+              score={engine.xpGained}
+              onClose={() => props.onComplete({ xp: engine.xpGained, streak: engine.streak }, true, sessionMistakes)}
+              language={props.language}
+          />
+      );
+  }
+
+  // --- RENDER: MISTAKE INTRO ---
   if (phase === 'mistake_intro') {
       return (
           <div className="fixed inset-0 z-[100] bg-white dark:bg-dark-bg md:flex md:items-center md:justify-center md:bg-gray-100/90 md:dark:bg-black/90 md:backdrop-blur-sm">
@@ -204,6 +236,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       );
   }
 
+  // --- RENDER: LESSON SUMMARY ---
   if (phase === 'summary') {
       return (
         <div className="fixed inset-0 z-[100] bg-white dark:bg-dark-bg md:flex md:items-center md:justify-center md:bg-gray-100/90 md:dark:bg-black/90 md:backdrop-blur-sm">
@@ -224,6 +257,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       );
   }
 
+  // --- RENDER: STREAK CELEBRATION ---
   if (phase === 'streak_celebration') {
       return (
         <div className="fixed inset-0 z-[100] bg-white dark:bg-dark-bg md:flex md:items-center md:justify-center md:bg-gray-100/90 md:dark:bg-black/90 md:backdrop-blur-sm">
@@ -239,6 +273,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       );
   }
 
+  // --- RENDER: EXIT CONFIRM ---
   if (showExitConfirm) {
       return (
            <div className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
@@ -254,6 +289,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       );
   }
 
+  // --- RENDER: MAIN LESSON ---
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-100/80 dark:bg-black/80 backdrop-blur-sm p-0 md:p-4">
       <div className="w-full h-full md:max-w-5xl md:h-[96vh] bg-white dark:bg-dark-bg md:rounded-3xl md:shadow-2xl flex flex-col overflow-hidden relative border border-gray-200 dark:border-gray-700 transition-all">
@@ -269,6 +305,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
             onExit={() => setShowExitConfirm(true)}
             headerTitle={engine.currentScreen.header}
             language={props.language}
+            totalTime={isExamMode ? examTimeLimit : undefined}
         />
         <div className="flex-1 overflow-y-auto custom-scrollbar p-0 md:p-8 pb-32 md:pb-32 w-full bg-gray-50/30 dark:bg-dark-bg/30">
             
@@ -279,7 +316,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
                         {widget.type === 'callout' && <CalloutWidget widget={widget} />}
                         {widget.type === 'interactive-code' && <InteractiveCodeWidget widget={widget} language={props.language} />}
                         {widget.type === 'flipcard' && <FlipCardWidget widget={widget} language={props.language} onAssessment={(res) => engine.checkAnswer(res === 'remembered')} />}
-                        {widget.type === 'quiz' && <QuizWidgetPresenter widget={widget} selectedIdx={widgetState.quizSelection ?? null} onSelect={(i) => setWidgetState(s => ({ ...s, quizSelection: i }))} status={engine.status} />}
+                        {widget.type === 'quiz' && <QuizWidgetPresenter widget={widget} selectedIdx={widgetState.quizSelection ?? null} onSelect={(i) => setWidgetState(s => ({ ...s, quizSelection: i }))} status={engine.status} language={props.language} />}
                         {widget.type === 'parsons' && <ParsonsWidget widget={widget} onUpdateOrder={(order) => setWidgetState(s => ({ ...s, parsonsOrder: order }))} status={engine.status} language={props.language} />}
                         {widget.type === 'fill-in' && <FillInWidget widget={widget} onUpdateAnswers={(ans) => setWidgetState(s => ({ ...s, fillInAnswers: ans }))} language={props.language} status={engine.status} />}
                         {widget.type === 'steps-list' && <StepsWidget widget={widget} onUpdateOrder={(order) => setWidgetState(s => ({ ...s, stepsOrder: order }))} />}
@@ -301,6 +338,8 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
             onCheck={handleCheck}
             onNext={engine.nextScreen}
             language={props.language}
+            isExamMode={isExamMode}
+            isLastQuestion={engine.currentIndex === engine.totalScreens - 1}
         />
       </div>
     </div>

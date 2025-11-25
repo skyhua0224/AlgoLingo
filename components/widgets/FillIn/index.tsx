@@ -9,6 +9,7 @@ interface FillInProps {
     onUpdateAnswers: (answers: string[]) => void;
     language: 'Chinese' | 'English';
     status?: string; // Added status prop
+    userAnswers?: string[]; // New prop for review mode
 }
 
 const WIDGET_LOCALE = {
@@ -22,7 +23,7 @@ const WIDGET_LOCALE = {
     }
 };
 
-export const FillInWidget: React.FC<FillInProps> = ({ widget, onUpdateAnswers, language, status }) => {
+export const FillInWidget: React.FC<FillInProps> = ({ widget, onUpdateAnswers, language, status, userAnswers }) => {
     if (!widget.fillIn) return null;
     const { code, options, correctValues, inputMode } = widget.fillIn;
     const parts = code ? code.split('__BLANK__') : [];
@@ -31,10 +32,14 @@ export const FillInWidget: React.FC<FillInProps> = ({ widget, onUpdateAnswers, l
     const t = WIDGET_LOCALE[language];
 
     useEffect(() => {
-        const blankCount = Math.max(0, (code?.split('__BLANK__').length || 0) - 1);
-        setAnswers(new Array(blankCount).fill(""));
+        if (userAnswers && userAnswers.length > 0) {
+            setAnswers(userAnswers);
+        } else {
+            const blankCount = Math.max(0, (code?.split('__BLANK__').length || 0) - 1);
+            setAnswers(new Array(blankCount).fill(""));
+        }
         setFocusedIndex(null);
-    }, [widget.id, code]);
+    }, [widget.id, code, userAnswers]);
 
     useEffect(() => {
         onUpdateAnswers(answers);

@@ -14,6 +14,7 @@ interface LessonHeaderProps {
   onExit: () => void;
   headerTitle?: string;
   language: 'Chinese' | 'English';
+  totalTime?: number; // Optional: Total seconds allowed for exam
 }
 
 export const LessonHeader: React.FC<LessonHeaderProps> = ({
@@ -26,7 +27,8 @@ export const LessonHeader: React.FC<LessonHeaderProps> = ({
   isMistakeMode = false,
   onExit,
   headerTitle,
-  language
+  language,
+  totalTime
 }) => {
   const [showStreakAnim, setShowStreakAnim] = useState(false);
   const isZh = language === 'Chinese';
@@ -49,6 +51,10 @@ export const LessonHeader: React.FC<LessonHeaderProps> = ({
   const progressPercent = ((currentScreenIndex + 1) / totalScreens) * 100;
   const remainingLives = Math.max(0, 3 - mistakeCount);
   const mistakesLeft = totalScreens - currentScreenIndex;
+  
+  // Calculate remaining time if totalTime is provided
+  const remainingTime = totalTime ? Math.max(0, totalTime - timerSeconds) : timerSeconds;
+  const isUrgent = totalTime && remainingTime < 60; // Red if less than 1 min
 
   return (
     <div className={`h-16 px-4 md:px-6 border-b flex items-center justify-between shrink-0 z-10 select-none transition-colors ${
@@ -58,9 +64,9 @@ export const LessonHeader: React.FC<LessonHeaderProps> = ({
     }`}>
       {/* Left: Timer & Lives/Mistakes */}
       <div className="flex items-center gap-4 w-1/4">
-        <div className="hidden md:flex items-center gap-2 text-gray-400 font-mono font-bold text-sm">
+        <div className={`hidden md:flex items-center gap-2 font-mono font-bold text-sm ${isUrgent ? 'text-red-500 animate-pulse' : 'text-gray-400'}`}>
           <Clock size={16} />
-          {formatTime(timerSeconds)}
+          {formatTime(remainingTime)}
         </div>
         
         {isSkipMode ? (
@@ -74,7 +80,7 @@ export const LessonHeader: React.FC<LessonHeaderProps> = ({
              ))}
           </div>
         ) : (
-          !isMistakeMode && mistakeCount > 0 && (
+          !isMistakeMode && mistakeCount > 0 && !totalTime && (
             <div className="flex items-center gap-1 text-red-500 font-bold text-sm animate-pulse-soft">
               <XCircle size={18} />
               <span>{mistakeCount}</span>
@@ -106,7 +112,7 @@ export const LessonHeader: React.FC<LessonHeaderProps> = ({
                      </div>
                      <div className="w-full h-2.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
                         <div 
-                            className={`h-full transition-all duration-500 ease-out rounded-full ${isSkipMode ? 'bg-orange-500' : 'bg-brand'}`} 
+                            className={`h-full transition-all duration-500 ease-out rounded-full ${isSkipMode || totalTime ? 'bg-orange-500' : 'bg-brand'}`} 
                             style={{ width: `${progressPercent}%` }} 
                         />
                      </div>

@@ -12,8 +12,10 @@ import { EngineeringHub } from './components/EngineeringHub/index';
 import { Forge } from './components/Forge';
 import { ForgeDetailView } from './components/Forge/ForgeDetailView';
 import { CareerLobby } from './components/CareerLobby';
+import { InterviewRunner } from './components/Career/InterviewRunner';
 import { useAppManager } from './hooks/useAppManager';
 import { AppView } from './types';
+import { ForgeRoadmap } from './types/forge';
 
 export default function App() {
   const { state, actions } = useAppManager();
@@ -21,15 +23,13 @@ export default function App() {
       view, activeTab, 
       preferences, stats, progressMap, mistakes, savedLessons,
       activeProblem, activeNodeIndex, currentLessonPlan, activeForgeItem,
-      generationError, generationRawError, isSkipAttempt
+      generationError, generationRawError, isSkipAttempt, activeCareerSession, careerSessions
   } = state;
 
-  // Helper to start any arbitrary lesson plan (used by Engineering Hub)
-  const handleCustomLessonStart = (plan: any) => {
-      actions.handleStartCustomLesson(plan);
+  const handleCustomLessonStart = (plan: any, isSkip: boolean = false) => {
+      actions.handleStartCustomLesson(plan, isSkip);
   };
 
-  // --- 1. Onboarding Flow ---
   if (!preferences.hasOnboarded) {
       return (
         <Onboarding 
@@ -42,29 +42,69 @@ export default function App() {
       );
   }
 
-  // --- 2. Content Rendering ---
+  // --- CAREER RUNNER / REDIRECTS ---
+  if (view === 'career-runner' && activeCareerSession) {
+      // SPECIAL HANDLING: If JD Prep, we redirect to Forge Detail instead of running an interview
+      if (activeCareerSession.mode === 'jd_prep' && activeCareerSession.syllabusId) {
+          // Try to find the roadmap in history
+          const history = JSON.parse(localStorage.getItem('algolingo_forge_history_v2') || '[]');
+          const roadmap = history.find((r: ForgeRoadmap) => r.id === activeCareerSession.syllabusId);
+          
+          if (roadmap) {
+              // Redirect to Forge Detail
+              actions.handleViewForgeItem(roadmap); 
+              // We manually set view here because `handleViewForgeItem` inside AppManager sets view to `forge-detail`
+              // This block effectively intercepts the `career-runner` view state if needed.
+              return (
+                <ForgeDetailView 
+                    roadmap={roadmap}
+                    onBack={() => actions.setView('career')}
+                    onStartStage={(plan) => actions.handleStartCustomLesson(plan)}
+                    preferences={preferences}
+                    language={preferences.spokenLanguage}
+                />
+              );
+          }
+      }
+
+      return (
+          <InterviewRunner 
+              session={activeCareerSession}
+              onUpdateSession={(updated) => {
+                  actions.handleStartCareerSession(updated); 
+              }}
+              onExit={() => actions.setView('career')}
+              preferences={preferences}
+              language={preferences.spokenLanguage}
+          />
+      );
+  }
+
   const renderContent = () => {
-    // Loading Screen
     if (view === 'loading') {
+        // Logic to determine loading title
+        let loadingTitle = activeProblem?.name;
+        if (state.loadingContext === 'career_exam' && state.pendingExamConfig) {
+            loadingTitle = `${state.pendingExamConfig.company} Exam`;
+        }
+
         return (
             <LoadingScreen 
-                problemName={activeProblem?.name} 
+                problemName={loadingTitle} 
                 phase={activeNodeIndex} 
                 language={preferences.spokenLanguage} 
                 onRetry={actions.handleRetryLoading}
                 error={generationError}
                 rawErrorOutput={generationRawError}
-                onCancel={() => actions.setView('dashboard')}
+                onCancel={() => actions.setView(activeTab === 'career' ? 'career' : 'dashboard')}
             />
         );
     }
     
-    // Lesson Runner Overlay
     if (view === 'runner' && currentLessonPlan) {
-        return null; // Rendered as Overlay below
+        return null; 
     }
 
-    // Unit Map View (Sub-view of Algorithms)
     if (view === 'unit-map' && activeProblem) {
         return (
             <UnitMap 
@@ -72,7 +112,7 @@ export default function App() {
                 currentLevel={progressMap[preferences.targetLanguage]?.[activeProblem.id] || 0}
                 savedLessons={savedLessons.filter(l => l.problemId === activeProblem?.id && l.language === preferences.targetLanguage)}
                 onStartLevel={actions.handleStartNode}
-                onLoadSaved={(l) => { /* Load Saved logic */ }}
+                onLoadSaved={(l) => {}}
                 onBack={() => actions.setView('dashboard')}
                 language={preferences.spokenLanguage}
                 failedSkips={preferences.failedSkips}
@@ -80,12 +120,11 @@ export default function App() {
         );
     }
 
-    // Forge Detail View (NEW)
     if (view === 'forge-detail' && activeForgeItem) {
         return (
             <ForgeDetailView 
                 roadmap={activeForgeItem}
-                onBack={() => actions.setView('dashboard')}
+                onBack={() => actions.setView(activeTab === 'career' ? 'career' : 'forge')}
                 onStartStage={(plan) => actions.handleStartCustomLesson(plan)}
                 preferences={preferences}
                 language={preferences.spokenLanguage}
@@ -93,7 +132,6 @@ export default function App() {
         );
     }
 
-    // Main Tabs based on activeTab
     switch (activeTab) {
         case 'review':
             return (
@@ -115,7 +153,7 @@ export default function App() {
                     preferences={preferences} 
                     onUpdatePreferences={actions.updatePreferences}
                     language={preferences.spokenLanguage}
-                    onStartLesson={actions.handleStartCustomLesson}
+                    onStartLesson={handleCustomLessonStart}
                 />
             );
         case 'forge':
@@ -127,7 +165,18 @@ export default function App() {
                 />
             );
         case 'career':
-            return <CareerLobby language={preferences.spokenLanguage} />;
+            return (
+                <CareerLobby 
+                    language={preferences.spokenLanguage} 
+                    onStartSession={actions.handleStartCareerSession}
+                    onStartLesson={handleCustomLessonStart}
+                    onStartExam={actions.handleStartCareerExam} // Pass global exam handler
+                    onViewRoadmap={actions.handleViewForgeItem}
+                    preferences={preferences}
+                    savedLessons={savedLessons} 
+                    careerSessions={careerSessions} 
+                />
+            );
         case 'profile':
             return (
                 <ProfileView 
@@ -140,7 +189,7 @@ export default function App() {
                     onSelectProblem={actions.handleSelectProblem}
                 />
             );
-        case 'algorithms': // Default Dashboard
+        case 'algorithms': 
         default:
             return (
                 <Dashboard 
@@ -155,15 +204,14 @@ export default function App() {
 
   return (
     <>
-        {/* Overlay Runner */}
         {view === 'runner' && currentLessonPlan && (
             <LessonRunner 
                 plan={currentLessonPlan}
                 nodeIndex={activeNodeIndex}
                 onComplete={actions.handleLessonComplete}
                 onExit={() => {
-                    // If coming from Forge, return to detail view
                     if (activeForgeItem) actions.setView('forge-detail');
+                    else if (activeTab === 'career') actions.setView('career');
                     else actions.setView('dashboard');
                 }}
                 onRegenerate={actions.handleRetryLoading}

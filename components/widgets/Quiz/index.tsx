@@ -10,12 +10,48 @@ interface QuizProps {
     selectedIdx: number | null;
     onSelect: (i: number) => void;
     status: string;
+    language?: 'Chinese' | 'English'; // Added language prop
 }
 
-export const QuizWidget: React.FC<QuizProps> = ({ widget, selectedIdx, onSelect, status }) => {
+const WIDGET_LOCALE = {
+    Chinese: {
+        correctAnswer: "正确答案"
+    },
+    English: {
+        correctAnswer: "Correct Answer"
+    }
+};
+
+export const QuizWidget: React.FC<QuizProps> = ({ widget, selectedIdx, onSelect, status, language = 'English' }) => {
     if (!widget.quiz) return null;
-    const correctIdx = widget.quiz.correctIndex;
-    const correctOptionText = widget.quiz.options[correctIdx];
+    
+    // --- ROBUSTNESS: Determine Correct Index ---
+    let correctIdx = widget.quiz.correctIndex;
+    const options = widget.quiz.options || [];
+
+    // Handle case where AI returns "correctAnswer": "String Value" instead of correctIndex
+    if (correctIdx === undefined || correctIdx === null) {
+        const rawWidget = widget.quiz as any;
+        if (rawWidget.correctAnswer) {
+            // Try to find exact match
+            const foundIdx = options.findIndex(opt => opt.trim() === rawWidget.correctAnswer.trim());
+            if (foundIdx !== -1) {
+                correctIdx = foundIdx;
+            } else {
+                // Try partial match (sometimes AI truncates)
+                const partialIdx = options.findIndex(opt => opt.includes(rawWidget.correctAnswer) || rawWidget.correctAnswer.includes(opt));
+                if (partialIdx !== -1) correctIdx = partialIdx;
+            }
+        }
+    }
+
+    // Fallback if we still don't have a valid index
+    if (correctIdx === undefined || correctIdx < 0 || correctIdx >= options.length) {
+        correctIdx = 0; // Safe fallback to prevent crash, though answer might be wrong visually
+    }
+
+    const correctOptionText = options[correctIdx];
+    const t = WIDGET_LOCALE[language === 'Chinese' ? 'Chinese' : 'English'];
 
     return (
         <BaseWidget>
@@ -29,7 +65,7 @@ export const QuizWidget: React.FC<QuizProps> = ({ widget, selectedIdx, onSelect,
             </div>
 
             <div className="pl-14 space-y-3">
-                {(widget.quiz.options || []).map((opt, idx) => {
+                {options.map((opt, idx) => {
                     let style = "border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600 text-gray-600 dark:text-gray-400";
                     
                     // Idle: Highlight selected
@@ -65,11 +101,16 @@ export const QuizWidget: React.FC<QuizProps> = ({ widget, selectedIdx, onSelect,
                     <Check size={18} className="text-green-600 dark:text-green-400 mt-0.5 shrink-0"/>
                     <div>
                         <h4 className="text-green-800 dark:text-green-300 font-extrabold text-xs uppercase mb-1 tracking-wider">
-                            Correct Answer
+                            {t.correctAnswer}
                         </h4>
                         <div className="font-medium text-green-700 dark:text-green-200 text-sm">
-                            <MarkdownText content={correctOptionText} />
+                            <MarkdownText content={correctOptionText || "See option marked green"} />
                         </div>
+                        {widget.quiz.explanation && (
+                            <div className="mt-2 text-xs text-green-600/80 dark:text-green-400/80 pt-2 border-t border-green-200 dark:border-green-800">
+                                <MarkdownText content={widget.quiz.explanation} />
+                            </div>
+                        )}
                     </div>
                  </div>
             )}

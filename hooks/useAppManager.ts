@@ -3,17 +3,18 @@ import { useState, useEffect, useCallback } from 'react';
 import { 
     UserStats, ProgressMap, LessonPlan, SavedLesson, MistakeRecord, UserPreferences, ApiConfig, RetentionRecord, AppView 
 } from '../types';
-import { ForgeRoadmap } from '../types/forge'; // Import new type
+import { ForgeRoadmap } from '../types/forge';
+import { CareerSession } from '../types/career';
 import { 
     INITIAL_STATS, DEFAULT_API_CONFIG, PROBLEM_CATEGORIES, PROBLEM_MAP 
 } from '../constants';
 import { 
     generateLessonPlan, generateDailyWorkoutPlan, generateSyntaxClinicPlan, generateVariantLesson
 } from '../services/geminiService';
+import { generateRapidExam } from '../services/ai/career/generator';
 import { syncWithGist } from '../services/githubService';
 
-// Added 'forge-detail' to ViewState
-type ViewState = 'dashboard' | 'unit-map' | 'runner' | 'loading' | 'forge-detail';
+type ViewState = 'dashboard' | 'unit-map' | 'runner' | 'loading' | 'forge-detail' | 'career-runner';
 
 export const useAppManager = () => {
     // --- STATE ---
@@ -41,11 +42,14 @@ export const useAppManager = () => {
     const [activeProblem, setActiveProblem] = useState<{id: string, name: string} | null>(null);
     const [activeNodeIndex, setActiveNodeIndex] = useState<number>(0);
     const [currentLessonPlan, setCurrentLessonPlan] = useState<LessonPlan | null>(null);
-    const [activeForgeItem, setActiveForgeItem] = useState<ForgeRoadmap | null>(null); // NEW
+    const [activeForgeItem, setActiveForgeItem] = useState<ForgeRoadmap | null>(null);
+    const [activeCareerSession, setActiveCareerSession] = useState<CareerSession | null>(null); 
+    const [careerSessions, setCareerSessions] = useState<CareerSession[]>([]); // NEW: Persistent Career History
     const [isSkipAttempt, setIsSkipAttempt] = useState(false);
     
     // Loading & Error State
-    const [loadingContext, setLoadingContext] = useState<'lesson' | 'review' | 'clinic' | 'variant'>('lesson');
+    const [loadingContext, setLoadingContext] = useState<'lesson' | 'review' | 'clinic' | 'variant' | 'career_exam'>('lesson');
+    const [pendingExamConfig, setPendingExamConfig] = useState<{company: string, role: string, jd: string} | null>(null);
     const [generationError, setGenerationError] = useState<string | null>(null);
     const [generationRawError, setGenerationRawError] = useState<string | null>(null);
 
@@ -59,13 +63,20 @@ export const useAppManager = () => {
                 } catch (e) {}
             }
         }
-        // Include Tracks and Forge History
         ['algolingo_my_tracks', 'algolingo_forge_history_v2', 'algolingo_discovered_tracks'].forEach(key => {
             const val = localStorage.getItem(key);
             if (val) {
                 try { data[key] = JSON.parse(val); } catch(e) {}
             }
         });
+        // Export Active Session if exists
+        const careerSession = localStorage.getItem('algolingo_active_career_session');
+        if (careerSession) data['algolingo_active_career_session'] = JSON.parse(careerSession);
+        
+        // Export Career History
+        const careerHistory = localStorage.getItem('algolingo_career_sessions');
+        if (careerHistory) data['algolingo_career_sessions'] = JSON.parse(careerHistory);
+
         return data;
     };
 
@@ -75,7 +86,7 @@ export const useAppManager = () => {
             if (
                 key.startsWith('algolingo_syntax_v3_') || 
                 key.startsWith('algolingo_eng_v3_') ||
-                ['algolingo_my_tracks', 'algolingo_forge_history_v2', 'algolingo_discovered_tracks'].includes(key)
+                ['algolingo_my_tracks', 'algolingo_forge_history_v2', 'algolingo_discovered_tracks', 'algolingo_active_career_session', 'algolingo_career_sessions'].includes(key)
             ) {
                 localStorage.setItem(key, JSON.stringify(value));
             }
@@ -88,6 +99,22 @@ export const useAppManager = () => {
         if (isDark) root.classList.add('dark');
         else root.classList.remove('dark');
     }, [preferences.theme]);
+
+    // Load Active Career Session & History
+    useEffect(() => {
+        const savedSession = localStorage.getItem('algolingo_active_career_session');
+        if (savedSession) {
+            try {
+                setActiveCareerSession(JSON.parse(savedSession));
+            } catch (e) { console.error(e); }
+        }
+        const savedHistory = localStorage.getItem('algolingo_career_sessions');
+        if (savedHistory) {
+            try {
+                setCareerSessions(JSON.parse(savedHistory));
+            } catch (e) { console.error(e); }
+        }
+    }, []);
 
     useEffect(() => {
         const loadData = () => {
@@ -284,7 +311,6 @@ export const useAppManager = () => {
             }
             return;
         }
-        // Simplified generic review
         setCurrentLessonPlan({ title: "Review", description: "Review", screens: [], suggestedQuestions: [] });
         setView('runner');
     };
@@ -328,10 +354,41 @@ export const useAppManager = () => {
         setView('runner');
     };
 
-    // NEW: Handle viewing a Forge Roadmap
     const handleViewForgeItem = (roadmap: ForgeRoadmap) => {
         setActiveForgeItem(roadmap);
         setView('forge-detail');
+    };
+
+    const handleStartCareerSession = (session: CareerSession) => {
+        setActiveCareerSession(session);
+        localStorage.setItem('algolingo_active_career_session', JSON.stringify(session));
+        
+        // Update History
+        const updatedHistory = [session, ...careerSessions.filter(s => s.id !== session.id)].slice(0, 20);
+        setCareerSessions(updatedHistory);
+        localStorage.setItem('algolingo_career_sessions', JSON.stringify(updatedHistory));
+
+        setView('career-runner');
+    };
+
+    const handleStartCareerExam = async (company: string, role: string, jdContext: string) => {
+        setLoadingContext('career_exam');
+        setPendingExamConfig({ company, role, jd: jdContext });
+        setGenerationError(null);
+        setGenerationRawError(null);
+        setActiveNodeIndex(0);
+        setIsSkipAttempt(true); // Exams are basically "Skip Mode" (Lives system)
+        setView('loading');
+        
+        try {
+            const plan = await generateRapidExam(company, role, jdContext, preferences);
+            setCurrentLessonPlan(plan);
+            setView('runner');
+        } catch (e: any) {
+            console.error("Exam Gen Failed", e);
+            setGenerationError(e.message || "Exam Generation Failed");
+            if (e.rawOutput) setGenerationRawError(e.rawOutput);
+        }
     };
 
     const handleRetryLoading = () => {
@@ -339,13 +396,30 @@ export const useAppManager = () => {
         else if (loadingContext === 'review') handleStartReview('ai');
         else if (loadingContext === 'clinic') handleStartClinic();
         else if (loadingContext === 'variant') setView('dashboard'); 
+        else if (loadingContext === 'career_exam' && pendingExamConfig) {
+            handleStartCareerExam(pendingExamConfig.company, pendingExamConfig.role, pendingExamConfig.jd);
+        }
     };
 
     const handleLessonComplete = (result: { xp: number; streak: number }, shouldSave: boolean, newMistakes: MistakeRecord[]) => {
         const newStats = { ...stats, xp: stats.xp + result.xp, streak: stats.streak + result.streak };
         saveStats(newStats);
         
-        // If returning from Forge Runner, go back to Forge Detail
+        // IF EXAM: Save to SavedLessons with Tag
+        if (currentLessonPlan && currentLessonPlan.context?.type === 'career_exam') {
+            const savedLesson: SavedLesson = {
+                id: `exam_${Date.now()}`,
+                problemId: 'career_exam',
+                nodeIndex: 0,
+                timestamp: Date.now(),
+                plan: currentLessonPlan,
+                language: preferences.targetLanguage
+            };
+            const newSaved = [savedLesson, ...savedLessons].slice(0, 50);
+            setSavedLessons(newSaved);
+            localStorage.setItem('algolingo_saved_lessons', JSON.stringify(newSaved));
+        }
+
         if (view === 'runner' && activeForgeItem) {
             setView('forge-detail');
             setCurrentLessonPlan(null);
@@ -362,7 +436,8 @@ export const useAppManager = () => {
             progressMap, stats, mistakes, savedLessons, preferences,
             activeProblem, activeNodeIndex, currentLessonPlan,
             loadingContext, generationError, generationRawError,
-            isSkipAttempt, activeForgeItem
+            isSkipAttempt, activeForgeItem, 
+            activeCareerSession, careerSessions, pendingExamConfig
         },
         actions: {
             setView, setActiveTab,
@@ -374,7 +449,9 @@ export const useAppManager = () => {
             handleStartClinic,
             handleGenerateVariant,
             handleStartCustomLesson,
-            handleViewForgeItem, // Exported new action
+            handleViewForgeItem, 
+            handleStartCareerSession, 
+            handleStartCareerExam,
             handleRetryLoading,
             handleLessonComplete,
             onResetData: () => { localStorage.clear(); window.location.reload(); }
