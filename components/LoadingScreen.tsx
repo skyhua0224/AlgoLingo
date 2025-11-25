@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Brain, Sparkles, Clock, Zap } from 'lucide-react';
+import { Brain, Sparkles, Clock, Zap, RefreshCw, AlertTriangle } from 'lucide-react';
 import { ChainOfThought } from './loading/ChainOfThought';
 import { GenerationError } from './loading/GenerationError';
+import { Button } from './Button';
 
 interface LoadingScreenProps {
     problemName?: string;
@@ -143,6 +144,8 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
       setTimeout(() => setIsRetrying(false), 5000);
   };
 
+  const isTakingTooLong = elapsedSeconds > 45;
+
   // --- ERROR RENDER ---
   if (error) {
     return (
@@ -204,6 +207,23 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
                     {tips[currentTip]}
                 </p>
             </div>
+
+            {/* Taking Too Long / Retry UI */}
+            {isTakingTooLong && (
+                <div className="mt-6 animate-fade-in-up">
+                    <div className="flex items-center gap-2 justify-center text-yellow-600 dark:text-yellow-500 text-xs font-bold mb-3">
+                        <AlertTriangle size={14} />
+                        {isChinese ? "生成时间较长，可能网络拥堵" : "Taking longer than usual..."}
+                    </div>
+                    <Button 
+                        variant="secondary" 
+                        onClick={handleRetry}
+                        className="w-full py-3 border-yellow-200 bg-yellow-50 hover:bg-yellow-100 text-yellow-800 flex items-center justify-center gap-2"
+                    >
+                        <RefreshCw size={16} /> {isChinese ? "重新尝试" : "Retry Request"}
+                    </Button>
+                </div>
+            )}
         </div>
 
         {/* Enhanced Chain of Thought Component */}

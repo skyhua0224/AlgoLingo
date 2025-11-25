@@ -36,9 +36,11 @@ const isValidWidget = (w: Widget): boolean => {
         case 'quiz': 
             return !!w.quiz && !!w.quiz.question && Array.isArray(w.quiz.options);
         case 'code': 
+            // 'code' is deprecated, but we validate it before conversion
             return !!w.code && !!w.code.content;
         case 'interactive-code': 
-            return !!w.interactiveCode && Array.isArray(w.interactiveCode.lines);
+            // Relaxed check because we repair it in generator
+            return !!w.interactiveCode || !!(w as any).code; 
         case 'parsons': 
             return !!w.parsons && Array.isArray(w.parsons.lines);
         case 'fill-in': 
@@ -189,20 +191,172 @@ export const generateLessonPlan = async (
           throw new AIGenerationError("JSON Parse Error: The AI response was not valid JSON.", text);
       }
 
-      // --- CLIENT SIDE SANITIZATION ---
+      // --- CLIENT SIDE SANITIZATION & REPAIR ---
       if (!plan.screens) plan.screens = [];
       
       plan.screens = plan.screens.map(screen => {
           if (!screen.widgets) screen.widgets = [];
           
-          const validWidgets = screen.widgets.filter(w => {
-              if (w.type && w.type !== w.type.toLowerCase()) {
-                  w.type = w.type.toLowerCase() as any;
+          let newWidgets: Widget[] = [];
+
+          screen.widgets.forEach(w => {
+              // Normalize Type
+              if (w.type) w.type = w.type.toLowerCase() as any;
+
+              // 1. REPAIR: Legacy 'code' type -> 'interactive-code'
+              if (w.type === 'code' || (w as any).type === 'code-display') {
+                   const codeContent = (w as any).code?.content || (w as any).content || "";
+                   const lang = (w as any).code?.language || (w as any).language || targetLang.toLowerCase();
+                   
+                   if (codeContent) {
+                       const lines = codeContent.split('\n').map((l: string) => ({ code: l, explanation: '' }));
+                       newWidgets.push({
+                           id: w.id || `fixed_code_${Math.random().toString(36).substr(2,5)}`,
+                           type: 'interactive-code',
+                           interactiveCode: {
+                               language: lang,
+                               lines: lines,
+                               caption: (w as any).code?.caption
+                           }
+                       });
+                   }
+                   return; // Skip the old widget
               }
-              return isValidWidget(w);
+
+              // 2. REPAIR: Check for "code" nested inside "dialogue" (Common Hallucination)
+              if (w.type === 'dialogue') {
+                  newWidgets.push(w); // Push the dialogue itself first
+                  
+                  // Hallucination check: Does it have a 'code' property?
+                  if ((w as any).code) {
+                      const codeData = (w as any).code;
+                      // Extract it into a separate valid InteractiveCode widget
+                      newWidgets.push({
+                          id: `auto_extracted_code_${w.id}_${Math.random().toString(36).substr(2,5)}`,
+                          type: 'interactive-code',
+                          interactiveCode: {
+                              language: codeData.language || targetLang.toLowerCase(),
+                              lines: codeData.content 
+                                  ? codeData.content.split('\n').map((line: string) => ({
+                                      code: line,
+                                      explanation: "Code snippet from context."
+                                  })) 
+                                  : [],
+                              caption: "Code Example"
+                          }
+                      });
+                      delete (w as any).code; // Clean up the dirty property
+                  }
+              } 
+              // 3. REPAIR: Malformed Interactive Code
+              else if (w.type === 'interactive-code') {
+                  // Case A: AI put data in 'code' instead of 'interactiveCode'
+                  if (!w.interactiveCode && w.code) {
+                      w.interactiveCode = {
+                          language: w.code.language || 'python',
+                          lines: w.code.content ? w.code.content.split('\n').map((line: string) => ({
+                              code: line,
+                              explanation: w.code?.caption || "Logic step"
+                          })) : [],
+                          caption: w.code.caption
+                      };
+                  }
+                  
+                  // Case B: AI put data in 'interactive_code' (snake_case)
+                  if (!w.interactiveCode && (w as any).interactive_code) {
+                      w.interactiveCode = (w as any).interactive_code;
+                  }
+
+                  // Case C: Missing structure entirely
+                  if (!w.interactiveCode) {
+                      w.interactiveCode = { language: 'python', lines: [] };
+                  }
+
+                  // Case D: Lines is string[] instead of object[]
+                  if (w.interactiveCode.lines && Array.isArray(w.interactiveCode.lines)) {
+                      if (w.interactiveCode.lines.length > 0 && typeof w.interactiveCode.lines[0] === 'string') {
+                          w.interactiveCode.lines = (w.interactiveCode.lines as any as string[]).map(line => ({
+                              code: line,
+                              explanation: "Explanation generated by system."
+                          }));
+                      }
+                  }
+                  
+                  newWidgets.push(w);
+              }
+              // 4. Fix Fill-In
+              else if (w.type === 'fill-in' && w.fillIn) {
+                  if (w.fillIn.inputMode === 'select' && (!w.fillIn.options || w.fillIn.options.length === 0)) {
+                      w.fillIn.options = [...(w.fillIn.correctValues || []), "Option A", "Option B"];
+                  }
+                  newWidgets.push(w);
+              }
+              // 5. Fix Quiz
+              else if (w.type === 'quiz' && w.quiz) {
+                  if (typeof w.quiz.correctIndex === 'string') {
+                      w.quiz.correctIndex = parseInt(w.quiz.correctIndex, 10);
+                  }
+                  if (isNaN(w.quiz.correctIndex)) w.quiz.correctIndex = 0;
+                  newWidgets.push(w);
+              }
+              // Standard push for others
+              else {
+                  newWidgets.push(w);
+              }
           });
 
-          const interactiveTypes = ['quiz', 'parsons', 'fill-in', 'leetcode', 'steps-list', 'terminal', 'code-walkthrough', 'mini-editor', 'arch-canvas'];
+          // --- FIX LONELY DIALOGUE (AGGRESSIVE MODE) ---
+          // If a screen ends up with only 1 widget and it's a dialogue, we MUST inject a companion.
+          if (newWidgets.length === 1 && newWidgets[0].type === 'dialogue') {
+              const dialogueText = newWidgets[0].dialogue?.text || "";
+              const textLower = dialogueText.toLowerCase();
+              
+              // Detect intent from text
+              const isCodeMentioned = textLower.includes('code') || textLower.includes('example') || textLower.includes('代码') || textLower.includes('function') || textLower.includes('class');
+              const isQuestion = textLower.includes('?') || textLower.includes('what') || textLower.includes('how') || textLower.includes('什么') || textLower.includes('如何');
+
+              if (isCodeMentioned) {
+                   // Inject Code Placeholder
+                   newWidgets.push({
+                      id: `auto_filler_code_${screen.id}`,
+                      type: 'interactive-code',
+                      interactiveCode: {
+                          language: targetLang.toLowerCase(),
+                          lines: [{ code: `# Code example for: ${screen.header || 'Concept'}`, explanation: "Visual aid generated by system." }, { code: "# (AI omitted code, this is a placeholder)", explanation: "..." }],
+                          caption: "Code Example"
+                      }
+                   });
+              } else if (isQuestion) {
+                   // Inject Quiz Placeholder
+                   newWidgets.push({
+                       id: `auto_filler_quiz_${screen.id}`,
+                       type: 'quiz',
+                       quiz: {
+                           question: "Quick Check: Did you understand the previous point?",
+                           options: ["Yes, absolutely.", "Sort of.", "Not really."],
+                           correctIndex: 0,
+                           explanation: "This is a checkpoint to ensure you are following along."
+                       }
+                   });
+              } else {
+                   // Inject Callout
+                   newWidgets.push({
+                      id: `auto_filler_callout_${screen.id}`,
+                      type: 'callout',
+                      callout: {
+                          title: "Key Takeaway",
+                          text: "This concept is foundational for the next steps. Make sure you grasp it!",
+                          variant: "info"
+                      }
+                   });
+              }
+          }
+
+          // --- FINAL VALIDATION FILTER ---
+          const validWidgets = newWidgets.filter(w => isValidWidget(w));
+
+          // Ensure only one interactive widget per screen to prevent overwhelming user
+          const interactiveTypes = ['quiz', 'parsons', 'fill-in', 'leetcode', 'steps-list', 'terminal', 'code-walkthrough', 'mini-editor', 'arch-canvas', 'interactive-code'];
           let interactiveCount = 0;
           
           const finalWidgets = validWidgets.filter(w => {
@@ -216,6 +370,11 @@ export const generateLessonPlan = async (
               }
               return true; 
           });
+          
+          // Fallback: If filtering removed everything (rare), restore at least the dialogue
+          if (finalWidgets.length === 0 && newWidgets.length > 0) {
+              return { ...screen, widgets: [newWidgets[0]] };
+          }
           
           return { ...screen, widgets: finalWidgets };
       });
@@ -330,15 +489,8 @@ export const generateReviewLesson = async (mistakes: MistakeRecord[], preference
 export const generateSyntaxClinicPlan = async (preferences: UserPreferences) => generateLessonPlan("Syntax Clinic", 1, preferences); 
 export const generateSyntaxRoadmap = async (profile: any, preferences: UserPreferences) => {
     const prompt = getSyntaxRoadmapPrompt(profile);
-    const text = await callAI(preferences, "You are a curriculum designer.", prompt, undefined, false); // Schema complex, use raw text or refine schema later
-    // Note: The original code used specific schema. For brevity in this massive update, we assume JSON mode + simple parse.
-    // Actually let's assume the original implementation exists or use a simplified one. 
-    // For now, returning mock or attempting parse.
+    const text = await callAI(preferences, "You are a curriculum designer.", prompt, undefined, false); 
     try {
-       // Just reuse the logic from original file if it was complex. 
-       // But since we are replacing the file content, we must provide implementation.
-       // Let's assume we use the generic callAI.
-       // TODO: Restore full schema validation for Roadmap if critical.
        const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
        const data = JSON.parse(cleanText);
        return data.units.map((u: any, idx: number) => ({

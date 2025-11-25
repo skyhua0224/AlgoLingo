@@ -220,15 +220,6 @@ export const lessonPlanSchema: Schema = {
                             },
                             required: ["front", "back"]
                         },
-                        code: {
-                            type: Type.OBJECT,
-                            properties: {
-                                content: { type: Type.STRING },
-                                language: { type: Type.STRING },
-                                caption: { type: Type.STRING }
-                            },
-                            required: ["content", "language"]
-                        },
                         quiz: {
                             type: Type.OBJECT,
                             properties: {

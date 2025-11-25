@@ -3,7 +3,10 @@ export const LEETCODE_STAGE_PROMPT = `
 STAGE 7: LEETCODE STUDY MODE
 - Goal: Provide resources for the LeetCode solve.
 - STRUCTURE: Generate EXACTLY 1 SCREEN.
-- Widget: MUST be 'leetcode'.
+- **SCREEN COMPOSITION**: MUST use **The Simulator Pair**:
+  1. Widget 1: 'callout' (Title: "Mission Brief", Text: "Analyze the problem below and study the optimal solution.")
+  2. Widget 2: 'leetcode' (The main workspace).
+
 - For the 'leetcode' widget, you MUST provide:
      1. 'problemSlug': The correct slug for leetcode.cn (e.g., "two-sum").
      2. 'concept': A concise summary card.

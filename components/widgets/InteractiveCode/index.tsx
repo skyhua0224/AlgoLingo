@@ -15,7 +15,7 @@ interface InteractiveCodeProps {
 const WIDGET_LOCALE = {
     Chinese: {
         tapPrompt: "点击代码行查看解释",
-        lineInfo: "第 X 行", // We will replace X dynamically
+        lineInfo: "第 X 行", 
         selectPrompt: "选择代码以查看逻辑。"
     },
     English: {
@@ -26,19 +26,29 @@ const WIDGET_LOCALE = {
 };
 
 export const InteractiveCodeWidget: React.FC<InteractiveCodeProps> = ({ widget, language }) => {
+  // Robust retrieval of content content
   const content = widget.interactiveCode || widget.leetcode?.exampleCode;
+  
   if (!content) return null;
   
-  const { lines, language: codeLang, caption } = content;
+  // Polyfill for robust rendering: if 'lines' is missing but 'code' text exists (AI artifact)
+  let safeLines = content.lines || [];
+  if (!safeLines.length && (content as any).code && typeof (content as any).code === 'string') {
+      safeLines = (content as any).code.split('\n').map((l: string) => ({ code: l, explanation: '' }));
+  }
+
+  const { language: codeLang, caption } = content;
   const [activeLine, setActiveLine] = useState<number | null>(null);
-  const safeLines = lines || [];
   const t = WIDGET_LOCALE[language];
 
   useEffect(() => {
     if (typeof Prism !== 'undefined') {
         Prism.highlightAll();
     }
-  }, [codeLang, lines]);
+  }, [codeLang, safeLines]);
+
+  // If absolutely no lines, render nothing to avoid crash
+  if (!safeLines.length) return null;
 
   return (
     <BaseWidget>
@@ -92,7 +102,7 @@ export const InteractiveCodeWidget: React.FC<InteractiveCodeProps> = ({ widget, 
                              {t.lineInfo.replace('X', (activeLine + 1).toString())}
                          </div>
                          <div className="text-sm text-gray-200 leading-relaxed">
-                            <MarkdownText content={safeLines[activeLine].explanation} />
+                            <MarkdownText content={safeLines[activeLine].explanation || "..."} />
                          </div>
                      </div>
                  ) : (

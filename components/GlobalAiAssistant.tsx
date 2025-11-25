@@ -1,13 +1,14 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Bot, Send, X, Maximize2, Minimize2, Sparkles, Loader2, Lightbulb, MessageSquare } from 'lucide-react';
-import { UserPreferences } from '../types';
+import { Bot, Send, X, Maximize2, Minimize2, Sparkles, Loader2, Lightbulb, MessageSquare, FileJson, Copy, Check } from 'lucide-react';
+import { UserPreferences, LessonPlan } from '../types';
 import { generateAiAssistance } from '../services/geminiService';
 
 interface GlobalAiAssistantProps {
     problemName?: string;
     preferences: UserPreferences;
     language: 'Chinese' | 'English';
+    currentPlan?: LessonPlan | null; // Added plan prop for debugging
 }
 
 // Simple Markdown Formatter (Bold, Code, Newline)
@@ -38,9 +39,12 @@ const formatMessage = (text: string) => {
     });
 };
 
-export const GlobalAiAssistant: React.FC<GlobalAiAssistantProps> = ({ problemName, preferences, language }) => {
+export const GlobalAiAssistant: React.FC<GlobalAiAssistantProps> = ({ problemName, preferences, language, currentPlan }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
+    const [showDebug, setShowDebug] = useState(false);
+    const [copied, setCopied] = useState(false);
+    
     const [input, setInput] = useState('');
     const [messages, setMessages] = useState<{role: 'user' | 'ai', text: string}[]>([
         { role: 'ai', text: language === 'Chinese' ? "我是你的 AI 助教。有什么关于算法的问题吗？" : "I'm your AI Tutor. Any questions about algorithms?" }
@@ -107,6 +111,14 @@ export const GlobalAiAssistant: React.FC<GlobalAiAssistantProps> = ({ problemNam
         }
     };
 
+    const handleCopyJSON = () => {
+        if (currentPlan) {
+            navigator.clipboard.writeText(JSON.stringify(currentPlan, null, 2));
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        }
+    };
+
     if (!isOpen) {
         return (
             <button 
@@ -130,6 +142,15 @@ export const GlobalAiAssistant: React.FC<GlobalAiAssistantProps> = ({ problemNam
                     {problemName && <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full truncate max-w-[100px]">{problemName}</span>}
                 </div>
                 <div className="flex items-center gap-2">
+                    {currentPlan && (
+                        <button 
+                            onClick={() => setShowDebug(!showDebug)} 
+                            className="p-1 hover:bg-white/20 rounded text-white/80 hover:text-white"
+                            title="Debug JSON"
+                        >
+                            <FileJson size={18}/>
+                        </button>
+                    )}
                     <button onClick={() => setIsExpanded(!isExpanded)} className="p-1 hover:bg-white/20 rounded">
                         {isExpanded ? <Minimize2 size={18}/> : <Maximize2 size={18}/>}
                     </button>
@@ -138,6 +159,33 @@ export const GlobalAiAssistant: React.FC<GlobalAiAssistantProps> = ({ problemNam
                     </button>
                 </div>
             </div>
+
+            {/* Debug JSON Overlay */}
+            {showDebug && currentPlan && (
+                <div className="absolute inset-0 top-[60px] bg-gray-900 z-20 p-4 flex flex-col">
+                    <div className="flex justify-between items-center mb-2">
+                        <span className="text-xs font-bold text-gray-400 uppercase">Current Lesson Plan JSON</span>
+                        <button 
+                            onClick={handleCopyJSON}
+                            className="flex items-center gap-2 px-3 py-1 bg-gray-800 hover:bg-gray-700 rounded-md text-xs text-white transition-colors"
+                        >
+                            {copied ? <Check size={12}/> : <Copy size={12}/>}
+                            {copied ? "Copied" : "Copy JSON"}
+                        </button>
+                    </div>
+                    <div className="flex-1 overflow-auto bg-black p-2 rounded-xl border border-gray-800">
+                        <pre className="text-[10px] font-mono text-green-400 whitespace-pre-wrap break-all">
+                            {JSON.stringify(currentPlan, null, 2)}
+                        </pre>
+                    </div>
+                    <button 
+                        onClick={() => setShowDebug(false)}
+                        className="mt-2 w-full py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-xs font-bold"
+                    >
+                        Close Debug
+                    </button>
+                </div>
+            )}
 
             {/* Chat Area */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar bg-gray-50 dark:bg-dark-bg">

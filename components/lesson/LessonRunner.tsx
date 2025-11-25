@@ -8,7 +8,7 @@ import { LessonFooter } from './LessonFooter';
 import { LeetCodeRunner } from './LeetCodeRunner';
 import { MistakeIntro } from './MistakeIntro';
 import { LessonSummary } from './LessonSummary';
-import { ExamSummary } from './ExamSummary'; // New Import
+import { ExamSummary } from './ExamSummary'; 
 import { StreakCelebration } from './StreakCelebration';
 import { GlobalAiAssistant } from '../GlobalAiAssistant';
 import { Button } from '../Button';
@@ -293,7 +293,12 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-100/80 dark:bg-black/80 backdrop-blur-sm p-0 md:p-4">
       <div className="w-full h-full md:max-w-5xl md:h-[96vh] bg-white dark:bg-dark-bg md:rounded-3xl md:shadow-2xl flex flex-col overflow-hidden relative border border-gray-200 dark:border-gray-700 transition-all">
-        <GlobalAiAssistant problemName={props.plan.title} preferences={props.preferences} language={props.language} />
+        <GlobalAiAssistant 
+            problemName={props.plan.title} 
+            preferences={props.preferences} 
+            language={props.language} 
+            currentPlan={props.plan} 
+        />
         <LessonHeader 
             currentScreenIndex={engine.currentIndex}
             totalScreens={engine.totalScreens}
@@ -314,7 +319,22 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
                     <div key={widget.id + idx} className={`animate-fade-in-up delay-${Math.min(idx * 100, 400)} mb-6`}>
                         {widget.type === 'dialogue' && <DialogueWidget widget={widget} />}
                         {widget.type === 'callout' && <CalloutWidget widget={widget} />}
-                        {widget.type === 'interactive-code' && <InteractiveCodeWidget widget={widget} language={props.language} />}
+                        {(widget.type === 'interactive-code' || widget.type === 'code') && (
+                            <InteractiveCodeWidget 
+                                widget={widget.type === 'code' 
+                                    ? { 
+                                        ...widget, 
+                                        type: 'interactive-code', 
+                                        interactiveCode: {
+                                            language: widget.code?.language || 'python',
+                                            lines: (widget.code?.content || '').split('\n').map(l => ({code: l, explanation: ''})),
+                                            caption: widget.code?.caption
+                                        }
+                                      } 
+                                    : widget} 
+                                language={props.language} 
+                            />
+                        )}
                         {widget.type === 'flipcard' && <FlipCardWidget widget={widget} language={props.language} onAssessment={(res) => engine.checkAnswer(res === 'remembered')} />}
                         {widget.type === 'quiz' && <QuizWidgetPresenter widget={widget} selectedIdx={widgetState.quizSelection ?? null} onSelect={(i) => setWidgetState(s => ({ ...s, quizSelection: i }))} status={engine.status} language={props.language} />}
                         {widget.type === 'parsons' && <ParsonsWidget widget={widget} onUpdateOrder={(order) => setWidgetState(s => ({ ...s, parsonsOrder: order }))} status={engine.status} language={props.language} />}
