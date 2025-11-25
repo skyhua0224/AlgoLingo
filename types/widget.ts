@@ -13,7 +13,10 @@ export type WidgetType =
     | 'terminal'
     | 'code-walkthrough'
     | 'mini-editor'
-    | 'arch-canvas';
+    | 'arch-canvas'
+    | 'mermaid'
+    | 'visual-quiz'
+    | 'comparison-table';
 
 export interface Widget {
   id: string;
@@ -97,34 +100,61 @@ export interface Widget {
   // --- NEW ENGINEERING WIDGETS ---
 
   terminal?: {
-      initialOutput?: string; // Welcome message or context
-      command: string; // The expected user command (regex supported)
-      feedback: string; // Output to show on success
-      hint?: string; // Placeholder or suggestion
-      allowedCommands?: string[]; // For auto-complete simulation
+      initialOutput?: string; 
+      command: string; 
+      feedback: string; 
+      hint?: string; 
+      allowedCommands?: string[]; 
   };
 
   codeWalkthrough?: {
       code: string;
       language: string;
       steps: {
-          lines: number[]; // [start, end] or [line]
-          content: string; // Explanation bubble text
+          lines: number[]; 
+          content: string; 
       }[];
   };
 
   miniEditor?: {
       language: string;
-      startingCode: string; // Scaffold
-      solutionSnippet: string; // For static validation check
-      validationRegex?: string; // To check specific keywords
+      startingCode: string; 
+      solutionSnippet: string; 
+      validationRegex?: string; 
       taskDescription: string;
   };
 
   archCanvas?: {
-      goal: string; // "Design a Twitter Feed"
-      initialComponents?: string[]; // Pre-placed components
-      requiredComponents: string[]; // e.g. ["LB", "Redis", "DB"]
-      requiredConnections?: { from: string, to: string }[]; // Basic topology check
+      goal: string; 
+      initialComponents?: string[]; 
+      requiredComponents: string[]; 
+      requiredConnections?: { from: string, to: string }[]; 
+  };
+
+  // --- FORGE WIDGETS ---
+  
+  mermaid?: {
+      chart: string; // Raw mermaid syntax
+      caption?: string;
+  };
+
+  visualQuiz?: {
+      question: string;
+      options: {
+          id: string;
+          label: string;
+          imageUrl?: string; 
+          icon?: string; 
+      }[];
+      correctId: string;
+      explanation: string;
+  };
+
+  comparisonTable?: {
+      headers: string[]; 
+      rows: {
+          label: string;
+          values: string[];
+      }[];
   };
 }

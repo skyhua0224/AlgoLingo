@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { X, Check } from 'lucide-react';
 import { UserPreferences } from '../../types';
@@ -48,11 +49,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const handleSyncAction = async (mode: 'create' | 'sync') => {
         setSyncStatus(isZh ? '同步中...' : 'Syncing...');
         
+        // Capture Engineering & Forge Data
+        const engineeringData: Record<string, any> = {};
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && (key.startsWith('algolingo_syntax_v3_') || key.startsWith('algolingo_eng_v3_'))) {
+                try { engineeringData[key] = JSON.parse(localStorage.getItem(key)!); } catch (e) {}
+            }
+        }
+        ['algolingo_my_tracks', 'algolingo_forge_history_v2', 'algolingo_discovered_tracks'].forEach(key => {
+             const val = localStorage.getItem(key);
+             if (val) try { engineeringData[key] = JSON.parse(val); } catch(e) {}
+        });
+
         const currentData = {
             stats: JSON.parse(localStorage.getItem('algolingo_stats') || '{}'),
             progress: JSON.parse(localStorage.getItem('algolingo_progress_v2') || '{}'),
             mistakes: JSON.parse(localStorage.getItem('algolingo_mistakes') || '[]'),
-            preferences: tempPrefs // Use current temp prefs which has the token
+            preferences: tempPrefs, // Use current temp prefs which has the token
+            engineeringData
         };
   
         const token = tempPrefs.syncConfig?.githubToken;
@@ -83,6 +98,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                  alert(isZh ? "从云端拉取了较新的数据，正在刷新..." : "Newer data pulled from cloud. Refreshing...");
                  if(res.data.stats) localStorage.setItem('algolingo_stats', JSON.stringify(res.data.stats));
                  if(res.data.progress) localStorage.setItem('algolingo_progress_v2', JSON.stringify(res.data.progress));
+                 if(res.data.mistakes) localStorage.setItem('algolingo_mistakes', JSON.stringify(res.data.mistakes));
+                 
+                 if (res.data.engineeringData) {
+                     Object.entries(res.data.engineeringData).forEach(([key, value]) => {
+                        if (
+                            key.startsWith('algolingo_syntax_v3_') || 
+                            key.startsWith('algolingo_eng_v3_') ||
+                            ['algolingo_my_tracks', 'algolingo_forge_history_v2', 'algolingo_discovered_tracks'].includes(key)
+                        ) {
+                            localStorage.setItem(key, JSON.stringify(value));
+                        }
+                     });
+                 }
+
                  window.location.reload();
             }
         } else {

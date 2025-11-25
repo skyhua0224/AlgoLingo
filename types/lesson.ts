@@ -19,6 +19,7 @@ export interface LessonScreen {
 export interface LessonPlan {
   title: string;
   description: string;
+  headerImage?: string; // Support for Forge generated covers
   unitId?: string; 
   screens: LessonScreen[];
   suggestedQuestions: string[]; 
@@ -53,11 +54,10 @@ export interface MistakeRecord {
   widget?: Widget; 
   timestamp: number;
   reviewCount?: number; 
-  failureCount?: number; // Track how many times this specific mistake happened
-  isResolved?: boolean;  // Track if it is currently fixed/understood
+  failureCount?: number; 
+  isResolved?: boolean;  
 }
 
-// Deprecated legacy type, keeping for compatibility during refactor
 export interface GameContent {
     levelTitle: string;
     missingWords?: string[];

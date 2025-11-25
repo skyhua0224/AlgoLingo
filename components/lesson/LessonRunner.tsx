@@ -27,6 +27,10 @@ import { TerminalWidget } from '../widgets/Terminal';
 import { CodeWalkthroughWidget } from '../widgets/CodeWalkthrough';
 import { MiniEditorWidget } from '../widgets/MiniEditor';
 import { ArchCanvasWidget } from '../widgets/ArchCanvas';
+// New Forge Widgets
+import { MermaidVisualWidget } from '../widgets/MermaidVisual';
+import { VisualQuizWidget } from '../widgets/VisualQuiz';
+import { ComparisonTableWidget } from '../widgets/ComparisonTable';
 
 interface LessonRunnerProps {
   plan: LessonPlan;
@@ -128,13 +132,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
     }
 
     const isCorrect = validator.validate(activeWidget as Widget, widgetState);
-    // For complex widgets like terminal/canvas, they might handle their own state/success visually
-    // and pass 'true' to validator if no explicit validation needed from runner level.
-    // Currently validator handles basic types. New types:
-    // Terminal/MiniEditor have internal success states, ideally they should callback to runner.
-    // For simplicity, we assume if user clicks "Check", they are done or it's correct if widget provides visual feedback.
-    // TODO: Connect new widgets to validator properly. For now, auto-pass to allow flow.
-    if (['terminal', 'code-walkthrough', 'mini-editor', 'arch-canvas'].includes(activeWidget?.type || '')) {
+    if (['terminal', 'code-walkthrough', 'mini-editor', 'arch-canvas', 'mermaid', 'visual-quiz', 'comparison-table'].includes(activeWidget?.type || '')) {
         engine.checkAnswer(true);
     } else {
         engine.checkAnswer(isCorrect);
@@ -273,6 +271,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
             language={props.language}
         />
         <div className="flex-1 overflow-y-auto custom-scrollbar p-0 md:p-8 pb-32 md:pb-32 w-full bg-gray-50/30 dark:bg-dark-bg/30">
+            
             <div className="mx-auto max-w-2xl transition-all duration-300 px-4 pt-4 md:px-0 md:pt-0">
                 {engine.currentScreen.widgets.map((widget, idx) => (
                     <div key={widget.id + idx} className={`animate-fade-in-up delay-${Math.min(idx * 100, 400)} mb-6`}>
@@ -289,6 +288,10 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
                         {widget.type === 'code-walkthrough' && <CodeWalkthroughWidget widget={widget} />}
                         {widget.type === 'mini-editor' && <MiniEditorWidget widget={widget} />}
                         {widget.type === 'arch-canvas' && <ArchCanvasWidget widget={widget} />}
+                        {/* New Forge Widgets */}
+                        {widget.type === 'mermaid' && <MermaidVisualWidget widget={widget} />}
+                        {widget.type === 'visual-quiz' && <VisualQuizWidget widget={widget} />}
+                        {widget.type === 'comparison-table' && <ComparisonTableWidget widget={widget} />}
                     </div>
                 ))}
             </div>

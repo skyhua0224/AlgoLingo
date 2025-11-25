@@ -114,6 +114,57 @@ export const archCanvasSchema: Schema = {
     required: ["goal", "requiredComponents"]
 };
 
+// --- FORGE WIDGETS ---
+export const mermaidSchema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+        chart: { type: Type.STRING, description: "Valid mermaid.js syntax string" },
+        caption: { type: Type.STRING }
+    },
+    required: ["chart"]
+};
+
+export const visualQuizSchema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+        question: { type: Type.STRING },
+        options: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    id: { type: Type.STRING },
+                    label: { type: Type.STRING },
+                    icon: { type: Type.STRING, description: "Lucide icon name" }
+                },
+                required: ["id", "label"]
+            }
+        },
+        correctId: { type: Type.STRING },
+        explanation: { type: Type.STRING }
+    },
+    required: ["question", "options", "correctId", "explanation"]
+};
+
+export const comparisonTableSchema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+        headers: { type: Type.ARRAY, items: { type: Type.STRING } },
+        rows: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    label: { type: Type.STRING },
+                    values: { type: Type.ARRAY, items: { type: Type.STRING } }
+                },
+                required: ["label", "values"]
+            }
+        }
+    },
+    required: ["headers", "rows"]
+};
+
 // Root Lesson Plan Schema
 export const lessonPlanSchema: Schema = {
     type: Type.OBJECT,
@@ -121,6 +172,7 @@ export const lessonPlanSchema: Schema = {
       title: { type: Type.STRING },
       description: { type: Type.STRING },
       suggestedQuestions: { type: Type.ARRAY, items: { type: Type.STRING } },
+      headerImage: { type: Type.STRING, description: "Optional generated image URL" },
       screens: {
         type: Type.ARRAY,
         items: {
@@ -145,6 +197,9 @@ export const lessonPlanSchema: Schema = {
                         codeWalkthrough: codeWalkthroughSchema,
                         miniEditor: miniEditorSchema,
                         archCanvas: archCanvasSchema,
+                        mermaid: mermaidSchema,
+                        visualQuiz: visualQuizSchema,
+                        comparisonTable: comparisonTableSchema,
                         callout: {
                             type: Type.OBJECT,
                             properties: {

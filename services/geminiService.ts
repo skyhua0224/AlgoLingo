@@ -1,40 +1,123 @@
-
+import { GoogleGenAI } from "@google/genai";
 import { getClient } from "./ai/client";
-import { getLessonPlanSystemInstruction, getLeetCodeContextSystemInstruction, getJudgeSystemInstruction, getVariantSystemInstruction, getDailyWorkoutSystemInstruction } from "./ai/prompts";
-import { getSystemArchitectPrompt } from "./ai/prompts/engineering/system_architect";
-import { getCSKernelPrompt } from "./ai/prompts/engineering/cs_kernel";
-import { getSyntaxRoadmapPrompt } from "./ai/prompts/engineering/syntax_roadmap";
-import { getSyntaxTrainerPrompt } from "./ai/prompts/engineering/syntax_trainer";
-import { getTrackSyllabusPrompt } from "./ai/prompts/engineering/track_generator";
-import { getTopicRoadmapPrompt } from "./ai/prompts/engineering/topic_roadmap";
-import { getTrackSuggestionPrompt } from "./ai/prompts/engineering/track_suggestions"; // Import new prompt
-import { lessonPlanSchema, leetCodeContextSchema, judgeResultSchema } from "./ai/schemas";
-import { UserPreferences, MistakeRecord, LessonPlan, Widget, LeetCodeContext, SavedLesson } from "../../types";
-import { PROBLEM_MAP } from "../../constants";
-import { SyntaxProfile, SyntaxUnit, SyntaxLesson, SkillTrack, EngineeringStep, EngineeringModule } from "../../types/engineering";
-import { Type } from "@google/genai";
+import { UserPreferences, LessonPlan, Widget } from "../types";
+import { ForgeRoadmap } from "../types/forge";
+import { SkillTrack, EngineeringStep } from "../types/engineering";
 import { AIGenerationError } from "./ai/generator";
 
-// --- HELPER: GENERIC API CALL ---
+import { getForgeRoadmapPrompt, getForgeStagePrompt } from "./ai/prompts/forge";
+import { getTrackSyllabusPrompt } from "./ai/prompts/engineering/track_generator";
+import { getTrackSuggestionPrompt } from "./ai/prompts/engineering/track_suggestions";
+import { getTopicRoadmapPrompt } from "./ai/prompts/engineering/topic_roadmap";
+import { lessonPlanSchema } from "./ai/schemas";
+
+// Re-export existing generators from the dedicated generator file
+export { 
+    generateLessonPlan, 
+    generateDailyWorkoutPlan, 
+    generateVariantLesson, 
+    generateLeetCodeContext, 
+    validateUserCode, 
+    generateEngineeringLesson, 
+    generateReviewLesson, 
+    generateSyntaxClinicPlan, 
+    generateSyntaxRoadmap, 
+    generateSyntaxLesson, 
+    generateAiAssistance 
+} from "./ai/generator";
+
+// --- HELPER: WIDGET VALIDATOR & SANITIZER ---
+const sanitizeLessonPlan = (rawPlan: any): LessonPlan => {
+    if (!rawPlan || typeof rawPlan !== 'object') throw new Error("Invalid plan format");
+    
+    const plan: LessonPlan = {
+        title: rawPlan.title || "Untitled Lesson",
+        description: rawPlan.description || "No description",
+        suggestedQuestions: Array.isArray(rawPlan.suggestedQuestions) ? rawPlan.suggestedQuestions : [],
+        screens: [],
+        headerImage: rawPlan.headerImage
+    };
+
+    if (Array.isArray(rawPlan.screens)) {
+        plan.screens = rawPlan.screens.map((screen: any, sIdx: number) => {
+            const safeScreen = {
+                id: screen.id || `screen_${sIdx}`,
+                header: screen.header || "Learn",
+                widgets: [] as Widget[]
+            };
+
+            if (Array.isArray(screen.widgets)) {
+                safeScreen.widgets = screen.widgets.map((w: any, wIdx: number) => {
+                    let type = (w.type || 'callout').toLowerCase();
+                    // Normalize types
+                    if (type === 'mermaidvisual') type = 'mermaid';
+                    if (type === 'comparisontable') type = 'comparison-table';
+                    
+                    const safeWidget: Widget = {
+                        id: w.id || `w_${sIdx}_${wIdx}`,
+                        type: type as any,
+                        dialogue: w.dialogue,
+                        callout: w.callout,
+                        flipcard: w.flipcard,
+                        quiz: w.quiz,
+                        interactiveCode: w.interactiveCode,
+                        parsons: w.parsons,
+                        fillIn: w.fillIn,
+                        stepsList: w.stepsList,
+                        mermaid: w.mermaid,
+                        visualQuiz: w.visualQuiz,
+                        comparisonTable: w.comparisonTable,
+                        code: w.code,
+                        leetcode: w.leetcode,
+                        terminal: w.terminal,
+                        codeWalkthrough: w.codeWalkthrough,
+                        miniEditor: w.miniEditor,
+                        archCanvas: w.archCanvas
+                    };
+                    return safeWidget;
+                }).filter((w): w is Widget => w !== null);
+            }
+            return safeScreen;
+        }).filter(s => s.widgets.length > 0);
+    }
+    
+    if (plan.screens.length === 0) {
+        plan.screens.push({
+            id: "fallback",
+            header: "Generation Error",
+            widgets: [{
+                id: "err",
+                type: "callout",
+                callout: { title: "Error", text: "AI failed to generate content.", variant: "warning" }
+            }]
+        });
+    }
+    return plan;
+};
+
+// Generic API Call Wrapper
 const callAI = async (
     preferences: UserPreferences,
     systemInstruction: string,
     prompt: string,
     schema?: any,
-    jsonMode: boolean = false
+    jsonMode: boolean = false,
+    tools?: any[]
 ): Promise<string> => {
     const client = getClient(preferences);
     const modelId = preferences.apiConfig.gemini.model || 'gemini-2.5-flash';
-    
+    const useJsonMode = jsonMode && (!tools || tools.length === 0);
+
     try {
         const response = await client.models.generateContent({
             model: modelId,
             contents: prompt,
             config: {
                 systemInstruction: systemInstruction,
-                responseMimeType: jsonMode ? "application/json" : undefined,
-                responseSchema: jsonMode ? schema : undefined,
+                responseMimeType: useJsonMode ? "application/json" : undefined,
+                responseSchema: useJsonMode ? schema : undefined,
                 temperature: 0.4,
+                tools: tools,
             }
         });
         return response.text || "";
@@ -44,388 +127,191 @@ const callAI = async (
     }
 };
 
-export const generateLessonPlan = async (
-  problemName: string, 
-  phaseIndex: number, 
-  preferences: UserPreferences,
-  mistakes: MistakeRecord[] = [],
-  savedLessons: SavedLesson[] = []
-): Promise<LessonPlan> => {
-  const targetLang = preferences.targetLanguage;
-  const speakLang = preferences.spokenLanguage;
-  const systemInstruction = getLessonPlanSystemInstruction(problemName, targetLang, speakLang, phaseIndex);
-  
-  let userPrompt = `Generate the lesson plan for Phase ${phaseIndex + 1} of ${problemName}.`;
-  if (mistakes.length > 0) {
-      userPrompt += `\nContext: The user previously struggled with: ${mistakes.map(m => m.context).join(', ')}. Please reinforce these concepts.`;
-  }
+// --- FORGE GENERATORS ---
 
-  try {
-      const text = await callAI(preferences, systemInstruction, userPrompt, lessonPlanSchema, true);
-      const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
-      return JSON.parse(cleanText);
-  } catch (error: any) {
-      throw new AIGenerationError(error.message || "Unknown Generation Error", "");
-  }
-};
+export const generateForgeRoadmap = async (topic: string, preferences: UserPreferences): Promise<ForgeRoadmap> => {
+    const systemInstruction = getForgeRoadmapPrompt(topic, preferences.spokenLanguage);
+    const prompt = `Search and create roadmap for: ${topic}`;
+    
+    const forgePreferences = { 
+        ...preferences, 
+        apiConfig: { 
+            ...preferences.apiConfig, 
+            gemini: { ...preferences.apiConfig.gemini, model: 'gemini-2.5-pro' } 
+        } 
+    };
 
-export const generateDailyWorkoutPlan = async (
-    mistakes: MistakeRecord[],
-    learnedProblemIds: string[],
-    preferences: UserPreferences
-): Promise<LessonPlan> => {
-    const learnedProblemNames = learnedProblemIds.map(id => PROBLEM_MAP[id]).filter(n => !!n);
-    if (learnedProblemNames.length === 0) return generateLessonPlan("Two Sum", 0, preferences);
-
-    const systemInstruction = getDailyWorkoutSystemInstruction(preferences.targetLanguage, preferences.spokenLanguage);
-    const prompt = `GENERATE DAILY WORKOUT. Learned: ${learnedProblemNames.join(', ')}. Mistakes: ${mistakes.map(m => m.context).join(', ')}`;
-
-    const text = await callAI(preferences, systemInstruction, prompt, lessonPlanSchema, true);
-    const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
-    const plan = JSON.parse(cleanText);
-    plan.title = preferences.spokenLanguage === 'Chinese' ? "📅 今日智能特训" : "📅 Daily Smart Workout";
-    return plan;
-};
-
-export const generateVariantLesson = async (mistake: MistakeRecord, preferences: UserPreferences): Promise<LessonPlan> => {
-    const systemInstruction = getVariantSystemInstruction(preferences.targetLanguage, preferences.spokenLanguage);
-    const prompt = `Create VARIANT of mistake: ${mistake.problemName}, Widget: ${JSON.stringify(mistake.widget)}`;
-    const text = await callAI(preferences, systemInstruction, prompt, lessonPlanSchema, true);
-    return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
-};
-
-export const generateLeetCodeContext = async (problemName: string, preferences: UserPreferences): Promise<LeetCodeContext> => {
-    const systemInstruction = getLeetCodeContextSystemInstruction(problemName, preferences.spokenLanguage, preferences.targetLanguage);
-    const text = await callAI(preferences, systemInstruction, `Generate simulation for ${problemName}`, leetCodeContextSchema, true);
-    return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
-};
-
-export const validateUserCode = async (code: string, problemDesc: string, preferences: UserPreferences, languageOverride?: string) => {
-    const targetLang = languageOverride || preferences.targetLanguage;
-    const systemInstruction = getJudgeSystemInstruction(targetLang, preferences.spokenLanguage);
-    const prompt = `Problem: ${problemDesc}\nUser Code:\n\`\`\`${targetLang}\n${code}\n\`\`\``;
     try {
-        const text = await callAI(preferences, systemInstruction, prompt, judgeResultSchema, true);
-        return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
-    } catch (e) {
-        return { status: "Runtime Error", error_message: "Judge Connection Failed.", test_cases: [] };
+        const text = await callAI(
+            forgePreferences, 
+            systemInstruction, 
+            prompt, 
+            undefined, 
+            false, 
+            [{ googleSearch: {} }]
+        );
+        
+        const match = text.match(/\{[\s\S]*\}/);
+        const cleanText = match ? match[0] : text;
+        const data = JSON.parse(cleanText);
+        
+        return {
+            id: `forge_${Date.now()}`,
+            topic: topic,
+            title: data.title || topic,
+            description: data.description || "AI Generated Course",
+            createdAt: Date.now(),
+            stages: data.stages.map((s: any) => ({
+                ...s,
+                status: s.id === 1 ? 'unlocked' : 'locked'
+            }))
+        };
+
+    } catch (e: any) {
+        console.error("Forge Roadmap Failed", e);
+        throw new AIGenerationError("Failed to search and plan topic.", e.message);
     }
 };
 
-// --- ENGINEERING HUB GENERATORS ---
-
-export const generateEngineeringLesson = async (
-    pillar: 'system' | 'cs',
-    topic: string,
-    keywords: string[],
-    level: string, 
-    preferences: UserPreferences,
-    extraContext?: string
+export const generateForgeStage = async (
+    roadmap: ForgeRoadmap, 
+    stageId: number, 
+    preferences: UserPreferences
 ): Promise<LessonPlan> => {
-    const systemInstruction = pillar === 'system' 
-        ? getSystemArchitectPrompt(topic, keywords, level, extraContext)
-        : getCSKernelPrompt(topic, keywords, level);
-        
-    const prompt = `Generate a comprehensive engineering lesson for: ${topic}. Level: ${level}. Context: ${extraContext || 'General'}`;
+    const stage = roadmap.stages.find(s => s.id === stageId);
+    if (!stage) throw new Error("Stage not found");
+
+    const systemInstruction = getForgeStagePrompt(
+        roadmap.topic, 
+        stage.title, 
+        stage.description, 
+        stage.focus, 
+        preferences.spokenLanguage
+    );
+    
+    const prompt = `Generate detailed lesson content for stage ${stageId}`;
 
     try {
         const text = await callAI(preferences, systemInstruction, prompt, lessonPlanSchema, true);
         const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
-        const plan = JSON.parse(cleanText);
-        plan.context = { type: 'pillar', pillar, topic, phaseIndex: 0, levelId: level }; 
+        const rawPlan = JSON.parse(cleanText);
+        
+        const plan = sanitizeLessonPlan(rawPlan);
+        if (roadmap.coverImage) plan.headerImage = roadmap.coverImage;
+        
         return plan;
     } catch (e: any) {
-        console.error("Engineering Lesson Generation Failed", e);
-        throw new AIGenerationError("Failed to generate engineering lesson.");
+        console.error("Forge Stage Generation Failed", e);
+        throw new AIGenerationError("Failed to generate stage content.", e.message);
     }
 };
 
-export const generateEngineeringRoadmap = async (
-    topic: string,
-    pillar: 'system' | 'cs' | 'track',
-    keywords: string[],
-    preferences: UserPreferences
-): Promise<EngineeringStep[]> => {
-    const systemInstruction = getTopicRoadmapPrompt(topic, pillar, keywords, preferences.spokenLanguage);
-    const prompt = `Generate syllabus for ${topic}`;
+export const generateForgeImage = async (topic: string, preferences: UserPreferences): Promise<string | undefined> => {
+    const client = getClient(preferences);
+    const model = 'gemini-2.5-flash-image';
     
-    const roadmapSchema = {
-        type: Type.OBJECT,
-        properties: {
-            roadmap: {
-                type: Type.ARRAY,
-                items: {
-                    type: Type.OBJECT,
-                    properties: {
-                        id: { type: Type.STRING },
-                        title: { 
-                            type: Type.OBJECT,
-                            properties: { en: { type: Type.STRING }, zh: { type: Type.STRING } },
-                            required: ["en", "zh"]
-                        },
-                        description: {
-                            type: Type.OBJECT,
-                            properties: { en: { type: Type.STRING }, zh: { type: Type.STRING } },
-                            required: ["en", "zh"]
-                        },
-                        focus: { type: Type.STRING, enum: ["concept", "code", "debug", "design", "mastery"] }
-                    },
-                    required: ["id", "title", "description", "focus"]
+    try {
+        const response = await client.models.generateContent({
+            model: model,
+            contents: {
+                parts: [
+                    { text: `Create a high quality, artistic, futuristic cover image for a lesson about: ${topic}. Minimalist, vector style, vibrant colors.` }
+                ]
+            },
+            config: {
+                imageConfig: {
+                    aspectRatio: "16:9",
                 }
             }
-        },
-        required: ["roadmap"]
-    };
+        });
 
-    try {
-        const text = await callAI(preferences, systemInstruction, prompt, roadmapSchema, true);
-        const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
-        const data = JSON.parse(cleanText);
-        
-        return data.roadmap.map((step: any, idx: number) => ({
-            ...step,
-            status: idx === 0 ? 'active' : 'locked'
-        }));
-    } catch (e) {
-        console.error("Roadmap Generation Failed", e);
-        throw new AIGenerationError("Failed to generate topic roadmap.");
-    }
-};
-
-export const generateSyntaxRoadmap = async (profile: SyntaxProfile, preferences: UserPreferences): Promise<SyntaxUnit[]> => {
-    const prompt = getSyntaxRoadmapPrompt(profile);
-    
-    const localizedStringSchema = {
-        type: Type.OBJECT,
-        properties: {
-            en: { type: Type.STRING },
-            zh: { type: Type.STRING }
-        },
-        required: ["en", "zh"]
-    };
-
-    const lessonSchema = {
-        type: Type.OBJECT,
-        properties: {
-            id: { type: Type.STRING },
-            title: localizedStringSchema,
-            description: localizedStringSchema
-        },
-        required: ["id", "title", "description"]
-    };
-
-    const roadmapSchema = {
-        type: Type.OBJECT,
-        properties: {
-            units: {
-                type: Type.ARRAY,
-                items: {
-                    type: Type.OBJECT,
-                    properties: {
-                        id: { type: Type.STRING },
-                        title: localizedStringSchema,
-                        description: localizedStringSchema,
-                        lessons: {
-                            type: Type.ARRAY,
-                            items: lessonSchema
-                        }
-                    },
-                    required: ["id", "title", "description", "lessons"]
+        if (response.candidates?.[0]?.content?.parts) {
+            for (const part of response.candidates[0].content.parts) {
+                if (part.inlineData) {
+                    return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
                 }
             }
         }
-    };
-
-    try {
-        const text = await callAI(preferences, "You are a curriculum designer.", prompt, roadmapSchema, true);
-        const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
-        const data = JSON.parse(cleanText);
-        
-        return data.units.map((u: any, idx: number) => ({
-            ...u,
-            status: idx === 0 ? 'active' : 'locked',
-            lessons: u.lessons.map((l: any, lIdx: number) => ({
-                ...l,
-                status: (idx === 0 && lIdx === 0) ? 'active' : 'locked',
-                currentPhaseIndex: 0
-            }))
-        }));
-    } catch (e: any) {
-        console.error("Roadmap Generation Failed", e);
-        throw new Error("Failed to generate roadmap");
+    } catch (e) {
+        console.error("Image Generation Failed", e);
     }
+    return undefined;
 };
 
-export const generateSyntaxLesson = async (
-    unit: SyntaxUnit, 
-    lesson: SyntaxLesson,
-    stageId: string,
-    profile: SyntaxProfile, 
-    preferences: UserPreferences
-): Promise<LessonPlan> => {
-    const systemInstruction = getSyntaxTrainerPrompt(profile, unit, lesson, stageId, preferences.spokenLanguage); 
-    const langKey = preferences.spokenLanguage === 'Chinese' ? 'zh' : 'en';
+// --- NEW ENGINEERING FUNCTIONS ---
+
+export const generateCustomTrack = async (title: string, description: string, preferences: UserPreferences): Promise<SkillTrack> => {
+    const systemInstruction = getTrackSyllabusPrompt(title, description, preferences.spokenLanguage);
+    const prompt = "Generate syllabus";
     
-    const prompt = `
-    Generate the lesson plan for: "${lesson.title[langKey]}" (Module: ${unit.title[langKey]}).
-    Stage Type: ${stageId}.
-    User Profile: Origin=${profile.origin}, Objective=${profile.objective}.
-    `;
-
     try {
-        const text = await callAI(preferences, systemInstruction, prompt, lessonPlanSchema, true);
-        const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
-        const plan: LessonPlan = JSON.parse(cleanText);
-        
-        plan.context = {
-            type: 'syntax',
-            language: profile.language,
-            unitId: unit.id,
-            lessonId: lesson.id,
-            phaseIndex: stageId === 'sandbox' ? 6 : parseInt(stageId, 10)
-        };
-
-        return plan;
-    } catch (error: any) {
-        console.error("Lesson Generation Failed", error);
-        throw new AIGenerationError("Failed to generate lesson plan.", "");
-    }
-};
-
-// --- TRACK GENERATOR (Hierarchical) ---
-export const generateCustomTrack = async (
-    trackName: string, 
-    context: string, 
-    preferences: UserPreferences
-): Promise<SkillTrack> => {
-    const prompt = getTrackSyllabusPrompt(trackName, context, preferences.spokenLanguage);
-    
-    const localizedStringSchema = {
-        type: Type.OBJECT,
-        properties: {
-            en: { type: Type.STRING },
-            zh: { type: Type.STRING }
-        },
-        required: ["en", "zh"]
-    };
-
-    const trackSchema = {
-        type: Type.OBJECT,
-        properties: {
-            modules: {
-                type: Type.ARRAY,
-                items: {
-                    type: Type.OBJECT,
-                    properties: {
-                        id: { type: Type.STRING },
-                        title: localizedStringSchema,
-                        description: localizedStringSchema,
-                        topics: {
-                            type: Type.ARRAY,
-                            items: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    id: { type: Type.STRING },
-                                    title: localizedStringSchema,
-                                    keywords: { type: Type.ARRAY, items: { type: Type.STRING } }
-                                },
-                                required: ["id", "title", "keywords"]
-                            }
-                        }
-                    },
-                    required: ["id", "title", "description", "topics"]
-                }
-            }
-        },
-        required: ["modules"]
-    };
-
-    try {
-        const text = await callAI(preferences, "Curriculum Architect", prompt, trackSchema, true);
+        const text = await callAI(preferences, systemInstruction, prompt, undefined, true); 
         const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
         const data = JSON.parse(cleanText);
         
         return {
-            id: `track_${Date.now()}`,
-            // Ensure localized structure for title/description
-            title: { en: trackName, zh: trackName }, 
-            description: { en: context.substring(0, 50) + "...", zh: context.substring(0, 50) + "..." },
-            icon: "Terminal",
+            id: `custom_${Date.now()}`,
+            title: title,
+            description: description,
             category: 'other',
+            icon: 'Sparkles',
             progress: 0,
             isOfficial: false,
             createdAt: Date.now(),
-            modules: data.modules // Populated via AI
+            modules: data.modules 
         };
-    } catch (e) {
-        console.error("Track Generation Failed", e);
-        throw new AIGenerationError("Failed to generate custom track.");
+    } catch (e: any) {
+        throw new AIGenerationError("Failed to generate track syllabus.", e.message);
     }
 };
 
-// --- NEW: Suggest Tracks (AI Refresh) ---
-export const generateTrackSuggestions = async (
-    category: string,
-    existingTitles: string[],
-    preferences: UserPreferences
-): Promise<SkillTrack[]> => {
-    const prompt = getTrackSuggestionPrompt(category, existingTitles);
-    const localizedStringSchema = {
-        type: Type.OBJECT,
-        properties: { en: { type: Type.STRING }, zh: { type: Type.STRING } },
-        required: ["en", "zh"]
-    };
-    const schema = {
-        type: Type.OBJECT,
-        properties: {
-            tracks: {
-                type: Type.ARRAY,
-                items: {
-                    type: Type.OBJECT,
-                    properties: {
-                        title: localizedStringSchema,
-                        description: localizedStringSchema,
-                        icon: { type: Type.STRING },
-                        keywords: { type: Type.ARRAY, items: { type: Type.STRING } }
-                    },
-                    required: ["title", "description", "icon", "keywords"]
-                }
-            }
-        },
-        required: ["tracks"]
-    };
-
+export const generateTrackSuggestions = async (category: string, existingTitles: string[], preferences: UserPreferences): Promise<SkillTrack[]> => {
+    const systemInstruction = getTrackSuggestionPrompt(category, existingTitles);
+    const prompt = "Suggest tracks";
+    
     try {
-        const text = await callAI(preferences, "Tech Career Mentor", prompt, schema, true);
+        const text = await callAI(preferences, systemInstruction, prompt, undefined, true);
         const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
         const data = JSON.parse(cleanText);
         
-        return data.tracks.map((t: any, i: number) => ({
-            id: `suggested_${Date.now()}_${i}`,
+        return data.tracks.map((t: any) => ({
+            id: `suggested_${Date.now()}_${Math.random()}`,
+            title: t.title,
+            description: t.description,
+            icon: t.icon,
             category: category === 'all' ? 'other' : category,
             progress: 0,
-            isOfficial: true, // Treat AI suggestions as semi-official
+            isOfficial: false,
             createdAt: Date.now(),
-            ...t
+            keywords: t.keywords
         }));
-    } catch (e) {
-        console.error("Suggestion Failed", e);
-        throw new Error("Failed to generate suggestions");
+    } catch (e: any) {
+        throw new AIGenerationError("Failed to generate suggestions.", e.message);
     }
 };
 
-export const generateReviewLesson = async (mistakes: MistakeRecord[], preferences: UserPreferences): Promise<LessonPlan> => {
-    return generateDailyWorkoutPlan(mistakes, ["p_1"], preferences);
-};
-
-export const generateSyntaxClinicPlan = async (preferences: UserPreferences): Promise<LessonPlan> => {
-    return generateLessonPlan("Syntax Clinic", 1, preferences); 
-};
-
-export const generateAiAssistance = async (context: string, userQuery: string, preferences: UserPreferences, model: string) => {
+export const generateEngineeringRoadmap = async (
+    topic: string, 
+    pillar: 'system' | 'cs' | 'track', 
+    keywords: string[], 
+    preferences: UserPreferences
+): Promise<EngineeringStep[]> => {
+    const systemInstruction = getTopicRoadmapPrompt(topic, pillar, keywords, preferences.spokenLanguage);
+    const prompt = "Generate roadmap";
+    
     try {
-        return await callAI(preferences, "You are a helpful coding assistant. Be brief.", `Context:\n${context}\n\nUser Question: ${userQuery}\n\nAnswer briefly.`, undefined, false);
-    } catch (e) {
-        return "AI is offline.";
+        const text = await callAI(preferences, systemInstruction, prompt, undefined, true);
+        const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
+        const data = JSON.parse(cleanText);
+        
+        return data.roadmap.map((step: any) => ({
+            id: step.id,
+            title: step.title,
+            description: step.description,
+            focus: step.focus,
+            status: step.id === data.roadmap[0].id ? 'active' : 'locked'
+        }));
+    } catch (e: any) {
+        throw new AIGenerationError("Failed to generate engineering roadmap.", e.message);
     }
 };

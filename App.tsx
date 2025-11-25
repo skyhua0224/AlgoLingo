@@ -10,6 +10,7 @@ import { ProfileView } from './components/ProfileView';
 import { Onboarding } from './components/Onboarding';
 import { EngineeringHub } from './components/EngineeringHub/index';
 import { Forge } from './components/Forge';
+import { ForgeDetailView } from './components/Forge/ForgeDetailView';
 import { CareerLobby } from './components/CareerLobby';
 import { useAppManager } from './hooks/useAppManager';
 import { AppView } from './types';
@@ -19,26 +20,12 @@ export default function App() {
   const { 
       view, activeTab, 
       preferences, stats, progressMap, mistakes, savedLessons,
-      activeProblem, activeNodeIndex, currentLessonPlan,
+      activeProblem, activeNodeIndex, currentLessonPlan, activeForgeItem,
       generationError, generationRawError, isSkipAttempt
   } = state;
 
   // Helper to start any arbitrary lesson plan (used by Engineering Hub)
   const handleCustomLessonStart = (plan: any) => {
-      // Use a hacky internal action or expose a new one in useAppManager
-      // Since useAppManager manages 'currentLessonPlan', we can reuse setView('runner') logic
-      // Ideally, useAppManager should expose a `startCustomLesson(plan)` action.
-      // For now, we will directly mutate the state if possible, but clean is better.
-      
-      // We need to update useAppManager to support this cleanly.
-      // BUT, based on the existing code in useAppManager, 
-      // setCurrentLessonPlan is part of local state there, not directly exposed via 'actions'.
-      // We need to add a `handleStartCustomLesson` to useAppManager.
-      // HOWEVER, since I cannot edit useAppManager in this specific XML block (it's a separate file),
-      // I will assume I can't easily add it without editing that file too.
-      // WAIT, I CAN edit useAppManager in this response if I want.
-      
-      // Let's just update useAppManager first (see next file change).
       actions.handleStartCustomLesson(plan);
   };
 
@@ -93,6 +80,19 @@ export default function App() {
         );
     }
 
+    // Forge Detail View (NEW)
+    if (view === 'forge-detail' && activeForgeItem) {
+        return (
+            <ForgeDetailView 
+                roadmap={activeForgeItem}
+                onBack={() => actions.setView('dashboard')}
+                onStartStage={(plan) => actions.handleStartCustomLesson(plan)}
+                preferences={preferences}
+                language={preferences.spokenLanguage}
+            />
+        );
+    }
+
     // Main Tabs based on activeTab
     switch (activeTab) {
         case 'review':
@@ -119,7 +119,13 @@ export default function App() {
                 />
             );
         case 'forge':
-            return <Forge language={preferences.spokenLanguage} />;
+            return (
+                <Forge 
+                    language={preferences.spokenLanguage} 
+                    onViewItem={actions.handleViewForgeItem}
+                    preferences={preferences}
+                />
+            );
         case 'career':
             return <CareerLobby language={preferences.spokenLanguage} />;
         case 'profile':
@@ -155,7 +161,11 @@ export default function App() {
                 plan={currentLessonPlan}
                 nodeIndex={activeNodeIndex}
                 onComplete={actions.handleLessonComplete}
-                onExit={() => actions.setView('dashboard')}
+                onExit={() => {
+                    // If coming from Forge, return to detail view
+                    if (activeForgeItem) actions.setView('forge-detail');
+                    else actions.setView('dashboard');
+                }}
                 onRegenerate={actions.handleRetryLoading}
                 language={preferences.spokenLanguage}
                 preferences={preferences}
