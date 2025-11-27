@@ -5,6 +5,10 @@
 ![Tech Stack](https://img.shields.io/badge/stack-React%2019%20%7C%20TypeScript%20%7C%20Gemini%20Flash-orange)
 ![Language](https://img.shields.io/badge/language-Chinese%20%7C%20English-green)
 
+> **🚀 在线体验 (Live Demo)**: [点击访问 AI Studio Build 版本](https://ai.studio/apps/drive/1V3WKy1-N2mQxaN1c6vYAqvEtoGA-17F0)
+>
+> *提示：可直接使用 Google AI Studio Build 额度运行并学习，此版本将持续跟随仓库最新代码更新。*
+
 [English Version Below](#algolingo---english-introduction)
 
 **AlgoLingo** 是一个专为高级软件工程师设计的游戏化 AI 学习平台。与传统的静态课程不同，它利用 **Google Gemini** 模型实时生成个性化课程，将 LeetCode 算法题、系统设计概念以及职业面试准备转化为互动式的微学习体验（类 Duolingo 模式）。
@@ -31,7 +35,7 @@
 
 ### 3. 探索工坊 (The Forge)
 无限知识引擎。
-- 用户输入 *任意* 主题（例如 "Kafka 内部原理"、"React Fiber 架构"）。
+- 用户输入 *任意* 主题（例如 "Kafka Internals"、"React Fiber 架构"）。
 - **Agentic Planning**：AI 调用搜索工具获取最新信息，并实时构建多阶段、富交互的课程。
 
 ### 4. 职业竞技场 (Career Arena)
