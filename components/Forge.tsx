@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { Search, Sparkles, Clock, TrendingUp, Zap, ArrowRight, Loader2, History } from 'lucide-react';
-import { generateForgeRoadmap, generateForgeImage } from '../services/geminiService';
-import { ForgeRoadmap } from '../types/forge';
+import { Search, Sparkles, History, Code2, BookOpen, MousePointer2, Eye, GraduationCap, Wrench, Zap, Layers, Maximize, ArrowRight, Gauge } from 'lucide-react';
+import { generateForgeRoadmap } from '../services/geminiService';
+import { ForgeRoadmap, ForgeGenConfig, ForgeDensity } from '../types/forge';
 import { UserPreferences } from '../types';
 
 interface ForgeProps {
@@ -18,6 +18,15 @@ export const Forge: React.FC<ForgeProps> = ({ language, onViewItem, preferences 
     const [loading, setLoading] = useState(false);
     const [loadingStep, setLoadingStep] = useState(0);
     const [history, setHistory] = useState<ForgeRoadmap[]>([]);
+    
+    // Configuration State
+    const [config, setConfig] = useState<ForgeGenConfig>({
+        mode: 'technical',
+        difficultyStart: 'intermediate',
+        stageCount: 6,
+        screensPerStage: 18 // Default as requested
+    });
+    const [showConfig, setShowConfig] = useState(false);
 
     // Load History
     useEffect(() => {
@@ -28,6 +37,17 @@ export const Forge: React.FC<ForgeProps> = ({ language, onViewItem, preferences 
             } catch (e) { console.error(e); }
         }
     }, []);
+
+    // Validate Config Consistency
+    useEffect(() => {
+        // Auto-correct density if invalid for current mode
+        if (config.screensPerStage === 6 && config.mode !== 'general') {
+            setConfig(prev => ({ ...prev, screensPerStage: 18 }));
+        }
+        if ((config.screensPerStage === 24 || config.screensPerStage === 32) && config.difficultyStart !== 'expert') {
+            setConfig(prev => ({ ...prev, screensPerStage: 18 }));
+        }
+    }, [config.mode, config.difficultyStart]);
 
     // Save History
     const saveHistory = (item: ForgeRoadmap) => {
@@ -48,20 +68,9 @@ export const Forge: React.FC<ForgeProps> = ({ language, onViewItem, preferences 
 
         try {
             // 1. Generate Roadmap (Search & Structure) - PRO Model
-            const roadmap = await generateForgeRoadmap(query, preferences);
+            const roadmap = await generateForgeRoadmap(query, config, preferences);
             
-            // 2. Generate Cover Image (Parallel) - IMAGE Model
-            // Don't block the UI if image fails
-            try {
-                const cover = await generateForgeImage(query, preferences);
-                if (cover) roadmap.coverImage = cover;
-            } catch (imgErr) {
-                console.warn("Image gen failed", imgErr);
-            }
-
             saveHistory(roadmap);
-            
-            // Navigate to Detail View
             onViewItem(roadmap);
 
         } catch (e) {
@@ -77,12 +86,12 @@ export const Forge: React.FC<ForgeProps> = ({ language, onViewItem, preferences 
         "正在分析意图...",
         "正在连接全球知识库 (Google Search)...",
         "阅读检索到的信息源...",
-        "构建 6 阶段学习地图..."
+        "构建学习地图..."
     ] : [
         "Analyzing intent...",
         "Searching global knowledge base...",
         "Reading retrieved sources...",
-        "Forging 6-stage roadmap..."
+        "Forging roadmap..."
     ];
 
     if (loading) {
@@ -107,10 +116,18 @@ export const Forge: React.FC<ForgeProps> = ({ language, onViewItem, preferences 
         );
     }
 
+    const DENSITY_OPTIONS: { val: ForgeDensity, label: string, requires?: string }[] = [
+        { val: 6, label: "Lite (6)", requires: "General Mode Only" },
+        { val: 12, label: "Basic (12)" },
+        { val: 18, label: "Std (18)" },
+        { val: 24, label: "Deep (24)", requires: "Expert Only" },
+        { val: 32, label: "Max (32)", requires: "Expert Only" },
+    ];
+
     return (
         <div className="p-4 md:p-8 max-w-5xl mx-auto min-h-screen flex flex-col">
             {/* Hero Search */}
-            <div className="flex flex-col items-center justify-center py-12 md:py-20 text-center">
+            <div className="flex flex-col items-center justify-center py-10 md:py-16 text-center">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 text-xs font-bold uppercase tracking-wider mb-6 animate-fade-in-down">
                     <Sparkles size={14} />
                     {isZh ? "知识工坊 AI 引擎" : "Knowledge Forge AI Engine"}
@@ -120,38 +137,139 @@ export const Forge: React.FC<ForgeProps> = ({ language, onViewItem, preferences 
                     {isZh ? "今天你想学什么？" : "What do you want to know today?"}
                 </h1>
 
-                <div className="w-full max-w-2xl relative group z-20">
-                    <div className="absolute -inset-1 bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl opacity-20 group-hover:opacity-40 blur transition duration-1000 group-hover:duration-200"></div>
-                    <div className="relative flex items-center bg-white dark:bg-dark-card rounded-xl shadow-2xl overflow-hidden p-2 border border-gray-100 dark:border-gray-700">
-                        <Search className="text-gray-400 ml-4" size={24} />
-                        <input 
-                            type="text"
-                            className="w-full p-4 text-lg font-medium bg-transparent outline-none text-gray-800 dark:text-white placeholder-gray-300 dark:placeholder-gray-600"
-                            placeholder={isZh ? "输入关键词... (例如: 手冲咖啡技巧)" : "Type a topic... (e.g. Latte Art Basics)"}
-                            value={query}
-                            onChange={(e) => setQuery(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                        />
-                        <button 
-                            onClick={handleSearch}
-                            disabled={!query.trim()}
-                            className="px-6 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-lg font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
-                        >
-                            Go
-                        </button>
+                <div className="w-full max-w-2xl relative z-20">
+                    <div className="absolute -inset-1 bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl opacity-20 blur transition duration-1000"></div>
+                    <div className="relative bg-white dark:bg-dark-card rounded-xl shadow-2xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+                        <div className="flex items-center p-2">
+                            <Search className="text-gray-400 ml-4" size={24} />
+                            <input 
+                                type="text"
+                                className="w-full p-4 text-lg font-medium bg-transparent outline-none text-gray-800 dark:text-white placeholder-gray-300 dark:placeholder-gray-600"
+                                placeholder={isZh ? "输入关键词... (例如: OpenGL 渲染管线)" : "Type a topic... (e.g. OpenGL Pipeline)"}
+                                value={query}
+                                onChange={(e) => setQuery(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                            />
+                            <button 
+                                onClick={handleSearch}
+                                disabled={!query.trim()}
+                                className="px-6 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-lg font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
+                            >
+                                Go
+                            </button>
+                        </div>
+                        
+                        {/* Config Toggle */}
+                        <div className="bg-gray-50 dark:bg-gray-800/50 border-t border-gray-100 dark:border-gray-800 p-2 flex justify-center">
+                            <button 
+                                onClick={() => setShowConfig(!showConfig)}
+                                className="text-xs font-bold text-gray-500 hover:text-purple-500 flex items-center gap-1 transition-colors"
+                            >
+                                {showConfig ? (isZh ? "收起配置" : "Hide Config") : (isZh ? "定制课程参数 (难度/体量)" : "Customize Course (Difficulty/Length)")}
+                                <Sparkles size={12} />
+                            </button>
+                        </div>
+
+                        {/* Configuration Console */}
+                        {showConfig && (
+                            <div className="p-4 bg-gray-50 dark:bg-gray-800/50 border-t border-gray-100 dark:border-gray-800 grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in-down text-left">
+                                
+                                {/* 1. Mode & Level */}
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-2 block">{isZh ? "学习模式" : "Mode"}</label>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => setConfig({...config, mode: 'technical'})} className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all flex flex-col items-center gap-1 ${config.mode === 'technical' ? 'bg-purple-100 dark:bg-purple-900/30 border-purple-500 text-purple-700 dark:text-purple-300' : 'bg-white dark:bg-dark-card border-gray-200 dark:border-gray-700 text-gray-500'}`}>
+                                                <Code2 size={14}/> {isZh ? "技术实战" : "Tech"}
+                                            </button>
+                                            <button onClick={() => setConfig({...config, mode: 'general'})} className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all flex flex-col items-center gap-1 ${config.mode === 'general' ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-500 text-blue-700 dark:text-blue-300' : 'bg-white dark:bg-dark-card border-gray-200 dark:border-gray-700 text-gray-500'}`}>
+                                                <BookOpen size={14}/> {isZh ? "通识理论" : "General"}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-2 block">{isZh ? "当前水平 (起步难度)" : "Current Skill Level"}</label>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => setConfig({...config, difficultyStart: 'novice'})} className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all flex flex-col items-center gap-1 ${config.difficultyStart === 'novice' ? 'bg-green-100 dark:bg-green-900/30 border-green-500 text-green-700 dark:text-green-300' : 'bg-white dark:bg-dark-card border-gray-200 dark:border-gray-700 text-gray-500'}`}>
+                                                <GraduationCap size={14}/> {isZh ? "新手" : "Novice"}
+                                            </button>
+                                            <button onClick={() => setConfig({...config, difficultyStart: 'intermediate'})} className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all flex flex-col items-center gap-1 ${config.difficultyStart === 'intermediate' ? 'bg-orange-100 dark:bg-orange-900/30 border-orange-500 text-orange-700 dark:text-orange-300' : 'bg-white dark:bg-dark-card border-gray-200 dark:border-gray-700 text-gray-500'}`}>
+                                                <Wrench size={14}/> {isZh ? "有经验" : "Mid"}
+                                            </button>
+                                            <button onClick={() => setConfig({...config, difficultyStart: 'expert'})} className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all flex flex-col items-center gap-1 ${config.difficultyStart === 'expert' ? 'bg-red-100 dark:bg-red-900/30 border-red-500 text-red-700 dark:text-red-300' : 'bg-white dark:bg-dark-card border-gray-200 dark:border-gray-700 text-gray-500'}`}>
+                                                <Zap size={14}/> {isZh ? "专家" : "Expert"}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* 2. Structure & Density */}
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-2 block">{isZh ? "课程长度 (阶段数)" : "Course Length (Stages)"}</label>
+                                        <div className="flex bg-white dark:bg-dark-card rounded-lg border border-gray-200 dark:border-gray-700 p-1">
+                                            {[3, 6, 9, 12].map(num => (
+                                                <button 
+                                                    key={num}
+                                                    onClick={() => setConfig({...config, stageCount: num as any})}
+                                                    className={`flex-1 py-1.5 rounded text-xs font-bold transition-all ${config.stageCount === num ? 'bg-gray-900 dark:bg-white text-white dark:text-black shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}
+                                                >
+                                                    {num}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <p className="text-[10px] text-gray-400 mt-1 text-right">
+                                            {config.stageCount === 3 ? (isZh ? "闪电概览" : "Quick Overview") : 
+                                             config.stageCount === 6 ? (isZh ? "标准课程" : "Standard Course") : 
+                                             (isZh ? "深度专精" : "Deep Dive")}
+                                        </p>
+                                    </div>
+
+                                    <div>
+                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-2 block">{isZh ? "内容密度 (每课页数)" : "Content Density (Screens)"}</label>
+                                        <div className="flex flex-wrap gap-2">
+                                            {DENSITY_OPTIONS.map((opt) => {
+                                                const isDisabled = 
+                                                    (opt.val === 6 && config.mode !== 'general') ||
+                                                    ((opt.val === 24 || opt.val === 32) && config.difficultyStart !== 'expert');
+                                                
+                                                return (
+                                                    <button 
+                                                        key={opt.val}
+                                                        onClick={() => setConfig({...config, screensPerStage: opt.val})}
+                                                        disabled={isDisabled}
+                                                        className={`flex-1 min-w-[60px] py-2 rounded-lg text-xs font-bold border transition-all flex flex-col items-center justify-center gap-1 
+                                                            ${isDisabled ? 'opacity-40 cursor-not-allowed bg-gray-50 dark:bg-gray-900 border-gray-100 dark:border-gray-800 text-gray-300' : 
+                                                              (config.screensPerStage === opt.val ? 'bg-gray-100 dark:bg-gray-800 border-gray-400 text-gray-900 dark:text-white' : 'bg-white dark:bg-dark-card border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50')}`}
+                                                        title={isDisabled ? opt.requires : undefined}
+                                                    >
+                                                        <Gauge size={14}/> 
+                                                        {opt.label}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
 
                 <div className="mt-6 flex flex-wrap justify-center gap-2">
-                    {['Quantum Computing', 'React 19', 'Latte Art', 'Docker Networking'].map(tag => (
-                        <button 
-                            key={tag} 
-                            onClick={() => setQuery(tag)}
-                            className="px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-700 text-xs font-bold text-gray-500 hover:border-purple-500 hover:text-purple-500 transition-colors bg-white dark:bg-dark-card"
-                        >
-                            {tag}
-                        </button>
-                    ))}
+                    <button 
+                        onClick={() => { setQuery('OpenGL Triangle'); setConfig({...config, mode: 'technical', difficultyStart: 'novice', screensPerStage: 12}); }}
+                        className="px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-700 text-xs font-bold text-gray-500 hover:border-purple-500 hover:text-purple-500 transition-colors bg-white dark:bg-dark-card"
+                    >
+                        OpenGL (Novice)
+                    </button>
+                    <button 
+                        onClick={() => { setQuery('Kafka Internals'); setConfig({...config, mode: 'technical', difficultyStart: 'expert', stageCount: 9, screensPerStage: 24}); }}
+                        className="px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-700 text-xs font-bold text-gray-500 hover:border-purple-500 hover:text-purple-500 transition-colors bg-white dark:bg-dark-card"
+                    >
+                        Kafka (Expert Deep)
+                    </button>
                 </div>
             </div>
 
@@ -192,6 +310,15 @@ export const Forge: React.FC<ForgeProps> = ({ language, onViewItem, preferences 
                                     <h4 className="text-2xl font-black text-white leading-none relative z-10 line-clamp-2 drop-shadow-md">{item.topic}</h4>
                                 </div>
                                 <div className="p-5 flex-1 flex flex-col">
+                                    <div className="flex gap-2 mb-3">
+                                        {item.config && (
+                                            <>
+                                            <span className="text-[9px] font-bold uppercase bg-gray-100 dark:bg-gray-800 text-gray-500 px-2 py-0.5 rounded">{item.config.mode}</span>
+                                            <span className="text-[9px] font-bold uppercase bg-gray-100 dark:bg-gray-800 text-gray-500 px-2 py-0.5 rounded">{item.config.difficultyStart}</span>
+                                            <span className="text-[9px] font-bold uppercase bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded">{item.config.screensPerStage}pg</span>
+                                            </>
+                                        )}
+                                    </div>
                                     <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed line-clamp-3 mb-4 flex-1">
                                         {item.description}
                                     </p>

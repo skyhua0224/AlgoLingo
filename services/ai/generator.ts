@@ -26,7 +26,8 @@ const isValidWidget = (w: Widget): boolean => {
         return false;
     }
     
-    const type = w.type.toLowerCase();
+    // Normalize type for validation
+    const type = w.type.toLowerCase().replace('fillin', 'fill-in').replace('interactivecode', 'interactive-code');
     
     switch (type) {
         case 'dialogue': 
@@ -60,6 +61,8 @@ const isValidWidget = (w: Widget): boolean => {
             return !!w.miniEditor && !!w.miniEditor.startingCode;
         case 'arch-canvas':
             return !!w.archCanvas && !!w.archCanvas.goal;
+        case 'mermaid':
+            return !!w.mermaid && !!w.mermaid.chart;
         default: 
             return false;
     }
@@ -200,8 +203,14 @@ export const generateLessonPlan = async (
           let newWidgets: Widget[] = [];
 
           screen.widgets.forEach(w => {
-              // Normalize Type
-              if (w.type) w.type = w.type.toLowerCase() as any;
+              // --- TYPE SANITIZATION (CRITICAL FIX) ---
+              // AI often outputs 'fillin' instead of 'fill-in', or 'interactivecode' instead of 'interactive-code'
+              if (w.type) {
+                  w.type = w.type.toLowerCase() as any;
+                  if (w.type === ('fillin' as any)) w.type = 'fill-in';
+                  if (w.type === ('interactivecode' as any)) w.type = 'interactive-code';
+                  if (w.type === ('mermaidvisual' as any)) w.type = 'mermaid';
+              }
 
               // 1. REPAIR: Legacy 'code' type -> 'interactive-code'
               if (w.type === 'code' || (w as any).type === 'code-display') {
@@ -356,7 +365,7 @@ export const generateLessonPlan = async (
           const validWidgets = newWidgets.filter(w => isValidWidget(w));
 
           // Ensure only one interactive widget per screen to prevent overwhelming user
-          const interactiveTypes = ['quiz', 'parsons', 'fill-in', 'leetcode', 'steps-list', 'terminal', 'code-walkthrough', 'mini-editor', 'arch-canvas', 'interactive-code'];
+          const interactiveTypes = ['quiz', 'parsons', 'fill-in', 'leetcode', 'steps-list', 'terminal', 'code-walkthrough', 'mini-editor', 'arch-canvas', 'interactive-code', 'visual-quiz'];
           let interactiveCount = 0;
           
           const finalWidgets = validWidgets.filter(w => {
@@ -464,7 +473,9 @@ export const generateEngineeringLesson = async (
     keywords: string[],
     level: string, 
     preferences: UserPreferences,
-    extraContext?: string 
+    extraContext?: string,
+    topicId?: string, // NEW
+    stepId?: string   // NEW
 ): Promise<LessonPlan> => {
     const systemInstruction = pillar === 'system' 
         ? getSystemArchitectPrompt(topic, keywords, level, extraContext)
@@ -476,7 +487,16 @@ export const generateEngineeringLesson = async (
         const text = await callAI(preferences, systemInstruction, prompt, lessonPlanSchema, true);
         const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
         const plan = JSON.parse(cleanText);
-        plan.context = { type: 'pillar', pillar, topic, phaseIndex: 0, levelId: level }; 
+        // Inject persistence context
+        plan.context = { 
+            type: 'pillar', 
+            pillar, 
+            topic, 
+            phaseIndex: 0, 
+            levelId: level,
+            topicId: topicId, // Track ID
+            stepId: stepId    // Track ID
+        }; 
         return plan;
     } catch (e: any) {
         console.error("Engineering Lesson Generation Failed", e);

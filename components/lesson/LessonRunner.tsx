@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { LessonPlan, MistakeRecord, UserPreferences, Widget, LessonScreen, UserStats } from '../../types';
 import { useLessonEngine, ExamResult } from '../../hooks/useLessonEngine';
 import { useWidgetValidator, WidgetState } from '../../hooks/useWidgetValidator';
+import { regenerateLessonScreen } from '../../services/geminiService';
 import { LessonHeader } from './LessonHeader';
 import { LessonFooter } from './LessonFooter';
 import { LeetCodeRunner } from './LeetCodeRunner';
@@ -39,6 +40,7 @@ interface LessonRunnerProps {
   onComplete: (stats: { xp: number; streak: number }, shouldSave: boolean, mistakes: MistakeRecord[]) => void;
   onExit: () => void;
   onRegenerate?: () => void;
+  onUpdatePlan?: (newPlan: LessonPlan) => void; // New Prop
   language: 'Chinese' | 'English';
   preferences: UserPreferences;
   isReviewMode?: boolean;
@@ -88,6 +90,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
   const [phase, setPhase] = useState<RunnerPhase>('lesson');
   const [sessionMistakes, setSessionMistakes] = useState<MistakeRecord[]>([]);
   const [hasRepaired, setHasRepaired] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
   
   // Detect Exam Mode
   const isExamMode = props.plan.context?.type === 'career_exam';
@@ -141,8 +144,8 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
 
     const isCorrect = validator.validate(activeWidget as Widget, widgetState);
     
-    // Auto-correct specialized engineering widgets
-    const isAutoPass = ['terminal', 'code-walkthrough', 'mini-editor', 'arch-canvas', 'mermaid', 'visual-quiz', 'comparison-table'].includes(activeWidget?.type || '');
+    // Auto-correct specialized engineering widgets (Removed mini-editor)
+    const isAutoPass = ['terminal', 'code-walkthrough', 'arch-canvas', 'mermaid', 'visual-quiz', 'comparison-table'].includes(activeWidget?.type || '');
     
     const finalResult = isAutoPass ? true : isCorrect;
 
@@ -154,6 +157,36 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
         // Standard mode: show feedback
         engine.checkAnswer(finalResult);
     }
+  };
+
+  const handleRegenerateScreen = async (instruction: string) => {
+      if (!engine.currentScreen) return;
+      
+      setIsRegenerating(true);
+      try {
+          const newScreen = await regenerateLessonScreen(
+              engine.currentScreen,
+              props.plan.context,
+              instruction,
+              props.preferences
+          );
+          
+          // Update Engine State (UI)
+          engine.replaceCurrentScreen(newScreen);
+          
+          // Update Global Plan State (Persistence)
+          if (props.onUpdatePlan) {
+              const updatedScreens = [...props.plan.screens];
+              updatedScreens[engine.currentIndex] = newScreen;
+              const updatedPlan = { ...props.plan, screens: updatedScreens };
+              props.onUpdatePlan(updatedPlan);
+          }
+
+      } catch (e) {
+          alert(props.language === 'Chinese' ? "重新生成失败，请重试" : "Regeneration failed, please try again");
+      } finally {
+          setIsRegenerating(false);
+      }
   };
 
   const handleStartRepair = () => {
@@ -343,7 +376,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
                         {/* New Engineering Widgets */}
                         {widget.type === 'terminal' && <TerminalWidget widget={widget} status={engine.status} />}
                         {widget.type === 'code-walkthrough' && <CodeWalkthroughWidget widget={widget} />}
-                        {widget.type === 'mini-editor' && <MiniEditorWidget widget={widget} />}
+                        {widget.type === 'mini-editor' && <MiniEditorWidget widget={widget} onValidationChange={(isValid) => setWidgetState(prev => ({ ...prev, miniEditorValid: isValid }))} />}
                         {widget.type === 'arch-canvas' && <ArchCanvasWidget widget={widget} />}
                         {/* New Forge Widgets */}
                         {widget.type === 'mermaid' && <MermaidVisualWidget widget={widget} />}
@@ -360,6 +393,8 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
             language={props.language}
             isExamMode={isExamMode}
             isLastQuestion={engine.currentIndex === engine.totalScreens - 1}
+            onRegenerate={handleRegenerateScreen}
+            isRegenerating={isRegenerating}
         />
       </div>
     </div>

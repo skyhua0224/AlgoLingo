@@ -13,8 +13,16 @@ import {
 } from '../services/geminiService';
 import { generateRapidExam } from '../services/ai/career/generator';
 import { syncWithGist } from '../services/githubService';
+import { EngineeringTopic, SkillTrack, TopicProfile } from '../types/engineering';
 
 type ViewState = 'dashboard' | 'unit-map' | 'runner' | 'loading' | 'forge-detail' | 'career-runner';
+
+// Navigation state for Engineering Hub
+export interface EngineeringNavState {
+    pillarId: 'system' | 'cs' | 'track' | null;
+    topic: EngineeringTopic | null;
+    trackData: SkillTrack | null;
+}
 
 export const useAppManager = () => {
     // --- STATE ---
@@ -44,8 +52,15 @@ export const useAppManager = () => {
     const [currentLessonPlan, setCurrentLessonPlan] = useState<LessonPlan | null>(null);
     const [activeForgeItem, setActiveForgeItem] = useState<ForgeRoadmap | null>(null);
     const [activeCareerSession, setActiveCareerSession] = useState<CareerSession | null>(null); 
-    const [careerSessions, setCareerSessions] = useState<CareerSession[]>([]); // NEW: Persistent Career History
+    const [careerSessions, setCareerSessions] = useState<CareerSession[]>([]); // Persistent Career History
     const [isSkipAttempt, setIsSkipAttempt] = useState(false);
+    
+    // Engineering Navigation State (New)
+    const [engineeringNav, setEngineeringNav] = useState<EngineeringNavState>({
+        pillarId: null,
+        topic: null,
+        trackData: null
+    });
     
     // Loading & Error State
     const [loadingContext, setLoadingContext] = useState<'lesson' | 'review' | 'clinic' | 'variant' | 'career_exam'>('lesson');
@@ -354,6 +369,11 @@ export const useAppManager = () => {
         setView('runner');
     };
 
+    // Allow LessonRunner to update the current plan (e.g. when regenerating screens)
+    const handleUpdateCurrentPlan = (newPlan: LessonPlan) => {
+        setCurrentLessonPlan(newPlan);
+    };
+
     const handleViewForgeItem = (roadmap: ForgeRoadmap) => {
         setActiveForgeItem(roadmap);
         setView('forge-detail');
@@ -405,6 +425,78 @@ export const useAppManager = () => {
         const newStats = { ...stats, xp: stats.xp + result.xp, streak: stats.streak + result.streak };
         saveStats(newStats);
         
+        // --- PROGRESS PERSISTENCE (ENGINEERING & CAREER) ---
+        const ctx = currentLessonPlan?.context;
+
+        // 1. ENGINEERING HUB (PILLARS & TRACKS)
+        if (ctx?.type === 'pillar' && ctx.topicId && ctx.stepId && ctx.pillar) {
+            const key = `algolingo_eng_v3_${ctx.pillar}_${ctx.topicId}`;
+            const savedProfile = localStorage.getItem(key);
+            if (savedProfile) {
+                try {
+                    const profile = JSON.parse(savedProfile) as TopicProfile;
+                    const stepIdx = profile.roadmap.findIndex((s: any) => s.id === ctx.stepId);
+                    if (stepIdx !== -1) {
+                        // Update Status
+                        profile.roadmap[stepIdx].status = 'completed';
+                        
+                        // --- SAVE CACHED PLAN FOR REPLAY (CRITICAL) ---
+                        if (currentLessonPlan) {
+                            profile.roadmap[stepIdx].cachedPlan = currentLessonPlan;
+                        }
+
+                        // Unlock next step
+                        if (stepIdx + 1 < profile.roadmap.length) {
+                            profile.roadmap[stepIdx + 1].status = 'active';
+                            profile.currentStepIndex = stepIdx + 1;
+                        }
+                        localStorage.setItem(key, JSON.stringify(profile));
+                    }
+                } catch (e) {
+                    console.error("Failed to save Engineering progress", e);
+                }
+            }
+        }
+
+        // 2. FORGE / CAREER (JD PREP)
+        if (ctx?.type === 'forge' && ctx.roadmapId && ctx.stageId) {
+            const key = 'algolingo_forge_history_v2';
+            const savedHistory = localStorage.getItem(key);
+            if (savedHistory) {
+                try {
+                    const history = JSON.parse(savedHistory);
+                    const roadmapIdx = history.findIndex((r: any) => r.id === ctx.roadmapId);
+                    if (roadmapIdx !== -1) {
+                        const roadmap = history[roadmapIdx];
+                        const stageIdx = roadmap.stages.findIndex((s: any) => s.id === ctx.stageId);
+                        if (stageIdx !== -1) {
+                            roadmap.stages[stageIdx].status = 'completed';
+                            if (stageIdx + 1 < roadmap.stages.length) {
+                                roadmap.stages[stageIdx + 1].status = 'unlocked';
+                            }
+                            
+                            // Save Generated Plan for Replay (This ensures regeneration persists)
+                            if (currentLessonPlan) {
+                                roadmap.stages[stageIdx].lessonPlan = currentLessonPlan;
+                            }
+
+                            // Save Updated History
+                            history[roadmapIdx] = roadmap;
+                            localStorage.setItem(key, JSON.stringify(history));
+                            
+                            // Sync active view state if user is currently viewing this roadmap
+                            // CRITICAL FIX: Create a SHALLOW COPY ({...roadmap}) to force React to detect change and re-render ForgeDetailView
+                            if (activeForgeItem?.id === ctx.roadmapId) {
+                                setActiveForgeItem({ ...roadmap });
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error("Failed to save Forge progress", e);
+                }
+            }
+        }
+
         // IF EXAM: Save to SavedLessons with Tag
         if (currentLessonPlan && currentLessonPlan.context?.type === 'career_exam') {
             const savedLesson: SavedLesson = {
@@ -426,7 +518,13 @@ export const useAppManager = () => {
             return;
         }
 
-        setView('dashboard');
+        // Restore Engineering Hub View if returning from engineering lesson
+        if (ctx?.type === 'pillar') {
+            setView('dashboard');
+            setActiveTab('engineering');
+        } else {
+            setView('dashboard');
+        }
         setCurrentLessonPlan(null);
     };
 
@@ -437,7 +535,8 @@ export const useAppManager = () => {
             activeProblem, activeNodeIndex, currentLessonPlan,
             loadingContext, generationError, generationRawError,
             isSkipAttempt, activeForgeItem, 
-            activeCareerSession, careerSessions, pendingExamConfig
+            activeCareerSession, careerSessions, pendingExamConfig,
+            engineeringNav // Expose this
         },
         actions: {
             setView, setActiveTab,
@@ -454,7 +553,9 @@ export const useAppManager = () => {
             handleStartCareerExam,
             handleRetryLoading,
             handleLessonComplete,
-            onResetData: () => { localStorage.clear(); window.location.reload(); }
+            handleUpdateCurrentPlan, // Export new action
+            onResetData: () => { localStorage.clear(); window.location.reload(); },
+            setEngineeringNav
         }
     };
 };

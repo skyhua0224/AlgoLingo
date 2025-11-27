@@ -62,6 +62,15 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
         // or they can just click "Continue" in the footer.
     }, []);
 
+    const replaceCurrentScreen = useCallback((newScreen: LessonScreen) => {
+        setScreens(prev => {
+            const updated = [...prev];
+            updated[currentIndex] = newScreen;
+            return updated;
+        });
+        setStatus('idle');
+    }, [currentIndex]);
+
     const handleCheck = useCallback((isCorrect: boolean) => {
         if (isCorrect) {
             setStatus('correct');
@@ -161,6 +170,7 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
         retryCurrent,
         startMistakeRepair,
         continueAsPractice,
-        submitExamAnswer
+        submitExamAnswer,
+        replaceCurrentScreen
     };
 };

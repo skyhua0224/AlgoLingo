@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { EngineeringTopic, TopicProfile } from '../../../../types/engineering';
-import { ArrowLeft, BookOpen, Code2, Bug, Crown, Lock, CheckCircle, Network, Sliders } from 'lucide-react';
+import { ArrowLeft, BookOpen, Code2, Bug, Crown, Lock, CheckCircle, Network, History, Tag, Terminal, PenTool, Layout } from 'lucide-react';
 
 interface TopicMapProps {
     topic: EngineeringTopic;
@@ -53,15 +53,23 @@ export const TopicMap: React.FC<TopicMapProps> = ({ topic, profile, pillarId, on
         return <BookOpen size={20} />;
     };
 
+    // Helper to get icon for specific tags
+    const getTagIcon = (tag: string) => {
+        const lower = tag.toLowerCase();
+        if (lower.includes('terminal')) return <Terminal size={10}/>;
+        if (lower.includes('editor') || lower.includes('code')) return <PenTool size={10}/>;
+        if (lower.includes('arch') || lower.includes('canvas')) return <Layout size={10}/>;
+        if (lower.includes('quiz') || lower.includes('check')) return <CheckCircle size={10}/>;
+        return <Tag size={10}/>;
+    };
+
     // Dynamic Grouping: Every 2 steps form a "Chapter"
-    // This is purely visual grouping for the UI
     const groups = [];
     for (let i = 0; i < profile.roadmap.length; i += 2) {
         const chapterNum = Math.floor(i / 2) + 1;
         let title = isZh ? `第 ${chapterNum} 章` : `Chapter ${chapterNum}`;
         let desc = "";
         
-        // Simple heuristic for chapter names based on position
         const progress = i / profile.roadmap.length;
         if (progress < 0.25) { 
             title += isZh ? "：认知基石" : ": Cognition"; 
@@ -127,6 +135,7 @@ export const TopicMap: React.FC<TopicMapProps> = ({ topic, profile, pillarId, on
                                 const isActive = step.status === 'active';
                                 const isCompleted = step.status === 'completed';
                                 const globalIdx = gIdx * 2 + idx;
+                                const hasCache = !!step.cachedPlan;
 
                                 let nodeStyle = theme.nodeLocked;
                                 if (isActive) nodeStyle = theme.nodeActive;
@@ -160,13 +169,29 @@ export const TopicMap: React.FC<TopicMapProps> = ({ topic, profile, pillarId, on
                                                         PHASE {String(globalIdx + 1).padStart(2, '0')}
                                                     </span>
                                                     {isActive && <span className="w-2 h-2 rounded-full bg-current animate-pulse"></span>}
+                                                    {hasCache && isCompleted && (
+                                                        <div className="flex items-center gap-1 text-[9px] font-bold text-gray-400 bg-gray-100 dark:bg-white/10 px-2 py-0.5 rounded-full">
+                                                            <History size={10}/> {isZh ? "回放" : "Replay"}
+                                                        </div>
+                                                    )}
                                                 </div>
                                                 <h3 className={`text-lg font-bold mb-1 ${isLocked ? 'text-gray-500' : theme.text}`}>
                                                     {step.title[langKey]}
                                                 </h3>
-                                                <p className={`text-xs ${theme.subText} leading-relaxed font-medium`}>
+                                                <p className={`text-xs ${theme.subText} leading-relaxed font-medium mb-3`}>
                                                     {step.description[langKey]}
                                                 </p>
+                                                
+                                                {/* Tags (Content Preview) */}
+                                                {step.tags && step.tags.length > 0 && !isLocked && (
+                                                    <div className="flex flex-wrap gap-1 mt-2">
+                                                        {step.tags.map((tag: string, tIdx: number) => (
+                                                            <span key={tIdx} className="text-[9px] font-bold px-2 py-1 rounded-md bg-gray-100 dark:bg-white/5 text-gray-500 dark:text-gray-400 flex items-center gap-1 border border-gray-200 dark:border-gray-700">
+                                                                {getTagIcon(tag)} {tag}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </button>
                                         </div>
                                     </div>

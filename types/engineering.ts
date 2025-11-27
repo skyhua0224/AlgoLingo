@@ -1,4 +1,6 @@
 
+import { LessonPlan } from './lesson';
+
 // Data models for the Engineering Hub
 
 export type SkillLevel = 'Novice' | 'Junior' | 'Mid' | 'Senior' | 'Expert';
@@ -75,6 +77,8 @@ export interface EngineeringStep {
     description: LocalizedContent;
     focus: 'concept' | 'code' | 'debug' | 'design' | 'mastery'; 
     status: 'locked' | 'active' | 'completed';
+    tags?: string[]; // e.g. ["Theory", "Quiz", "Mini-Editor", "Terminal"]
+    cachedPlan?: LessonPlan; // Store generated lesson for instant replay
 }
 
 // User progress profile for a specific topic/lesson

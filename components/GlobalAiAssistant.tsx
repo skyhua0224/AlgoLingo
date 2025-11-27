@@ -11,6 +11,16 @@ interface GlobalAiAssistantProps {
     currentPlan?: LessonPlan | null; // Added plan prop for debugging
 }
 
+// Helper to safely stringify JSON while truncating long strings (e.g. Base64 Images)
+const safeStringify = (obj: any) => {
+    return JSON.stringify(obj, (key, value) => {
+        if (typeof value === 'string' && value.length > 200 && (value.startsWith('data:image') || key === 'headerImage')) {
+            return `<Base64 Image Truncated: ${value.length} chars>`;
+        }
+        return value;
+    }, 2);
+};
+
 // Simple Markdown Formatter (Bold, Code, Newline)
 const formatMessage = (text: string) => {
     if (!text) return null;
@@ -175,7 +185,7 @@ export const GlobalAiAssistant: React.FC<GlobalAiAssistantProps> = ({ problemNam
                     </div>
                     <div className="flex-1 overflow-auto bg-black p-2 rounded-xl border border-gray-800">
                         <pre className="text-[10px] font-mono text-green-400 whitespace-pre-wrap break-all">
-                            {JSON.stringify(currentPlan, null, 2)}
+                            {safeStringify(currentPlan)}
                         </pre>
                     </div>
                     <button 

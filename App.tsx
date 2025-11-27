@@ -58,7 +58,7 @@ export default function App() {
               return (
                 <ForgeDetailView 
                     roadmap={roadmap}
-                    onBack={() => actions.setView('career')}
+                    onBack={() => actions.setView('dashboard')}
                     onStartStage={(plan) => actions.handleStartCustomLesson(plan)}
                     preferences={preferences}
                     language={preferences.spokenLanguage}
@@ -73,7 +73,7 @@ export default function App() {
               onUpdateSession={(updated) => {
                   actions.handleStartCareerSession(updated); 
               }}
-              onExit={() => actions.setView('career')}
+              onExit={() => actions.setView('dashboard')}
               preferences={preferences}
               language={preferences.spokenLanguage}
           />
@@ -96,7 +96,7 @@ export default function App() {
                 onRetry={actions.handleRetryLoading}
                 error={generationError}
                 rawErrorOutput={generationRawError}
-                onCancel={() => actions.setView(activeTab === 'career' ? 'career' : 'dashboard')}
+                onCancel={() => actions.setView('dashboard')}
             />
         );
     }
@@ -124,7 +124,7 @@ export default function App() {
         return (
             <ForgeDetailView 
                 roadmap={activeForgeItem}
-                onBack={() => actions.setView(activeTab === 'career' ? 'career' : 'forge')}
+                onBack={() => actions.setView('dashboard')}
                 onStartStage={(plan) => actions.handleStartCustomLesson(plan)}
                 preferences={preferences}
                 language={preferences.spokenLanguage}
@@ -211,10 +211,10 @@ export default function App() {
                 onComplete={actions.handleLessonComplete}
                 onExit={() => {
                     if (activeForgeItem) actions.setView('forge-detail');
-                    else if (activeTab === 'career') actions.setView('career');
                     else actions.setView('dashboard');
                 }}
                 onRegenerate={actions.handleRetryLoading}
+                onUpdatePlan={actions.handleUpdateCurrentPlan} // Pass update handler
                 language={preferences.spokenLanguage}
                 preferences={preferences}
                 isReviewMode={state.loadingContext === 'review'}

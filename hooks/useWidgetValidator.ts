@@ -6,6 +6,7 @@ export interface WidgetState {
     parsonsOrder?: string[];
     fillInAnswers?: string[];
     stepsOrder?: string[];
+    miniEditorValid?: boolean;
 }
 
 // Helper to match the cleaning logic in ParsonsWidget
@@ -84,6 +85,9 @@ export const useWidgetValidator = () => {
                      return false; 
                  }
                  return true;
+
+            case 'mini-editor':
+                return !!state.miniEditorValid;
 
             default:
                 return true;

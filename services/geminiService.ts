@@ -1,6 +1,7 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { getClient } from "./ai/client";
-import { UserPreferences, LessonPlan, Widget } from "../types";
+import { UserPreferences, LessonPlan, Widget, LessonScreen } from "../types";
 import { ForgeRoadmap } from "../types/forge";
 import { SkillTrack, EngineeringStep } from "../types/engineering";
 import { AIGenerationError } from "./ai/generator";
@@ -9,7 +10,9 @@ import { getForgeRoadmapPrompt, getForgeStagePrompt } from "./ai/prompts/forge";
 import { getTrackSyllabusPrompt } from "./ai/prompts/engineering/track_generator";
 import { getTrackSuggestionPrompt } from "./ai/prompts/engineering/track_suggestions";
 import { getTopicRoadmapPrompt } from "./ai/prompts/engineering/topic_roadmap";
+import { getRegenerateScreenPrompt } from "./ai/prompts/regenerate";
 import { lessonPlanSchema } from "./ai/schemas";
+import { ForgeGenConfig } from "../types/forge";
 
 // Re-export existing generators from the dedicated generator file
 export { 
@@ -52,6 +55,8 @@ const sanitizeLessonPlan = (rawPlan: any): LessonPlan => {
                     // Normalize types
                     if (type === 'mermaidvisual') type = 'mermaid';
                     if (type === 'comparisontable') type = 'comparison-table';
+                    if (type === 'fillin') type = 'fill-in';
+                    if (type === 'interactivecode') type = 'interactive-code';
                     
                     const safeWidget: Widget = {
                         id: w.id || `w_${sIdx}_${wIdx}`,
@@ -62,7 +67,7 @@ const sanitizeLessonPlan = (rawPlan: any): LessonPlan => {
                         quiz: w.quiz,
                         interactiveCode: w.interactiveCode,
                         parsons: w.parsons,
-                        fillIn: w.fillIn,
+                        fillIn: w.fillIn || w.fillin, // Handle both casing
                         stepsList: w.stepsList,
                         mermaid: w.mermaid,
                         visualQuiz: w.visualQuiz,
@@ -129,9 +134,16 @@ const callAI = async (
 
 // --- FORGE GENERATORS ---
 
-export const generateForgeRoadmap = async (topic: string, preferences: UserPreferences): Promise<ForgeRoadmap> => {
-    const systemInstruction = getForgeRoadmapPrompt(topic, preferences.spokenLanguage);
-    const prompt = `Search and create roadmap for: ${topic}`;
+export const generateForgeRoadmap = async (
+    topic: string, 
+    config: ForgeGenConfig,
+    preferences: UserPreferences
+): Promise<ForgeRoadmap> => {
+    const systemInstruction = getForgeRoadmapPrompt(topic, preferences.spokenLanguage, config);
+    // Explicitly reinforced instructions about the stage count
+    const prompt = `Search and create a ${config.stageCount}-stage learning roadmap for: ${topic}. 
+    CRITICAL: You MUST generate an array of EXACTLY ${config.stageCount} stages. 
+    Do not generate fewer. Do not generate more.`;
     
     const forgePreferences = { 
         ...preferences, 
@@ -160,6 +172,7 @@ export const generateForgeRoadmap = async (topic: string, preferences: UserPrefe
             topic: topic,
             title: data.title || topic,
             description: data.description || "AI Generated Course",
+            config: config, // Store for later
             createdAt: Date.now(),
             stages: data.stages.map((s: any) => ({
                 ...s,
@@ -178,18 +191,27 @@ export const generateForgeStage = async (
     stageId: number, 
     preferences: UserPreferences
 ): Promise<LessonPlan> => {
-    const stage = roadmap.stages.find(s => s.id === stageId);
+    const stageIndex = roadmap.stages.findIndex(s => s.id === stageId);
+    const stage = roadmap.stages[stageIndex];
     if (!stage) throw new Error("Stage not found");
+
+    // Use stored config or default
+    const config = roadmap.config || { mode: 'technical', difficultyStart: 'intermediate', stageCount: 6, screensPerStage: 6 };
 
     const systemInstruction = getForgeStagePrompt(
         roadmap.topic, 
         stage.title, 
         stage.description, 
         stage.focus, 
-        preferences.spokenLanguage
+        preferences.spokenLanguage,
+        config,
+        stageIndex // Pass index for progression logic (beginner protection)
     );
     
-    const prompt = `Generate detailed lesson content for stage ${stageId}`;
+    // Reinforce screen count in user prompt as well
+    const prompt = `Generate detailed lesson content for stage ${stageId}: "${stage.title}". 
+    Generate EXACTLY ${config.screensPerStage || 6} screens. 
+    Make it rich, visual, and interactive.`;
 
     try {
         const text = await callAI(preferences, systemInstruction, prompt, lessonPlanSchema, true);
@@ -197,45 +219,21 @@ export const generateForgeStage = async (
         const rawPlan = JSON.parse(cleanText);
         
         const plan = sanitizeLessonPlan(rawPlan);
-        if (roadmap.coverImage) plan.headerImage = roadmap.coverImage;
         
+        // Inject context for progress saving AND Regeneration context
+        plan.context = {
+            type: 'forge',
+            topic: roadmap.topic, // CRITICAL for regeneration
+            stageTitle: stage.title,
+            roadmapId: roadmap.id,
+            stageId: stageId
+        };
+
         return plan;
     } catch (e: any) {
         console.error("Forge Stage Generation Failed", e);
         throw new AIGenerationError("Failed to generate stage content.", e.message);
     }
-};
-
-export const generateForgeImage = async (topic: string, preferences: UserPreferences): Promise<string | undefined> => {
-    const client = getClient(preferences);
-    const model = 'gemini-2.5-flash-image';
-    
-    try {
-        const response = await client.models.generateContent({
-            model: model,
-            contents: {
-                parts: [
-                    { text: `Create a high quality, artistic, futuristic cover image for a lesson about: ${topic}. Minimalist, vector style, vibrant colors.` }
-                ]
-            },
-            config: {
-                imageConfig: {
-                    aspectRatio: "16:9",
-                }
-            }
-        });
-
-        if (response.candidates?.[0]?.content?.parts) {
-            for (const part of response.candidates[0].content.parts) {
-                if (part.inlineData) {
-                    return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-                }
-            }
-        }
-    } catch (e) {
-        console.error("Image Generation Failed", e);
-    }
-    return undefined;
 };
 
 // --- NEW ENGINEERING FUNCTIONS ---
@@ -313,5 +311,38 @@ export const generateEngineeringRoadmap = async (
         }));
     } catch (e: any) {
         throw new AIGenerationError("Failed to generate engineering roadmap.", e.message);
+    }
+};
+
+// --- REGENERATE SCREEN ---
+export const regenerateLessonScreen = async (
+    currentScreen: LessonScreen,
+    planContext: any,
+    userInstruction: string,
+    preferences: UserPreferences
+): Promise<LessonScreen> => {
+    const systemInstruction = getRegenerateScreenPrompt(
+        currentScreen.header || "Lesson Screen",
+        planContext,
+        userInstruction,
+        preferences.spokenLanguage,
+        preferences.targetLanguage
+    );
+    
+    const prompt = "Regenerate this screen based on the user instruction and context.";
+
+    try {
+        const text = await callAI(preferences, systemInstruction, prompt, undefined, true);
+        const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
+        let screenData = JSON.parse(cleanText);
+        
+        // Wrap in plan structure to use existing sanitizer
+        const mockPlan = { screens: [screenData] };
+        const safePlan = sanitizeLessonPlan(mockPlan);
+        
+        return safePlan.screens[0];
+    } catch (e: any) {
+        console.error("Regeneration Failed", e);
+        throw new AIGenerationError("Failed to regenerate screen.", e.message);
     }
 };

@@ -129,6 +129,12 @@ export const generateJDSyllabus = async (
             title: data.title || "Job Prep Plan",
             description: data.description || "Tailored based on your JD.",
             stages: data.stages || [],
+            config: {
+                mode: 'technical',
+                difficultyStart: 'intermediate',
+                stageCount: 6,
+                screensPerStage: 6
+            },
             createdAt: Date.now()
         };
     } catch (e) {
@@ -237,34 +243,36 @@ export const generateAICompanies = async (
         const response = await client.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
-            config: { responseMimeType: "application/json" }
+            config: { 
+                responseMimeType: "application/json",
+                temperature: 0.8
+            }
         });
         
         const text = response.text || "{}";
         const data = JSON.parse(text);
         
-        return (data.companies || []).map((c: any) => {
-            // Map raw strings to RoleDefinition objects
-            const richRoles: RoleDefinition[] = (c.roles || []).map((r: string, idx: number) => ({
-                id: `gen_role_${idx}`,
-                title: r,
-                requirements: c.tags ? c.tags.slice(0, 3) : ['General'],
-                languages: ['Python', 'Java', 'JavaScript'] // Default set
-            }));
+        if (!data.companies || !Array.isArray(data.companies)) return [];
 
-            return {
-                id: `gen_${Date.now()}_${Math.random()}`,
-                name: c.name,
-                description: c.description,
-                region: c.region || 'global',
-                domain: c.domain || category,
-                roles: richRoles,
-                tags: c.tags || [],
-                category: category as any,
-                color: 'from-gray-700 to-gray-900', // Default dark
-                icon: 'Building2'
-            };
-        });
+        return data.companies.map((c: any, idx: number) => ({
+            id: `ai_comp_${Date.now()}_${idx}`,
+            name: c.name,
+            description: c.description,
+            region: c.region || 'global',
+            domain: c.domain || category,
+            category: category as any,
+            color: ['from-purple-500 to-indigo-500', 'from-pink-500 to-rose-500', 'from-cyan-500 to-blue-500'][idx % 3],
+            icon: c.icon || 'Building2',
+            tags: c.tags || ['AI Generated'],
+            roles: Array.isArray(c.roles) 
+                ? c.roles.map((r: string, rIdx: number) => ({
+                    id: `ai_role_${Date.now()}_${idx}_${rIdx}`,
+                    title: r,
+                    requirements: ["General Competence", "Problem Solving"], 
+                    languages: [preferences.targetLanguage]
+                }))
+                : []
+        }));
 
     } catch (e) {
         console.error("Company Gen Failed", e);

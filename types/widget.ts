@@ -101,33 +101,33 @@ export interface Widget {
 
   terminal?: {
       initialOutput?: string; 
-      command: string; 
-      feedback: string; 
+      command: string; // Regex or exact string to match
+      feedback: string; // Output on success
       hint?: string; 
-      allowedCommands?: string[]; 
+      allowedCommands?: string[]; // List of valid commands that might not be THE answer but give valid output
   };
 
   codeWalkthrough?: {
       code: string;
       language: string;
       steps: {
-          lines: number[]; 
-          content: string; 
+          lines: number[]; // 1-based line numbers to highlight
+          content: string; // Markdown explanation
       }[];
   };
 
   miniEditor?: {
       language: string;
       startingCode: string; 
-      solutionSnippet: string; 
-      validationRegex?: string; 
+      solutionSnippet: string; // For AI validation reference
+      validationRegex?: string; // Simple regex check
       taskDescription: string;
   };
 
   archCanvas?: {
       goal: string; 
       initialComponents?: string[]; 
-      requiredComponents: string[]; 
+      requiredComponents: string[]; // IDs of components that must be present
       requiredConnections?: { from: string, to: string }[]; 
   };
 

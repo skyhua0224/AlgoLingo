@@ -1,10 +1,10 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { ForgeRoadmap, ForgeStage } from '../../types/forge';
-import { ArrowLeft, Lightbulb, Layers, ArrowRight, Play, Sparkles, BookOpen, CheckCircle, Lock, Loader2 } from 'lucide-react';
+import { ArrowLeft, Lightbulb, Layers, ArrowRight, Play, Sparkles, BookOpen, CheckCircle, Lock, Loader2, RotateCcw, AlertTriangle } from 'lucide-react';
 import { generateForgeStage } from '../../services/geminiService';
 import { UserPreferences } from '../../types';
-import { LevelNode } from '../common/GamifiedMap';
+import { Button } from '../Button';
 
 interface ForgeDetailViewProps {
     roadmap: ForgeRoadmap;
@@ -20,15 +20,10 @@ const ICON_MAP: Record<string, any> = {
 
 export const ForgeDetailView: React.FC<ForgeDetailViewProps> = ({ roadmap, onBack, onStartStage, preferences, language }) => {
     const [loadingStageId, setLoadingStageId] = useState<number | null>(null);
+    const [selectedStage, setSelectedStage] = useState<ForgeStage | null>(null);
     const isZh = language === 'Chinese';
 
-    const handleStageClick = async (stage: ForgeStage) => {
-        // If plan already cached, use it
-        if (stage.lessonPlan) {
-            onStartStage(stage.lessonPlan);
-            return;
-        }
-
+    const generateStage = async (stage: ForgeStage) => {
         setLoadingStageId(stage.id);
         try {
             const plan = await generateForgeStage(roadmap, stage.id, preferences);
@@ -42,6 +37,30 @@ export const ForgeDetailView: React.FC<ForgeDetailViewProps> = ({ roadmap, onBac
             alert("Failed to generate stage content. Please try again.");
         } finally {
             setLoadingStageId(null);
+        }
+    };
+
+    const handleStageClick = (stage: ForgeStage) => {
+        if (stage.lessonPlan) {
+            setSelectedStage(stage); // Show modal choice
+        } else {
+            generateStage(stage); // Direct generate
+        }
+    };
+
+    const handleStartCached = () => {
+        if (selectedStage?.lessonPlan) {
+            onStartStage(selectedStage.lessonPlan);
+            setSelectedStage(null);
+        }
+    };
+
+    const handleRegenerate = () => {
+        if (selectedStage) {
+            const stage = selectedStage;
+            setSelectedStage(null);
+            // Clear cache implicitly by generating new one (will overwrite on success)
+            generateStage(stage);
         }
     };
 
@@ -60,24 +79,66 @@ export const ForgeDetailView: React.FC<ForgeDetailViewProps> = ({ roadmap, onBac
         card: "bg-white dark:bg-white/5 border-purple-100 dark:border-white/10 hover:shadow-lg hover:border-purple-300 dark:hover:border-white/20"
     };
 
-    // Helper to group stages into chapters
-    const groups = [
-        {
-            title: isZh ? "第一章：核心概念" : "Chapter 1: Core Concepts",
-            desc: isZh ? "建立认知基石" : "Foundations & Structure",
-            stages: roadmap.stages.slice(0, 2)
-        },
-        {
-            title: isZh ? "第二章：深度机制" : "Chapter 2: Mechanics",
-            desc: isZh ? "理解流程与细节" : "Process & Nuance",
-            stages: roadmap.stages.slice(2, 4)
-        },
-        {
-            title: isZh ? "第三章：实战精通" : "Chapter 3: Mastery",
-            desc: isZh ? "应用与洞察" : "Application & Insight",
-            stages: roadmap.stages.slice(4, 6)
+    // DYNAMIC GROUPING LOGIC REWRITTEN
+    const groups = useMemo(() => {
+        const totalStages = roadmap.stages.length;
+        
+        // Define Chapter Titles (Extended)
+        const titlesZh = [
+            "第一章：核心概念", "第二章：深度机制", "第三章：实战精通", 
+            "第四章：高级优化", "第五章：架构模式", "第六章：底层原理",
+            "第七章：综合案例", "第八章：前沿探索", "第九章：极限挑战", "第十章：大师之路"
+        ];
+        const titlesEn = [
+            "Chapter 1: Core Concepts", "Chapter 2: Deep Mechanics", "Chapter 3: Practical Mastery",
+            "Chapter 4: Optimization", "Chapter 5: Architecture", "Chapter 6: Internals",
+            "Chapter 7: Case Studies", "Chapter 8: Frontiers", "Chapter 9: Challenge", "Chapter 10: Master Class"
+        ];
+        
+        const descsZh = [
+            "建立认知基石", "理解流程与细节", "应用与洞察", 
+            "性能与效率", "设计模式与结构", "源码与内核",
+            "真实场景模拟", "新技术趋势", "高难度试炼", "最终认证"
+        ];
+        const descsEn = [
+            "Foundations", "Process & Nuance", "Application", 
+            "Performance", "Design Patterns", "Under the Hood",
+            "Real World", "New Trends", "Hardcore Mode", "Certification"
+        ];
+
+        // If very small roadmap (<= 4 stages), keep as single chapter
+        if (totalStages <= 4) {
+            return [{
+                title: isZh ? "全课程概览" : "Course Overview",
+                desc: isZh ? "基础与核心" : "Fundamentals",
+                stages: roadmap.stages
+            }];
         }
-    ];
+
+        // Determine chunk size to keep chapters balanced (aim for 3-4 stages per chapter)
+        let chunkSize = 3;
+        if (totalStages >= 16) chunkSize = 4; 
+        
+        const chapters = [];
+        
+        for (let i = 0; i < totalStages; i += chunkSize) {
+            const chapterIndex = Math.floor(i / chunkSize);
+            const currentTitles = isZh ? titlesZh : titlesEn;
+            const currentDescs = isZh ? descsZh : descsEn;
+
+            // Safe title fallback
+            const title = currentTitles[chapterIndex] || `${isZh ? '第' : 'Chapter'} ${chapterIndex + 1} ${isZh ? '章' : ''}`;
+            const desc = currentDescs[chapterIndex] || (isZh ? "进阶内容" : "Advanced Topics");
+
+            chapters.push({
+                title,
+                desc,
+                stages: roadmap.stages.slice(i, i + chunkSize)
+            });
+        }
+        
+        return chapters;
+    }, [roadmap.stages, isZh]);
 
     const renderIcon = (iconName: string) => {
         const Icon = ICON_MAP[iconName] || BookOpen;
@@ -86,6 +147,51 @@ export const ForgeDetailView: React.FC<ForgeDetailViewProps> = ({ roadmap, onBac
 
     return (
         <div className={`flex flex-col h-full min-h-screen relative ${theme.bg} ${theme.text} transition-colors duration-500`}>
+            
+            {/* Action Modal */}
+            {selectedStage && (
+                <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6 animate-fade-in-up">
+                    <div className="bg-white dark:bg-dark-card rounded-3xl p-8 w-full max-w-md shadow-2xl border border-gray-200 dark:border-gray-700 relative">
+                        <button onClick={() => setSelectedStage(null)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+                            <Lock size={20} className="opacity-0"/> {/* Spacer */}
+                        </button>
+                        
+                        <div className="flex flex-col items-center text-center mb-6">
+                            <div className="w-16 h-16 rounded-2xl bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 flex items-center justify-center mb-4 shadow-sm">
+                                {renderIcon(selectedStage.icon)}
+                            </div>
+                            <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-2">{selectedStage.title}</h3>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">{selectedStage.description}</p>
+                        </div>
+
+                        <div className="space-y-3">
+                            <button 
+                                onClick={handleStartCached}
+                                className="w-full py-4 bg-brand text-white rounded-xl font-bold shadow-lg hover:bg-brand-light transition-all flex items-center justify-center gap-2 group"
+                            >
+                                <Play size={20} fill="currentColor"/>
+                                {isZh ? "继续学习" : "Continue Learning"}
+                            </button>
+                            
+                            <button 
+                                onClick={handleRegenerate}
+                                className="w-full py-4 bg-white dark:bg-dark-card border-2 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 rounded-xl font-bold hover:border-purple-400 hover:text-purple-500 transition-all flex items-center justify-center gap-2"
+                            >
+                                <RotateCcw size={18}/>
+                                {isZh ? "重新生成 (覆盖旧数据)" : "Regenerate (Overwrite)"}
+                            </button>
+                            
+                            <button 
+                                onClick={() => setSelectedStage(null)}
+                                className="w-full py-2 text-gray-400 font-bold text-xs hover:text-gray-600"
+                            >
+                                {isZh ? "取消" : "Cancel"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Header */}
             <div className={`p-6 border-b ${theme.border} flex items-center gap-4 ${theme.headerBg} backdrop-blur-sm sticky top-0 z-20 shrink-0`}>
                 <button onClick={onBack} className={`p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 ${theme.subText} hover:${theme.text} transition-colors`}>
@@ -102,6 +208,9 @@ export const ForgeDetailView: React.FC<ForgeDetailViewProps> = ({ roadmap, onBac
                         <p className={`text-xs ${theme.subText} font-medium truncate max-w-[200px]`}>
                             {roadmap.description}
                         </p>
+                        <span className="text-[10px] font-mono text-gray-400 border-l pl-2 ml-1 border-gray-300 dark:border-gray-600">
+                            {roadmap.stages.length} Steps
+                        </span>
                     </div>
                 </div>
             </div>
@@ -129,7 +238,10 @@ export const ForgeDetailView: React.FC<ForgeDetailViewProps> = ({ roadmap, onBac
                                 const isCompleted = status === 'completed';
                                 const isLoading = loadingStageId === stage.id;
                                 
-                                const globalIdx = gIdx * 2 + idx;
+                                // Calculate global index for display
+                                let prevCount = 0;
+                                for(let k=0; k<gIdx; k++) prevCount += groups[k].stages.length;
+                                const globalIdx = prevCount + idx;
 
                                 let nodeStyle = theme.nodeLocked;
                                 if (isActive) nodeStyle = theme.nodeActive;
@@ -163,6 +275,9 @@ export const ForgeDetailView: React.FC<ForgeDetailViewProps> = ({ roadmap, onBac
                                                         STAGE {String(globalIdx + 1).padStart(2, '0')}
                                                     </span>
                                                     {isActive && <span className="w-2 h-2 rounded-full bg-current animate-pulse"></span>}
+                                                    {stage.lessonPlan && isCompleted && (
+                                                        <span className="text-[9px] px-2 py-0.5 bg-gray-100 dark:bg-white/10 rounded text-gray-500 font-bold">CACHED</span>
+                                                    )}
                                                 </div>
                                                 <h3 className={`text-lg font-bold mb-1 ${isLocked ? 'text-gray-500' : theme.text}`}>
                                                     {stage.title}

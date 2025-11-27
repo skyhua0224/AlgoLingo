@@ -25,16 +25,26 @@ export interface LessonPlan {
   suggestedQuestions: string[]; 
   isLocalReplay?: boolean; 
   context?: {
-      type: 'syntax' | 'algo' | 'pillar' | 'career_exam';
+      type: 'syntax' | 'algo' | 'pillar' | 'career_exam' | 'forge';
       language?: string;
       unitId?: string;
       lessonId?: string;
       phaseIndex?: number;
+      
+      // Engineering Context
       pillar?: string;
       topic?: string;
+      topicId?: string; // NEW: For saving progress
       levelId?: string;
-      companyName?: string; // For Career Exams
-      roleName?: string;    // For Career Exams
+      stepId?: string;  // NEW: For saving progress
+
+      // Career/Forge Context
+      roadmapId?: string; // NEW
+      stageId?: number;   // NEW
+      stageTitle?: string; // NEW: For regeneration context
+      companyName?: string; 
+      roleName?: string;
+      timeLimit?: number;
   };
 }
 

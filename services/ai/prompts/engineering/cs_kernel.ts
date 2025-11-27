@@ -7,7 +7,7 @@ const PHASE_STRATEGIES: Record<string, string> = {
     **PHASE 01: INTUITION & ANALOGY (Physical Reality)**
     - **GOAL**: Explain the physical/logical constraint without code.
     - **WIDGETS ALLOWED**: 'dialogue', 'flipcard', 'quiz'.
-    - **FORBIDDEN**: 'parsons', 'code', 'terminal'.
+    - **FORBIDDEN**: 'parsons', 'code', 'terminal', 'mini-editor'.
     - **STYLE**: "Think of a CPU core like a worker at a desk..."
     `,
     'phase_02': `
@@ -20,25 +20,27 @@ const PHASE_STRATEGIES: Record<string, string> = {
     'phase_03': `
     **PHASE 03: THE WORKFLOW (Lifecycle)**
     - **GOAL**: Visualize the lifecycle of the object/process.
-    - **WIDGETS ALLOWED**: 'steps-list' (State transitions), 'interactive-code'.
+    - **WIDGETS ALLOWED**: 'steps-list' (State transitions), 'mermaid' (Flowchart), 'interactive-code'.
     - **FOCUS**: 3-way handshake steps, Thread state machine (Ready->Running->Blocked).
     `,
     'phase_04': `
     **PHASE 04: SYSCALLS & ABI (The Boundary)**
     - **GOAL**: Crossing from User Space to Kernel Space.
-    - **WIDGETS ALLOWED**: 'fill-in' (Syscall args), 'quiz' (Context switching).
+    - **WIDGETS ALLOWED**: 'fill-in' (Syscall args), 'quiz' (Context switching), 'terminal' (strace simulation).
     - **FOCUS**: fork(), exec(), ioctl(), trap instructions.
     `,
     'phase_05': `
     **PHASE 05: IMPLEMENTATION (Low Level)**
     - **GOAL**: Interacting with the Runtime.
-    - **WIDGETS ALLOWED**: 'fill-in' (C/C++ snippets), 'terminal' (strace/gdb), 'mini-editor'.
+    - **WIDGETS ALLOWED**: 'fill-in' (C/C++ snippets), 'code-walkthrough' (Kernel source reading), 'mini-editor'.
+    - **WIDGETS MANDATORY**: Use 'code-walkthrough' to explain a complex kernel function.
     - **FOCUS**: malloc() implementation, socket options, bitwise ops.
     `,
     'phase_06': `
     **PHASE 06: MEMORY & LAYOUT (The Map)**
     - **GOAL**: Understanding physical/virtual addressing.
-    - **WIDGETS ALLOWED**: 'interactive-code' (Pointer arithmetic), 'quiz' (Segmentation).
+    - **WIDGETS ALLOWED**: 'interactive-code' (Pointer arithmetic), 'quiz' (Segmentation), 'terminal' (pmap/vmstat).
+    - **WIDGETS MANDATORY**: Use 'terminal' to simulate inspecting memory maps.
     - **FOCUS**: VMA, Page Tables, Cache Lines.
     `,
     'phase_07': `
@@ -50,13 +52,32 @@ const PHASE_STRATEGIES: Record<string, string> = {
     'phase_08': `
     **PHASE 08: THE GAUNTLET (Kernel Hacker)**
     - **GOAL**: Re-implement a simplified version.
-    - **WIDGETS ALLOWED**: 'mini-editor' (Write a spinlock / simple allocator), 'parsons'.
+    - **WIDGETS MANDATORY**: 'mini-editor' (Write a spinlock / simple allocator) OR 'terminal' (Debug session).
+    - **FORBIDDEN**: 'dialogue', simple 'quiz'.
     - **FOCUS**: Hardcore implementation details.
     `
 };
 
 export const getCSKernelPrompt = (topic: string, keywords: string[], level: string) => {
-    const instruction = PHASE_STRATEGIES[level] || PHASE_STRATEGIES['phase_01'];
+    
+    // Fallback logic
+    let instruction = PHASE_STRATEGIES['phase_01'];
+    let phaseId = 'phase_01';
+
+    if (PHASE_STRATEGIES[level]) {
+        instruction = PHASE_STRATEGIES[level];
+        phaseId = level;
+    } else if (level.includes('phase_')) {
+        const match = level.match(/phase_\d+/);
+        if (match && PHASE_STRATEGIES[match[0]]) {
+            instruction = PHASE_STRATEGIES[match[0]];
+            phaseId = match[0];
+        }
+    } else {
+        if (level.includes('Mastery')) { instruction = PHASE_STRATEGIES['phase_08']; phaseId='phase_08'; }
+        else if (level.includes('Implement')) { instruction = PHASE_STRATEGIES['phase_05']; phaseId='phase_05'; }
+        else if (level.includes('Structure')) { instruction = PHASE_STRATEGIES['phase_02']; phaseId='phase_02'; }
+    }
 
     return `
     ${BASE_SYSTEM_INSTRUCTION}
@@ -64,21 +85,19 @@ export const getCSKernelPrompt = (topic: string, keywords: string[], level: stri
     **ROLE**: Kernel Hacker & OS Engineer.
     **TOPIC**: "${topic}"
     **KEYWORDS**: ${keywords.join(', ')}.
+    **CURRENT PHASE**: ${phaseId}
 
     **PHASE INSTRUCTION (STRICTLY FOLLOW WIDGET RULES)**:
     ${instruction}
 
     **SCREEN COMPOSITION RULES (CRITICAL)**:
-    1. **COMBINE CONTEXT & ACTION**: Do NOT split "Teaching" and "Testing" into separate screens.
-       - **BAD**: Screen 1 (Dialogue explaining Syscalls), Screen 2 (Terminal exercise).
-       - **GOOD**: Screen 1 (Dialogue explaining Syscalls + Terminal exercise).
-    2. **MANDATORY INTERACTION**: Every single screen MUST contain EXACTLY ONE interactive widget from the ALLOWED list.
-    3. **STRUCTURE**: 
-       - Start with 'dialogue' (The Kernel Guru speaking) or 'callout' (Context).
-       - Follow immediately with the interactive widget.
+    1. **MANDATORY INTERACTION**: Every single screen MUST contain EXACTLY ONE interactive widget.
+    2. **DIFFICULTY**: 
+       - If Phase >= 05, do NOT use simple 'quiz'. Prefer 'fill-in' or 'code-walkthrough'.
+       - If Phase >= 08, use 'mini-editor' or 'terminal' to test mastery.
 
     **WIDGET REQUIREMENTS**:
     - Generate EXACTLY 17 Screens.
-    - Focus on "How it works physically".
+    - Focus on "How it works physically" (Memory, Registers, Latency).
     `;
 };

@@ -13,9 +13,9 @@ export const ComparisonTableWidget: React.FC<{ widget: Widget }> = ({ widget }) 
                 <table className="w-full text-sm text-left">
                     <thead className="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 font-bold uppercase text-xs">
                         <tr>
-                            <th className="px-4 py-3">Feature</th>
+                            <th className="px-4 py-3 border-r border-gray-200 dark:border-gray-700">Feature</th>
                             {headers.map((h, i) => (
-                                <th key={i} className="px-4 py-3 text-brand-dark dark:text-brand-light">{h}</th>
+                                <th key={i} className="px-4 py-3 text-brand-dark dark:text-brand-light border-l border-gray-200 dark:border-gray-700">{h}</th>
                             ))}
                         </tr>
                     </thead>
@@ -25,9 +25,10 @@ export const ComparisonTableWidget: React.FC<{ widget: Widget }> = ({ widget }) 
                                 <td className="px-4 py-3 font-bold text-gray-800 dark:text-white border-r border-gray-100 dark:border-gray-800">
                                     {row.label}
                                 </td>
-                                {row.values.map((val, vIdx) => (
-                                    <td key={vIdx} className="px-4 py-3 text-gray-600 dark:text-gray-400">
-                                        {val}
+                                {/* Iterate headers to guarantee column alignment even if values are short */}
+                                {headers.map((_, vIdx) => (
+                                    <td key={vIdx} className="px-4 py-3 text-gray-600 dark:text-gray-400 border-l border-gray-100 dark:border-gray-800">
+                                        {row.values[vIdx] || "-"}
                                     </td>
                                 ))}
                             </tr>

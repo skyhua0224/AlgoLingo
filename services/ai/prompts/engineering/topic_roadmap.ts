@@ -20,22 +20,26 @@ export const getTopicRoadmapPrompt = (topic: string, pillar: string, keywords: s
                 "id": "phase_1",
                 "title": { "en": "English Title", "zh": "中文标题" },
                 "description": { "en": "Short description of learning goal", "zh": "简短的学习目标描述" },
-                "focus": "concept" // Choose from: "concept", "code", "debug", "design", "mastery"
+                "focus": "concept", // Choose from: "concept", "code", "debug", "design", "mastery"
+                "tags": ["Theory", "Visual"] // Must list specific content types e.g., "Mini-Editor", "Terminal", "Quiz", "Parsons"
             },
             ...
         ]
     }
 
-    **PROGRESSION RULES**:
-    1. **Steps 1-2 (Novice)**: Focus on "Intuition", "Analogy", "Why we need this". (Focus: "concept")
-    2. **Steps 3-5 (Junior/Mid)**: Focus on "Mechanics", "API", "Basic Implementation", "Standard Flows". (Focus: "concept" or "code")
-    3. **Steps 6-8 (Senior)**: Focus on "Internals", "Edge Cases", "Optimization", "Tuning". (Focus: "code" or "debug")
-    4. **Steps 9+ (Expert)**: Focus on "Real-world Scenarios", "Complex Troubleshooting", "Mastery Challenge". (Focus: "design" or "mastery")
+    **PROGRESSION RULES (STRICT)**:
+    1. **Steps 1-2 (Novice)**: Focus on "Intuition", "Analogy". 
+       - **TAGS MUST INCLUDE**: "Theory", "Visual", "Quiz".
+    2. **Steps 3-5 (Junior/Mid)**: Focus on "Mechanics", "Implementation". 
+       - **TAGS MUST INCLUDE**: "Interactive Code", "Parsons", "Fill-In".
+    3. **Steps 6-8 (Senior)**: Focus on "Internals", "Edge Cases", "Debugging". 
+       - **TAGS MUST INCLUDE**: "Terminal", "Code Walkthrough", "Debug".
+    4. **Steps 9+ (Expert)**: Focus on "Real-world Scenarios", "Complex Architecture". 
+       - **TAGS MUST INCLUDE**: "Mini-Editor", "Arch Canvas", "Mastery".
 
     **CONSTRAINTS**:
     - Generate between 8 and 12 steps.
-    - Titles must be punchy and professional.
-    - Ensure the progression is logical. Do not jump to complex internals in step 1.
     - Use the provided KEYWORDS to ensure the content covers the syllabus requirements.
+    - **TAGS**: Are used to preview the lesson content. Be accurate. If the step is "Debugging", the tag MUST be "Terminal" or "Debug". If the step is "Implementation", tags MUST include "Mini-Editor" or "Code".
     `;
 };

@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserPreferences } from '../../types';
 import { SyntaxSection } from './SyntaxSection';
 import { PillarsSection } from './PillarsSection';
@@ -8,7 +8,8 @@ import { PillarDetailView } from './PillarsSection/PillarDetailView';
 import { TopicMap } from './PillarsSection/TopicMap';
 import { SOFTWARE_ARCH_DATA, CS_FUNDAMENTALS_DATA } from '../../data/engineeringData';
 import { generateEngineeringLesson, generateEngineeringRoadmap, generateCustomTrack } from '../../services/geminiService';
-import { EngineeringTopic, TopicProfile, SkillTrack, EngineeringPillar, LocalizedContent } from '../../types/engineering';
+import { EngineeringTopic, TopicProfile, SkillTrack, EngineeringPillar, LocalizedContent, EngineeringStep } from '../../types/engineering';
+import { useAppManager, EngineeringNavState } from '../../hooks/useAppManager';
 
 interface EngineeringHubProps {
     preferences: UserPreferences;
@@ -18,17 +19,48 @@ interface EngineeringHubProps {
 }
 
 export const EngineeringHub: React.FC<EngineeringHubProps> = ({ preferences, onUpdatePreferences, language, onStartLesson }) => {
-    // Navigation State
+    // Hook into global nav state to restore position after lesson
+    const { state, actions } = useAppManager();
+    const { engineeringNav } = state;
+
+    // Navigation State (Local, initialized from Global if available)
     const [activePillarId, setActivePillarId] = useState<'system' | 'cs' | 'track' | null>(null);
     const [activeTopic, setActiveTopic] = useState<EngineeringTopic | null>(null);
+    const [activeTrackData, setActiveTrackData] = useState<SkillTrack | null>(null);
     
     // Data State
     const [topicProfile, setTopicProfile] = useState<TopicProfile | null>(null);
-    const [activeTrackData, setActiveTrackData] = useState<SkillTrack | null>(null); // For Tracks View
     
     // Loading State
     const [loading, setLoading] = useState(false);
     const [loadingMsg, setLoadingMsg] = useState("");
+
+    // RESTORE STATE ON MOUNT
+    useEffect(() => {
+        if (engineeringNav && engineeringNav.pillarId) {
+            setActivePillarId(engineeringNav.pillarId);
+            setActiveTrackData(engineeringNav.trackData);
+            setActiveTopic(engineeringNav.topic);
+            
+            // If we have a topic, we need to restore its profile
+            if (engineeringNav.topic && engineeringNav.pillarId) {
+                const profileKey = `algolingo_eng_v3_${engineeringNav.pillarId}_${engineeringNav.topic.id}`;
+                const saved = localStorage.getItem(profileKey);
+                if (saved) {
+                    try { setTopicProfile(JSON.parse(saved)); } catch(e) {}
+                }
+            }
+        }
+    }, []);
+
+    // UPDATE GLOBAL STATE ON CHANGE
+    useEffect(() => {
+        actions.setEngineeringNav({
+            pillarId: activePillarId,
+            topic: activeTopic,
+            trackData: activeTrackData
+        });
+    }, [activePillarId, activeTopic, activeTrackData]);
 
     // --- PILLAR LOGIC (System/CS) ---
     
@@ -54,8 +86,6 @@ export const EngineeringHub: React.FC<EngineeringHubProps> = ({ preferences, onU
     const generateAndSaveTopicRoadmap = async (topic: EngineeringTopic, pillarId: string) => {
         setLoading(true);
         setLoadingMsg(language === 'Chinese' ? "AI 正在规划课题路径..." : "AI is architecting topic path...");
-        const isZh = language === 'Chinese';
-        const langKey = isZh ? 'zh' : 'en';
         
         try {
             const roadmap = await generateEngineeringRoadmap(
@@ -134,9 +164,18 @@ export const EngineeringHub: React.FC<EngineeringHubProps> = ({ preferences, onU
 
     // --- LESSON START LOGIC ---
 
-    const handleStartLevel = async (step: any) => {
+    const handleStartLevel = async (step: EngineeringStep) => {
         if (!activeTopic) return;
         
+        // 1. Check for Cached Plan (History)
+        if (step.cachedPlan) {
+            // Use cached plan immediately
+            const plan = { ...step.cachedPlan, isLocalReplay: true };
+            onStartLesson(plan);
+            return;
+        }
+
+        // 2. Generate if not cached
         setLoading(true);
         setLoadingMsg(language === 'Chinese' ? "AI 正在构建专属关卡..." : "AI is compiling the level...");
         const isZh = language === 'Chinese';
@@ -146,13 +185,16 @@ export const EngineeringHub: React.FC<EngineeringHubProps> = ({ preferences, onU
             const lessonTitle = `${activeTopic.title[langKey]}: ${step.title[langKey]}`;
             const contextDescription = step.description[langKey];
             
+            // Injecting topicId and stepId into context for progress tracking AND history saving
             const plan = await generateEngineeringLesson(
                 activePillarId === 'cs' ? 'cs' : 'system', // Default to system prompt style for tracks
                 lessonTitle, 
                 [...activeTopic.keywords, step.focus], 
-                step.focus, 
+                step.id, // Pass step ID instead of focus keyword, prompts now handle regex matching on ID
                 preferences,
-                contextDescription 
+                contextDescription,
+                activeTopic.id, // Pass Topic ID
+                step.id         // Pass Step ID
             );
             
             onStartLesson(plan);

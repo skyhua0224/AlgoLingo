@@ -11,6 +11,21 @@ interface GenerationErrorProps {
     language: 'Chinese' | 'English';
 }
 
+// Helper to safely stringify JSON while truncating long strings
+const safeStringify = (text: string) => {
+    try {
+        const obj = JSON.parse(text);
+        return JSON.stringify(obj, (key, value) => {
+            if (typeof value === 'string' && value.length > 200 && (value.startsWith('data:image') || key === 'headerImage')) {
+                return `<Base64 Image Truncated: ${value.length} chars>`;
+            }
+            return value;
+        }, 2);
+    } catch (e) {
+        return text; // Return raw text if not valid JSON
+    }
+};
+
 export const GenerationError: React.FC<GenerationErrorProps> = ({ error, rawOutput, onRetry, onCancel, language }) => {
     const [showRaw, setShowRaw] = useState(false);
     const [copied, setCopied] = useState(false);
@@ -100,7 +115,7 @@ export const GenerationError: React.FC<GenerationErrorProps> = ({ error, rawOutp
                                 <span className="text-xs font-bold uppercase">Debug Data Stream</span>
                             </div>
                             <pre className="text-xs font-mono text-green-400 whitespace-pre-wrap break-all h-64 overflow-y-auto custom-scrollbar">
-                                {rawOutput || "// No data received from API."}
+                                {rawOutput ? safeStringify(rawOutput) : "// No data received from API."}
                             </pre>
                             <p className="mt-2 text-[10px] text-gray-600 text-center">
                                 {isZh ? "您可以复制此数据向开发者反馈，或尝试修复 JSON 格式。" : "You can copy this data to report a bug or try to fix the JSON manually."}

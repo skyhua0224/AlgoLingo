@@ -25,11 +25,19 @@ const WIDGET_LOCALE = {
 
 export const FillInWidget: React.FC<FillInProps> = ({ widget, onUpdateAnswers, language, status, userAnswers }) => {
     if (!widget.fillIn) return null;
-    const { code, options, correctValues, inputMode } = widget.fillIn;
+    let { code, options, correctValues, inputMode } = widget.fillIn;
+    const t = WIDGET_LOCALE[language];
+
+    // --- ROBUSTNESS: Normalize Placeholders ---
+    // AI often outputs 'BLANK', '[BLANK]', or '____' instead of '__BLANK__'
+    if (code) {
+        code = code.replace(/\[?_?_?BLANK_?_?\]?/g, '__BLANK__'); // Matches BLANK, __BLANK, [BLANK]
+        code = code.replace(/_{3,}/g, '__BLANK__'); // Matches ____ (3 or more underscores)
+    }
+
     const parts = code ? code.split('__BLANK__') : [];
     const [answers, setAnswers] = useState<string[]>([]);
     const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
-    const t = WIDGET_LOCALE[language];
 
     useEffect(() => {
         if (userAnswers && userAnswers.length > 0) {
