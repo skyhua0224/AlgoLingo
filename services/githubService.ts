@@ -5,135 +5,145 @@ import { INITIAL_STATS } from "../constants";
 const GIST_FILENAME = "algolingo-data.json";
 const GIST_DESC = "AlgoLingo Sync Data (Do not edit manually unless you know what you are doing)";
 
-interface SyncData {
+export interface SyncPayload {
     version: string;
     updatedAt: number;
     stats: UserStats;
     progress: ProgressMap;
     mistakes: MistakeRecord[];
     preferences: Partial<UserPreferences>;
-    engineeringData?: Record<string, any>; // Dynamic key-value store for language profiles
+    engineeringData?: Record<string, any>;
 }
 
-export const syncWithGist = async (
-    token: string, 
-    gistId: string | undefined, 
-    currentData: { 
-        stats: UserStats, 
-        progress: ProgressMap, 
-        mistakes: MistakeRecord[], 
-        preferences: UserPreferences,
-        engineeringData?: Record<string, any>
-    }
-): Promise<{ success: boolean, data?: Partial<SyncData>, newGistId?: string, error?: string, action?: 'pulled' | 'pushed' | 'none' }> => {
-    
-    if (!token) return { success: false, error: "No Token" };
+// Helper: Get Headers
+const getHeaders = (token: string) => ({
+    'Authorization': `token ${token}`,
+    'Accept': 'application/vnd.github.v3+json'
+});
 
-    // 1. Construct Payload
-    const payload: SyncData = {
-        version: "3.1",
-        updatedAt: Date.now(),
-        stats: currentData.stats || INITIAL_STATS,
-        progress: currentData.progress || {},
-        mistakes: currentData.mistakes || [],
-        engineeringData: currentData.engineeringData || {},
-        preferences: {
-            userName: currentData.preferences?.userName,
-            targetLanguage: currentData.preferences?.targetLanguage,
-            spokenLanguage: currentData.preferences?.spokenLanguage,
-            theme: currentData.preferences?.theme,
-            // Do not sync API keys or Token itself for security
-        }
-    };
+// 1. Check Status (Does cloud data exist? What is the metadata?)
+export const checkCloudStatus = async (token: string, gistId?: string): Promise<{ 
+    exists: boolean; 
+    gistId?: string; 
+    cloudData?: SyncPayload; 
+    error?: string 
+}> => {
+    if (!token) return { exists: false, error: "No Token" };
 
     try {
         let targetGistId = gistId;
-        let existingData: SyncData | null = null;
+        let foundGist: any = null;
 
-        // 2. If we have an ID, try to fetch it first
+        // A. If ID provided, check directly
         if (targetGistId) {
-            const res = await fetch(`https://api.github.com/gists/${targetGistId}`, {
-                headers: { 
-                    'Authorization': `token ${token}`,
-                    'Accept': 'application/vnd.github.v3+json'
-                }
-            });
-            
+            const res = await fetch(`https://api.github.com/gists/${targetGistId}`, { headers: getHeaders(token) });
             if (res.ok) {
-                const gist = await res.json();
-                const file = gist.files?.[GIST_FILENAME];
-                
-                if (file && file.content) {
-                    try {
-                        existingData = JSON.parse(file.content);
-                    } catch (e) {
-                        console.warn("Failed to parse existing Gist content", e);
-                        existingData = null;
-                    }
-                }
-            } else if (res.status === 404) {
-                targetGistId = undefined; // ID Invalid, treat as new
-            }
-        } else {
-            // Try to find existing gist by description if ID not provided
-             const res = await fetch(`https://api.github.com/gists`, {
-                headers: { 
-                    'Authorization': `token ${token}`,
-                    'Accept': 'application/vnd.github.v3+json'
-                }
-            });
-             if (res.ok) {
-                 const gists = await res.json();
-                 const found = gists.find((g: any) => g.description === GIST_DESC);
-                 if (found) {
-                     targetGistId = found.id;
-                     if (found.files && found.files[GIST_FILENAME] && found.files[GIST_FILENAME].raw_url) {
-                        const fileRes = await fetch(found.files[GIST_FILENAME].raw_url);
-                        existingData = await fileRes.json();
-                     }
-                 }
-             }
-        }
-
-        // 3. Conflict Resolution (Last Write Wins based on updatedAt)
-        if (existingData) {
-            // Cloud is newer -> PULL
-            const localTime = currentData.preferences.syncConfig?.lastSynced || 0;
-            if ((existingData.updatedAt || 0) > localTime) {
-                console.log("Cloud is newer. Pulling...");
-                return { success: true, data: existingData, newGistId: targetGistId, action: 'pulled' };
+                foundGist = await res.json();
+            } else if (res.status !== 404) {
+                throw new Error(`Gist Check Failed: ${res.status}`);
             }
         }
 
-        // Local is newer or Cloud doesn't exist -> PUSH
+        // B. If no ID or ID failed, search by description
+        if (!foundGist) {
+            const res = await fetch(`https://api.github.com/gists`, { headers: getHeaders(token) });
+            if (res.ok) {
+                const gists = await res.json();
+                if (Array.isArray(gists)) {
+                    foundGist = gists.find((g: any) => g.description === GIST_DESC);
+                }
+            }
+        }
+
+        if (foundGist && foundGist.files[GIST_FILENAME]) {
+            // Fetch content
+            const fileRes = await fetch(foundGist.files[GIST_FILENAME].raw_url);
+            if (fileRes.ok) {
+                const content = await fileRes.json();
+                return { exists: true, gistId: foundGist.id, cloudData: content };
+            }
+        }
+
+        return { exists: false };
+
+    } catch (e: any) {
+        console.error("Cloud Check Error:", e);
+        return { exists: false, error: e.message };
+    }
+};
+
+// 2. Push Local -> Cloud
+export const pushToGist = async (token: string, data: any, gistId?: string): Promise<{ success: boolean; newGistId?: string; timestamp?: number; error?: string }> => {
+    const now = Date.now();
+    let payloadString = "";
+
+    try {
+        // Construct clean payload
+        const payload: SyncPayload = {
+            version: "3.1",
+            updatedAt: now,
+            stats: data.stats || INITIAL_STATS,
+            progress: data.progress || {},
+            mistakes: data.mistakes || [],
+            engineeringData: data.engineeringData || {},
+            preferences: {
+                userName: data.preferences?.userName,
+                targetLanguage: data.preferences?.targetLanguage,
+                spokenLanguage: data.preferences?.spokenLanguage,
+                theme: data.preferences?.theme,
+            }
+        };
+        // Safe stringify
+        const cache: any[] = [];
+        payloadString = JSON.stringify(payload, (key, value) => {
+            if (typeof value === 'object' && value !== null) {
+                if (cache.includes(value)) return;
+                cache.push(value);
+            }
+            return value;
+        }, 2);
+    } catch (e: any) {
+        return { success: false, error: "Data serialization failed" };
+    }
+
+    try {
         const body = {
             description: GIST_DESC,
             public: false,
-            files: {
-                [GIST_FILENAME]: {
-                    content: JSON.stringify(payload, null, 2)
-                }
-            }
+            files: { [GIST_FILENAME]: { content: payloadString } }
         };
 
-        const url = targetGistId ? `https://api.github.com/gists/${targetGistId}` : `https://api.github.com/gists`;
-        const method = targetGistId ? 'PATCH' : 'POST';
+        const url = gistId ? `https://api.github.com/gists/${gistId}` : `https://api.github.com/gists`;
+        const method = gistId ? 'PATCH' : 'POST';
 
-        const saveRes = await fetch(url, {
+        const res = await fetch(url, {
             method: method,
-            headers: { 
-                'Authorization': `token ${token}`,
-                'Content-Type': 'application/json'
-            },
+            headers: getHeaders(token),
             body: JSON.stringify(body)
         });
 
-        if (!saveRes.ok) throw new Error("Failed to save to GitHub");
-        const savedGist = await saveRes.json();
-
-        return { success: true, newGistId: savedGist.id, action: 'pushed' };
-
+        if (!res.ok) throw new Error(`GitHub API ${res.status}`);
+        const savedGist = await res.json();
+        
+        return { success: true, newGistId: savedGist.id, timestamp: now };
     } catch (e: any) {
-        return { success: false, error: e.message || "Sync Failed" };
+        return { success: false, error: e.message };
     }
+};
+
+// 3. Pull Cloud -> Local (Wrapper for consistent return type)
+// Note: Logic is mostly handled in checkCloudStatus, this is just for symmetry or re-fetch if needed
+export const pullFromGist = async (token: string, gistId: string): Promise<{ success: boolean; data?: SyncPayload; error?: string }> => {
+    const status = await checkCloudStatus(token, gistId);
+    if (status.exists && status.cloudData) {
+        return { success: true, data: status.cloudData };
+    }
+    return { success: false, error: status.error || "No data found" };
+};
+
+// --- Legacy Wrapper for Backward Compatibility (Optional) ---
+export const syncWithGist = async (token: string, gistId: string | undefined, currentData: any) => {
+    // This function can be deprecated or refactored to use the above
+    // For now, we leave the new UI to handle the logic flow using the functions above
+    return { success: false, error: "Please use the new sync flow." };
 };

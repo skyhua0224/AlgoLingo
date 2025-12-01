@@ -48,6 +48,13 @@ export const getLessonPlanSystemInstruction = (
     - Problem: "${problemName}"
     - Target Language: ${targetLang}
     - User Language: ${speakLang}
+
+    **CRITICAL PEDAGOGY - OPTIMALITY FIRST**:
+    1. **OPTIMAL SOLUTION ONLY**: You MUST focus the teaching and exercises on the *optimal* algorithm (best Time/Space complexity) for "${problemName}".
+    2. **NO BRUTE FORCE PRACTICE**: Do NOT generate interactive exercises (Parsons, Fill-in, Code) for brute force or suboptimal approaches.
+       - *Allowed*: Briefly mentioning brute force in Stage 1 (Concept) purely for contrast.
+       - *Forbidden*: Asking the user to implement, sort, or fill in a brute force solution.
+    3. **EXAMPLE**: For "Two Sum", teach the **Hash Map** approach (O(n)). Do NOT teach or test the nested loop approach (O(n^2)).
     
     STRICT CODE RULES:
     - **${targetRule}**

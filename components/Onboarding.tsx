@@ -1,10 +1,11 @@
 
 import React, { useState, useRef } from 'react';
 import { Button } from './Button';
-import { Code2, Brain, Zap, ArrowRight, Check, Globe, Moon, Sun, Monitor, Cpu, Key, Box, Github, HelpCircle, RefreshCw, Copy, AlertTriangle, Cloud, Sparkles, Upload, FileJson, ChevronRight, PlusCircle, DownloadCloud } from 'lucide-react';
-import { UserPreferences, ApiConfig } from '../types';
+import { Code2, Brain, Zap, ArrowRight, Check, Globe, Box, Key, Github, HelpCircle, RefreshCw, Copy, Cloud, Sparkles, Upload, ChevronRight, PlusCircle, DownloadCloud, AlertTriangle, Loader2 } from 'lucide-react';
+import { UserPreferences } from '../types';
 import { GEMINI_MODELS, INITIAL_STATS } from '../constants';
-import { syncWithGist } from '../services/githubService';
+import { checkCloudStatus, pushToGist, pullFromGist } from '../services/githubService';
+import { SyncConflictModal } from './settings/SyncConflictModal';
 
 interface OnboardingProps {
     preferences: UserPreferences;
@@ -17,11 +18,7 @@ interface OnboardingProps {
 export const Onboarding: React.FC<OnboardingProps> = ({ preferences, onUpdatePreferences, onComplete, onImportData, onDataLoaded }) => {
     const [hasStarted, setHasStarted] = useState(false);
     const [step, setStep] = useState(0);
-    
-    // Local state for immediate visual feedback
     const [apiKeyBuffer, setApiKeyBuffer] = useState(preferences.apiConfig.gemini.apiKey || '');
-    
-    // New local state for connection type toggle
     const [connectionType, setConnectionType] = useState<'builtin' | 'custom'>(
         preferences.apiConfig.gemini.apiKey ? 'custom' : 'builtin'
     );
@@ -29,12 +26,15 @@ export const Onboarding: React.FC<OnboardingProps> = ({ preferences, onUpdatePre
     // Sync State
     const [showSyncHelp, setShowSyncHelp] = useState(false);
     const [syncStatus, setSyncStatus] = useState('');
+    const [isSyncing, setIsSyncing] = useState(false);
     const [syncMode, setSyncMode] = useState<'create' | 'restore'>('create');
     const [createdGistId, setCreatedGistId] = useState<string | null>(null);
     const [showGistModal, setShowGistModal] = useState(false);
+    
+    // Conflict State
+    const [conflictData, setConflictData] = useState<{local: any, cloud: any} | null>(null);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
-
     const isZh = preferences.spokenLanguage === 'Chinese';
 
     const steps = [
@@ -82,19 +82,9 @@ export const Onboarding: React.FC<OnboardingProps> = ({ preferences, onUpdatePre
         }
     };
 
-    const handleSyncNow = async () => {
-        setSyncStatus(isZh ? '同步中...' : 'Syncing...');
-        
-        // Use default empty state for sync fetch if local is empty
-        const currentData = {
-            stats: INITIAL_STATS,
-            progress: {},
-            mistakes: [],
-            preferences: preferences
-        };
-
+    const handleSyncCheck = async () => {
         const token = preferences.syncConfig?.githubToken;
-        const gistId = preferences.syncConfig?.gistId; // Can be empty if creating
+        const gistId = preferences.syncConfig?.gistId;
         
         if (!token) {
              setSyncStatus(isZh ? '错误: 需要 GitHub Token' : 'Error: Token required');
@@ -106,36 +96,110 @@ export const Onboarding: React.FC<OnboardingProps> = ({ preferences, onUpdatePre
             return;
         }
 
-        const res = await syncWithGist(token, gistId, currentData as any);
+        setIsSyncing(true);
+        setSyncStatus(isZh ? '正在连接 GitHub...' : 'Connecting...');
 
-        if (res.success) {
-            setSyncStatus(isZh ? `成功: ${res.action}` : `Success: ${res.action}`);
-            
-            if (res.newGistId) {
-                setCreatedGistId(res.newGistId);
-                // Update preferences with the new ID so it persists
-                onUpdatePreferences({ 
-                    syncConfig: { ...preferences.syncConfig!, gistId: res.newGistId } 
-                });
-                
-                if (syncMode === 'create') {
-                    setShowGistModal(true);
+        try {
+            // Check status first
+            const status = await checkCloudStatus(token, gistId);
+
+            if (status.error) {
+                setSyncStatus(`Error: ${status.error}`);
+                setIsSyncing(false);
+                return;
+            }
+
+            // SCENARIO 1: Create Mode (New User)
+            if (syncMode === 'create') {
+                if (status.exists && status.cloudData) {
+                    // Conflict! User wanted new, but found old data.
+                    setIsSyncing(false); // Stop loading so modal can be interacted with
+                    setConflictData({
+                        local: { updatedAt: Date.now(), stats: INITIAL_STATS, userName: preferences.userName || "New User" },
+                        cloud: { updatedAt: status.cloudData.updatedAt, stats: status.cloudData.stats, userName: status.cloudData.preferences.userName }
+                    });
+                } else {
+                    // Clean slate -> Create
+                    await executeSync('push', token);
+                }
+            } 
+            // SCENARIO 2: Restore Mode
+            else {
+                if (status.exists && status.cloudData) {
+                    // Found it -> Restore
+                    await executeSync('pull', token, status.gistId);
+                } else {
+                    setSyncStatus(isZh ? '未找到云端存档' : 'Cloud save not found');
+                    setIsSyncing(false);
                 }
             }
 
-            if (res.action === 'pulled' && res.data) {
-                 // Call parent to update app state seamlessly (NO RELOAD)
-                 onDataLoaded(res.data);
-            } 
-        } else {
-            setSyncStatus(isZh ? `失败: ${res.error}` : `Error: ${res.error}`);
+        } catch (e: any) {
+            setSyncStatus(`Exception: ${e.message}`);
+            setIsSyncing(false);
+        }
+    };
+
+    const executeSync = async (direction: 'push' | 'pull', token: string, gistId?: string) => {
+        setConflictData(null); // Close modal
+        setIsSyncing(true);
+
+        try {
+            if (direction === 'push') {
+                setSyncStatus(isZh ? '正在创建新存档...' : 'Creating new save...');
+                
+                // Construct fresh data for new user
+                const freshData = {
+                    stats: INITIAL_STATS,
+                    progress: {},
+                    mistakes: [],
+                    preferences: preferences
+                };
+
+                const res = await pushToGist(token, freshData, gistId);
+                
+                if (res.success) {
+                    const newConfig = { 
+                        enabled: true, 
+                        githubToken: token,
+                        gistId: res.newGistId,
+                        lastSynced: res.timestamp
+                    };
+                    
+                    onUpdatePreferences({ syncConfig: newConfig });
+                    setCreatedGistId(res.newGistId || '');
+                    setShowGistModal(true); // Show success modal
+                    setSyncStatus(isZh ? '同步成功!' : 'Sync Success!');
+                } else {
+                    throw new Error(res.error);
+                }
+            } else {
+                setSyncStatus(isZh ? '正在拉取数据...' : 'Pulling data...');
+                const res = await pullFromGist(token, gistId!);
+                
+                if (res.success && res.data) {
+                    onDataLoaded(res.data);
+                    setSyncStatus(isZh ? '恢复成功!' : 'Restore Success!');
+                    // Implicitly move to next step via data loaded usually re-renders app, 
+                    // but here we are in onboarding so we might just show success.
+                } else {
+                    throw new Error(res.error);
+                }
+            }
+        } catch (e: any) {
+            setSyncStatus(`Error: ${e.message}`);
+        } finally {
+            setIsSyncing(false);
         }
     };
     
     const handleCopyGistId = () => {
-        if (createdGistId) {
-            navigator.clipboard.writeText(createdGistId);
-        }
+        if (createdGistId) navigator.clipboard.writeText(createdGistId);
+    };
+
+    const handleGistModalDone = () => {
+        setShowGistModal(false);
+        handleNext(); // Auto advance to profile setup after successful sync creation
     };
 
     // --- WELCOME SCREEN ---
@@ -163,12 +227,6 @@ export const Onboarding: React.FC<OnboardingProps> = ({ preferences, onUpdatePre
                             {isZh ? "开始" : "Start"}
                         </Button>
                     </div>
-
-                    <div className="mt-8 flex items-center justify-center gap-4 text-gray-400 text-sm">
-                        <span className="flex items-center gap-1"><Sparkles size={14}/> AI Driven</span>
-                        <span>•</span>
-                        <span className="flex items-center gap-1"><Github size={14}/> Open Source</span>
-                    </div>
                  </div>
             </div>
         );
@@ -177,7 +235,27 @@ export const Onboarding: React.FC<OnboardingProps> = ({ preferences, onUpdatePre
     return (
         <div className="fixed inset-0 bg-white dark:bg-dark-bg z-[100] flex flex-col items-center justify-center p-4 md:p-8 text-gray-800 dark:text-white transition-colors duration-300">
             
-            {/* Gist ID Modal */}
+            {/* Loading Overlay for Sync */}
+            {isSyncing && (
+                <div className="fixed inset-0 z-[250] bg-white/90 dark:bg-black/90 backdrop-blur-md flex flex-col items-center justify-center animate-fade-in-up">
+                    <Loader2 size={48} className="text-brand animate-spin mb-4" />
+                    <h3 className="text-xl font-bold text-gray-800 dark:text-white">{syncStatus}</h3>
+                </div>
+            )}
+
+            {/* Conflict Modal */}
+            {conflictData && (
+                <SyncConflictModal 
+                    localData={conflictData.local}
+                    cloudData={conflictData.cloud}
+                    isZh={isZh}
+                    isNewUserFlow={true}
+                    onCancel={() => { setConflictData(null); setIsSyncing(false); setSyncStatus(isZh ? "已取消" : "Cancelled"); }}
+                    onResolve={(action) => executeSync(action, preferences.syncConfig!.githubToken, preferences.syncConfig!.gistId)}
+                />
+            )}
+
+            {/* Gist ID Modal (Success for Create) */}
             {showGistModal && (
                 <div className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6 animate-fade-in-up">
                     <div className="bg-white dark:bg-dark-card rounded-3xl p-8 w-full max-w-md text-center shadow-2xl border-2 border-green-100 dark:border-green-900/50">
@@ -199,8 +277,11 @@ export const Onboarding: React.FC<OnboardingProps> = ({ preferences, onUpdatePre
                         >
                             <Copy size={18}/> {isZh ? "复制 ID" : "Copy ID"}
                         </button>
-                        <button onClick={() => setShowGistModal(false)} className="text-gray-400 hover:text-gray-600 text-sm font-bold py-2">
-                            {isZh ? "完成" : "Done"}
+                        <button 
+                            onClick={handleGistModalDone} 
+                            className="w-full py-3 border-2 border-gray-200 dark:border-gray-700 rounded-xl font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center gap-2"
+                        >
+                            {isZh ? "继续下一步" : "Continue"} <ArrowRight size={16}/>
                         </button>
                     </div>
                 </div>
@@ -316,18 +397,18 @@ export const Onboarding: React.FC<OnboardingProps> = ({ preferences, onUpdatePre
                                     )}
 
                                     <button 
-                                        onClick={handleSyncNow}
-                                        disabled={!preferences.syncConfig?.githubToken || (syncMode === 'restore' && !preferences.syncConfig?.gistId)}
+                                        onClick={handleSyncCheck}
+                                        disabled={!preferences.syncConfig?.githubToken || (syncMode === 'restore' && !preferences.syncConfig?.gistId) || isSyncing}
                                         className="w-full py-3 bg-gray-800 dark:bg-white text-white dark:text-gray-900 rounded-xl font-bold text-sm hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all"
                                     >
-                                        <RefreshCw size={16} className={syncStatus.includes('...') ? 'animate-spin' : ''} />
+                                        <RefreshCw size={16} className={isSyncing ? 'animate-spin' : ''} />
                                         {syncMode === 'create' 
                                             ? (isZh ? "初始化并创建云存档" : "Initialize & Create Save") 
                                             : (isZh ? "拉取云端进度" : "Pull from Cloud")
                                         }
                                     </button>
 
-                                    {syncStatus && <p className="text-xs font-mono text-brand text-center">{syncStatus}</p>}
+                                    {syncStatus && <p className={`text-xs font-mono text-center ${syncStatus.includes('Error') || syncStatus.includes('错误') ? 'text-red-500' : 'text-green-500'}`}>{syncStatus}</p>}
                                 </div>
                                 
                                 <div className="mt-3 text-center">
@@ -378,14 +459,14 @@ export const Onboarding: React.FC<OnboardingProps> = ({ preferences, onUpdatePre
                                     value={preferences.userName}
                                     onChange={(e) => onUpdatePreferences({ userName: e.target.value })}
                                     className="w-full p-4 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-transparent text-xl font-bold focus:border-brand outline-none text-gray-900 dark:text-white placeholder-gray-300"
-                                    placeholder="Sky Hua"
+                                    placeholder="Senior Engineer"
                                 />
                             </div>
 
                             <div>
                                 <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{isZh ? "目标编程语言" : "Target Language"}</label>
                                 <div className="grid grid-cols-3 gap-3">
-                                    {['Python', 'Java', 'C++', 'C', 'JavaScript'].map(lang => (
+                                    {['Python', 'Java', 'C++', 'C', 'JavaScript', 'Go'].map(lang => (
                                         <button
                                             key={lang}
                                             onClick={() => onUpdatePreferences({ targetLanguage: lang as any })}
@@ -579,7 +660,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ preferences, onUpdatePre
                         <div className="space-y-4 text-left bg-gray-50 dark:bg-dark-card p-6 rounded-2xl border border-gray-100 dark:border-gray-700">
                             <FeatureItem icon={<Code2 className="text-brand"/>} text={isZh ? "无需死记硬背，像母语一样掌握代码" : "Master code naturally, no rote memorization."} />
                             <FeatureItem icon={<Brain className="text-purple-500"/>} text={isZh ? "将 LeetCode 拆解为概念、代码、优化三部曲" : "Break down LeetCode into Concept, Code, and Optimize."} />
-                            <FeatureItem icon={<Cpu className="text-orange-500"/>} text={isZh ? "实时 AI 私教，Parsons 代码拼图训练" : "Real-time AI Coach & Parsons Logic Puzzles."} />
+                            <FeatureItem icon={<Zap className="text-orange-500"/>} text={isZh ? "实时 AI 私教，Parsons 代码拼图训练" : "Real-time AI Coach & Parsons Logic Puzzles."} />
                         </div>
                     </div>
                 )}
