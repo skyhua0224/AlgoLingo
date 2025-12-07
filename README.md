@@ -5,7 +5,7 @@
 ![Tech Stack](https://img.shields.io/badge/stack-React%2019%20%7C%20TypeScript%20%7C%20Gemini%20Flash-orange)
 ![Language](https://img.shields.io/badge/language-Chinese%20%7C%20English-green)
 
-> **🚀 在线体验 (Live Demo)**: [点击访问 AI Studio Build 版本](https://demo.algolingo.sky-hua.xyz)
+> **🚀 前往 AI Studio 体验 (Live Demo)**: [demo.algolingo.sky-hua.xyz](https://demo.algolingo.sky-hua.xyz)
 >
 > *提示：可直接使用 Google AI Studio Build 额度运行并学习，此版本将持续跟随仓库最新代码更新。*
 
