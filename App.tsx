@@ -112,10 +112,11 @@ export default function App() {
                 currentLevel={progressMap[preferences.targetLanguage]?.[activeProblem.id] || 0}
                 savedLessons={savedLessons.filter(l => l.problemId === activeProblem?.id && l.language === preferences.targetLanguage)}
                 onStartLevel={actions.handleStartNode}
-                onLoadSaved={(l) => {}}
+                onLoadSaved={(l) => actions.handleStartCustomLesson(l.plan)}
                 onBack={() => actions.setView('dashboard')}
                 language={preferences.spokenLanguage}
                 failedSkips={preferences.failedSkips}
+                preferences={preferences}
             />
         );
     }
@@ -195,7 +196,11 @@ export default function App() {
                 <Dashboard 
                     progressMap={progressMap[preferences.targetLanguage] || {}} 
                     stats={stats} 
+                    savedLessons={savedLessons}
+                    mistakes={mistakes}
                     onSelectProblem={actions.handleSelectProblem} 
+                    onLoadSaved={(l) => actions.handleStartCustomLesson(l.plan)}
+                    onStartReview={() => actions.handleStartReview('ai')}
                     language={preferences.spokenLanguage} 
                 />
             );
@@ -231,8 +236,8 @@ export default function App() {
             onExportData={actions.handleExportData}
             onImportData={actions.handleImportData}
             onResetData={actions.onResetData}
-            hideMobileNav={view === 'loading'} 
-            hideSidebar={view === 'loading'} 
+            hideMobileNav={view === 'loading' || view === 'runner' || view === 'career-runner'} 
+            hideSidebar={view === 'loading' || view === 'runner' || view === 'career-runner'} 
         >
             {renderContent()}
         </Layout>

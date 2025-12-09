@@ -29,10 +29,12 @@ export const FillInWidget: React.FC<FillInProps> = ({ widget, onUpdateAnswers, l
     const t = WIDGET_LOCALE[language];
 
     // --- ROBUSTNESS: Normalize Placeholders ---
-    // AI often outputs 'BLANK', '[BLANK]', or '____' instead of '__BLANK__'
     if (code) {
-        code = code.replace(/\[?_?_?BLANK_?_?\]?/g, '__BLANK__'); // Matches BLANK, __BLANK, [BLANK]
-        code = code.replace(/_{3,}/g, '__BLANK__'); // Matches ____ (3 or more underscores)
+        // Explicitly handle [BLANK] style placeholders
+        code = code.replace(/\[BLANK\]/g, '__BLANK__');
+        // Handle long underscores (4 or more) as placeholders
+        code = code.replace(/_{4,}/g, '__BLANK__');
+        // Note: We removed the aggressive regex /\[?_?_?BLANK_?_?\]?/g which was eating syntax brackets like arr[__BLANK__]
     }
 
     const parts = code ? code.split('__BLANK__') : [];
@@ -80,7 +82,7 @@ export const FillInWidget: React.FC<FillInProps> = ({ widget, onUpdateAnswers, l
         const newAnswers = [...answers];
         newAnswers[idx] = "";
         setAnswers(newAnswers);
-    }
+    };
 
     const isTypeMode = inputMode === 'type';
     const helperKeys = ['[', ']', '{', '}', '(', ')', ':', ';', '=', '->', '"', "'", '_'];

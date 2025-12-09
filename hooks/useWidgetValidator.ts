@@ -10,12 +10,51 @@ export interface WidgetState {
 }
 
 // Helper to match the cleaning logic in ParsonsWidget
-const cleanCodeLine = (line: string) => {
+const cleanCodeLine = (line: string | any) => {
+    // Safety check for non-string inputs
+    let text = line;
+    if (typeof text !== 'string') {
+        if (text && typeof text === 'object') {
+            text = text.code || text.content || text.text || JSON.stringify(text);
+        } else {
+            text = String(text || '');
+        }
+    }
+
     // 1. Remove comments
-    let cleaned = line.replace(/\s*#.*$/, '').replace(/\s*\/\/.*$/, '');
-    // 2. Remove trailing semicolons and braces (open or close)
-    cleaned = cleaned.replace(/[;{}]+$/, '');
-    // 3. Trim whitespace
+    let cleaned = text.replace(/\s*#.*$/, '').replace(/\s*\/\/.*$/, '');
+    
+    // 2. Trim whitespace
+    cleaned = cleaned.trim();
+    
+    // 3. Remove trailing semicolons (Standard Parsons practice)
+    cleaned = cleaned.replace(/;+$/, '');
+    
+    // 4. Handle pure closing braces (e.g. "}", "};")
+    // These are usually structural noise in Parsons and are removed.
+    if (cleaned === '}' || cleaned === '};') {
+        return ''; 
+    }
+    
+    // 5. Smart Brace Handling
+    // We want to remove '{' if it's a block opener (e.g. "if (x) {")
+    // But we MUST PRESERVE '{' if it's data initialization (e.g. "map = {", "return {", "new int[] {")
+    if (cleaned.endsWith('{')) {
+        const trimmedWithoutBrace = cleaned.slice(0, -1).trim();
+        const lastChar = trimmedWithoutBrace.slice(-1);
+        
+        // Symbols that imply data structure or assignment usually precede a brace we want to KEEP.
+        // = (Assignment)
+        // : (Dict/JSON)
+        // , (List item)
+        // [ (Array)
+        // ( (Function call arg)
+        // Also 'return' keyword
+        if (!['=', ':', ',', '[', '('].includes(lastChar) && !trimmedWithoutBrace.endsWith('return')) {
+             cleaned = trimmedWithoutBrace;
+        }
+    }
+    
     return cleaned.trim();
 };
 

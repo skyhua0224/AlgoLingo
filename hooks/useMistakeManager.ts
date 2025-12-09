@@ -59,6 +59,12 @@ export const useMistakeManager = () => {
         });
     }, []);
 
+    // NEW: Undo the last mistake (used for Appeals)
+    const removeLastMistake = useCallback(() => {
+        setSessionMistakes(prev => prev.slice(0, -1));
+        setRetryQueue(prev => prev.slice(0, -1));
+    }, []);
+
     const startReviewLoop = useCallback(() => {
         setIsInMistakeLoop(true);
     }, []);
@@ -73,6 +79,7 @@ export const useMistakeManager = () => {
         isInMistakeLoop,
         hasPendingMistakes: retryQueue.length > 0,
         recordMistake,
+        removeLastMistake,
         startReviewLoop,
         clearQueue
     };

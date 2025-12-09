@@ -6,6 +6,7 @@ import { REVIEW_STAGE_PROMPT } from "./stages/review";
 import { CODING_STAGE_PROMPT } from "./stages/coding";
 import { MASTERY_STAGE_PROMPT } from "./stages/mastery";
 import { LEETCODE_STAGE_PROMPT } from "./stages/leetcode";
+import { SolutionStrategy } from "../../../types";
 
 const langRules: Record<string, string> = {
     Python: "Use Pythonic syntax (list comprehensions, snake_case). Standard library only.",
@@ -20,7 +21,8 @@ export const getLessonPlanSystemInstruction = (
     problemName: string, 
     targetLang: string, 
     speakLang: string,
-    phaseIndex: number
+    phaseIndex: number,
+    targetSolution?: SolutionStrategy
 ) => {
     const targetRule = langRules[targetLang] || "Use standard syntax.";
     
@@ -41,6 +43,24 @@ export const getLessonPlanSystemInstruction = (
         default: stageConfig = REVIEW_STAGE_PROMPT;
     }
 
+    let strategyInstruction = "";
+    if (targetSolution) {
+        strategyInstruction = `
+    **MANDATORY STRATEGY**:
+    - The user has explicitly selected the **"${targetSolution.title}"** strategy.
+    - You MUST teach THIS specific approach. Do NOT teach brute force or other methods unless for brief comparison.
+    - Base your explanations, diagrams, and code snippets on the logic of: 
+      "${targetSolution.code.substring(0, 300)}..."
+    - Use the derivation logic provided: "${targetSolution.derivation.substring(0, 200)}..."
+        `;
+    } else {
+        strategyInstruction = `
+    **CRITICAL PEDAGOGY - OPTIMALITY FIRST**:
+    1. **OPTIMAL SOLUTION ONLY**: You MUST focus the teaching and exercises on the *optimal* algorithm (best Time/Space complexity) for "${problemName}".
+    2. **NO BRUTE FORCE PRACTICE**: Do NOT generate interactive exercises (Parsons, Fill-in, Code) for brute force or suboptimal approaches.
+        `;
+    }
+
     return `
     ${BASE_SYSTEM_INSTRUCTION}
 
@@ -49,12 +69,7 @@ export const getLessonPlanSystemInstruction = (
     - Target Language: ${targetLang}
     - User Language: ${speakLang}
 
-    **CRITICAL PEDAGOGY - OPTIMALITY FIRST**:
-    1. **OPTIMAL SOLUTION ONLY**: You MUST focus the teaching and exercises on the *optimal* algorithm (best Time/Space complexity) for "${problemName}".
-    2. **NO BRUTE FORCE PRACTICE**: Do NOT generate interactive exercises (Parsons, Fill-in, Code) for brute force or suboptimal approaches.
-       - *Allowed*: Briefly mentioning brute force in Stage 1 (Concept) purely for contrast.
-       - *Forbidden*: Asking the user to implement, sort, or fill in a brute force solution.
-    3. **EXAMPLE**: For "Two Sum", teach the **Hash Map** approach (O(n)). Do NOT teach or test the nested loop approach (O(n^2)).
+    ${strategyInstruction}
     
     STRICT CODE RULES:
     - **${targetRule}**

@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { LessonPlan, MistakeRecord, UserPreferences, Widget, LessonScreen, UserStats } from '../../types';
 import { useLessonEngine, ExamResult } from '../../hooks/useLessonEngine';
 import { useWidgetValidator, WidgetState } from '../../hooks/useWidgetValidator';
-import { regenerateLessonScreen } from '../../services/geminiService';
+import { regenerateLessonScreen, verifyAnswerDispute } from '../../services/geminiService';
 import { LessonHeader } from './LessonHeader';
 import { LessonFooter } from './LessonFooter';
 import { LeetCodeRunner } from './LeetCodeRunner';
@@ -13,7 +13,10 @@ import { ExamSummary } from './ExamSummary';
 import { StreakCelebration } from './StreakCelebration';
 import { GlobalAiAssistant } from '../GlobalAiAssistant';
 import { Button } from '../Button';
-import { LogOut, X, HeartCrack, AlertTriangle, ArrowRight } from 'lucide-react';
+import { LogOut, X, HeartCrack, AlertTriangle, ArrowRight, RefreshCw, AlertCircle, Wand2, ShieldCheck, HelpCircle, Loader2, CheckCircle2, FileText } from 'lucide-react';
+import { MarkdownText } from '../common/MarkdownText'; 
+import { ProblemDescription } from '../common/ProblemDescription';
+import { useAppManager } from '../../hooks/useAppManager';
 
 // Direct Widget Imports
 import { DialogueWidget } from '../widgets/Dialogue';
@@ -24,12 +27,10 @@ import { ParsonsWidget } from '../widgets/Parsons';
 import { FillInWidget } from '../widgets/FillIn';
 import { QuizWidget as QuizWidgetPresenter } from '../widgets/Quiz'; 
 import { StepsWidget } from '../widgets/StepsList';
-// New Engineering Widgets
 import { TerminalWidget } from '../widgets/Terminal';
 import { CodeWalkthroughWidget } from '../widgets/CodeWalkthrough';
 import { MiniEditorWidget } from '../widgets/MiniEditor';
 import { ArchCanvasWidget } from '../widgets/ArchCanvas';
-// New Forge Widgets
 import { MermaidVisualWidget } from '../widgets/MermaidVisual';
 import { VisualQuizWidget } from '../widgets/VisualQuiz';
 import { ComparisonTableWidget } from '../widgets/ComparisonTable';
@@ -40,7 +41,7 @@ interface LessonRunnerProps {
   onComplete: (stats: { xp: number; streak: number }, shouldSave: boolean, mistakes: MistakeRecord[]) => void;
   onExit: () => void;
   onRegenerate?: () => void;
-  onUpdatePlan?: (newPlan: LessonPlan) => void; // New Prop
+  onUpdatePlan?: (newPlan: LessonPlan) => void; 
   language: 'Chinese' | 'English';
   preferences: UserPreferences;
   isReviewMode?: boolean;
@@ -50,7 +51,14 @@ interface LessonRunnerProps {
 
 type RunnerPhase = 'lesson' | 'mistake_intro' | 'mistake_loop' | 'summary' | 'streak_celebration' | 'exam_summary';
 
+interface QualityIssue {
+    type: 'lonely_dialogue' | 'broken_fillin' | 'bad_parsons' | 'empty_screen';
+    reason: string;
+    defaultPrompt: string;
+}
+
 export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
+  const { state } = useAppManager();
   
   if (props.nodeIndex === 6) {
     const windowTitle = props.plan.description === "LeetCode Simulator" ? "AlgoLingo Simulator" : "IDE Workspace";
@@ -91,10 +99,25 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
   const [sessionMistakes, setSessionMistakes] = useState<MistakeRecord[]>([]);
   const [hasRepaired, setHasRepaired] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [showProblemContext, setShowProblemContext] = useState(false);
   
+  // Quality Control State
+  const [qualityIssue, setQualityIssue] = useState<QualityIssue | null>(null);
+  const [ignoredIssues, setIgnoredIssues] = useState<string[]>([]);
+
+  // Reporting State
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [disputeResult, setDisputeResult] = useState<{verdict: 'correct'|'incorrect', explanation: string} | null>(null);
+
   // Detect Exam Mode
   const isExamMode = props.plan.context?.type === 'career_exam';
-  const examTimeLimit = 600; // 10 minutes for exam
+  const examTimeLimit = 600; 
+
+  const hasLifeLimit = props.isSkipContext || props.nodeIndex === 5;
+  const activeMaxMistakes = (hasLifeLimit && phase !== 'mistake_loop') ? 2 : undefined;
+
+  const activeProblemData = state.activeProblem ? state.problemDataCache[state.activeProblem.id] : null;
 
   const handleEngineComplete = (stats: { xp: number; streak: number }, shouldSave: boolean, mistakes: MistakeRecord[]) => {
       setSessionMistakes(prev => [...prev, ...mistakes]);
@@ -117,7 +140,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
     nodeIndex: props.nodeIndex,
     onComplete: handleEngineComplete,
     isReviewMode: props.isReviewMode,
-    maxMistakes: props.isSkipContext ? 2 : undefined
+    maxMistakes: activeMaxMistakes 
   });
 
   const [widgetState, setWidgetState] = useState<WidgetState>({});
@@ -126,7 +149,49 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
 
   useEffect(() => {
     setWidgetState({});
-  }, [engine.currentScreen?.id]);
+    
+    if (engine.currentScreen && !ignoredIssues.includes(engine.currentScreen.id)) {
+        const screen = engine.currentScreen;
+        const isZh = props.language === 'Chinese';
+        
+        if (screen.widgets.length === 1 && screen.widgets[0].type === 'dialogue') {
+            setQualityIssue({
+                type: 'lonely_dialogue',
+                reason: isZh ? "此页面仅包含单一对话气泡，缺乏互动。" : "This screen has only text, missing visual interactivity.",
+                defaultPrompt: "Add an 'interactive-code' widget or a 'quiz' to visualize the concept mentioned in the dialogue."
+            });
+            return;
+        }
+
+        const fillIn = screen.widgets.find(w => w.type === 'fill-in');
+        if (fillIn && fillIn.fillIn) {
+             const { inputMode, options } = fillIn.fillIn;
+             if ((!inputMode || inputMode === 'select') && (!options || options.length === 0)) {
+                 setQualityIssue({
+                     type: 'broken_fillin',
+                     reason: isZh ? "填空题缺少选项数据。" : "Fill-in question is missing options.",
+                     defaultPrompt: "Regenerate the fill-in widget. It MUST include an 'options' array with the correct answer and distractors."
+                 });
+                 return;
+             }
+        }
+
+        const parsons = screen.widgets.find(w => w.type === 'parsons');
+        if (parsons && parsons.parsons && (!parsons.parsons.lines || parsons.parsons.lines.length < 3)) {
+            setQualityIssue({
+                type: 'bad_parsons',
+                reason: isZh ? "代码拼图行数过少，缺乏挑战性。" : "The Parsons puzzle is too short.",
+                defaultPrompt: "Regenerate the Parsons puzzle with at least 5 lines of logical code. Do not use trivial lines."
+            });
+            return;
+        }
+
+        setQualityIssue(null);
+    } else {
+        setQualityIssue(null);
+    }
+
+  }, [engine.currentScreen?.id, ignoredIssues, props.language]);
 
   const activeWidget = engine.currentScreen.widgets.find(w => 
     ['quiz', 'parsons', 'fill-in', 'steps-list', 'mini-editor', 'terminal', 'arch-canvas'].includes(w.type) || 
@@ -136,33 +201,27 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
   const isInteractiveScreen = !!activeWidget;
 
   const handleCheck = () => {
-    // If non-interactive, just next
     if (!isInteractiveScreen) {
         engine.nextScreen();
         return;
     }
 
     const isCorrect = validator.validate(activeWidget as Widget, widgetState);
-    
-    // Auto-correct specialized engineering widgets (Removed mini-editor)
     const isAutoPass = ['terminal', 'code-walkthrough', 'arch-canvas', 'mermaid', 'visual-quiz', 'comparison-table'].includes(activeWidget?.type || '');
-    
     const finalResult = isAutoPass ? true : isCorrect;
 
     if (isExamMode) {
-        // In exam mode, record answer silently and move next
-        // We pass current widgetState so it can be stored in history
         engine.submitExamAnswer(finalResult, widgetState);
     } else {
-        // Standard mode: show feedback
         engine.checkAnswer(finalResult);
     }
   };
 
   const handleRegenerateScreen = async (instruction: string) => {
       if (!engine.currentScreen) return;
-      
       setIsRegenerating(true);
+      setQualityIssue(null);
+
       try {
           const newScreen = await regenerateLessonScreen(
               engine.currentScreen,
@@ -170,18 +229,13 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
               instruction,
               props.preferences
           );
-          
-          // Update Engine State (UI)
           engine.replaceCurrentScreen(newScreen);
-          
-          // Update Global Plan State (Persistence)
           if (props.onUpdatePlan) {
               const updatedScreens = [...props.plan.screens];
               updatedScreens[engine.currentIndex] = newScreen;
               const updatedPlan = { ...props.plan, screens: updatedScreens };
               props.onUpdatePlan(updatedPlan);
           }
-
       } catch (e) {
           alert(props.language === 'Chinese' ? "重新生成失败，请重试" : "Regeneration failed, please try again");
       } finally {
@@ -220,10 +274,47 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       }
   };
 
-  // --- RENDER: FAILED SCREEN ---
+  const handleDispute = async () => {
+      if (!activeWidget) return;
+      setIsVerifying(true);
+      
+      let userAnswer: any = "No Answer";
+      if (activeWidget.type === 'quiz' && widgetState.quizSelection !== undefined) {
+          userAnswer = activeWidget.quiz?.options[widgetState.quizSelection] || "Index " + widgetState.quizSelection;
+      } else if (activeWidget.type === 'fill-in' && widgetState.fillInAnswers) {
+          userAnswer = widgetState.fillInAnswers;
+      } else if (activeWidget.type === 'parsons' && widgetState.parsonsOrder) {
+          userAnswer = "User Ordered Code:\n" + widgetState.parsonsOrder.join('\n');
+      } else if (activeWidget.type === 'steps-list' && widgetState.stepsOrder) {
+          userAnswer = "User Ordered Steps:\n" + widgetState.stepsOrder.join('\n');
+      }
+
+      try {
+          const result = await verifyAnswerDispute(
+              activeWidget,
+              userAnswer,
+              engine.currentScreen.header || props.plan.title,
+              props.preferences
+          );
+          
+          setDisputeResult(result);
+          if (result.verdict === 'correct') {
+              engine.rectifyMistake();
+              setSessionMistakes(prev => prev.slice(0, -1)); 
+          }
+      } catch (e) {
+          alert("AI Judge Offline.");
+          setShowReportModal(false);
+      } finally {
+          setIsVerifying(false);
+      }
+  };
+
+  // --- RENDER LOGIC --- (Simplified for brevity, mostly same as original)
   if (engine.isFailed) {
       return (
           <div className="fixed inset-0 z-[120] bg-black/80 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in-up">
+              {/* Fail Screen UI */}
               <div className="bg-white dark:bg-dark-card rounded-3xl p-8 w-full max-w-md text-center shadow-2xl border-4 border-red-500 relative overflow-hidden">
                   <div className="absolute top-0 left-0 w-full h-2 bg-red-500"></div>
                   <div className="w-20 h-20 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-6 animate-pulse">
@@ -245,7 +336,6 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       );
   }
 
-  // --- RENDER: EXAM SUMMARY ---
   if (phase === 'exam_summary') {
       return (
           <ExamSummary 
@@ -258,7 +348,6 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       );
   }
 
-  // --- RENDER: MISTAKE INTRO ---
   if (phase === 'mistake_intro') {
       return (
           <div className="fixed inset-0 z-[100] bg-white dark:bg-dark-bg md:flex md:items-center md:justify-center md:bg-gray-100/90 md:dark:bg-black/90 md:backdrop-blur-sm">
@@ -269,7 +358,6 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       );
   }
 
-  // --- RENDER: LESSON SUMMARY ---
   if (phase === 'summary') {
       return (
         <div className="fixed inset-0 z-[100] bg-white dark:bg-dark-bg md:flex md:items-center md:justify-center md:bg-gray-100/90 md:dark:bg-black/90 md:backdrop-blur-sm">
@@ -290,7 +378,6 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       );
   }
 
-  // --- RENDER: STREAK CELEBRATION ---
   if (phase === 'streak_celebration') {
       return (
         <div className="fixed inset-0 z-[100] bg-white dark:bg-dark-bg md:flex md:items-center md:justify-center md:bg-gray-100/90 md:dark:bg-black/90 md:backdrop-blur-sm">
@@ -306,7 +393,6 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       );
   }
 
-  // --- RENDER: EXIT CONFIRM ---
   if (showExitConfirm) {
       return (
            <div className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
@@ -322,31 +408,159 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       );
   }
 
-  // --- RENDER: MAIN LESSON ---
+  // --- MAIN RENDER ---
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-100/80 dark:bg-black/80 backdrop-blur-sm p-0 md:p-4">
-      <div className="w-full h-full md:max-w-5xl md:h-[96vh] bg-white dark:bg-dark-bg md:rounded-3xl md:shadow-2xl flex flex-col overflow-hidden relative border border-gray-200 dark:border-gray-700 transition-all">
+      {/* Problem View Modal */}
+      {showProblemContext && activeProblemData && (
+          <div className="fixed inset-0 z-[110] bg-black/60 flex items-center justify-center p-4" onClick={() => setShowProblemContext(false)}>
+              <div className="w-full max-w-2xl max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                  <ProblemDescription context={activeProblemData.context} />
+              </div>
+          </div>
+      )}
+
+      <div className="w-full h-full md:max-w-5xl md:h-[96vh] bg-white dark:bg-dark-bg md:rounded-3xl md:shadow-2xl flex flex-col overflow-hidden relative border border-gray-200 dark:border-gray-700 transition-all animate-scale-in">
+        
         <GlobalAiAssistant 
             problemName={props.plan.title} 
             preferences={props.preferences} 
             language={props.language} 
             currentPlan={props.plan} 
         />
-        <LessonHeader 
-            currentScreenIndex={engine.currentIndex}
-            totalScreens={engine.totalScreens}
-            streak={engine.streak}
-            mistakeCount={engine.mistakeCount}
-            timerSeconds={engine.timerSeconds}
-            isSkipMode={props.isSkipContext && !engine.isLimitDisabled}
-            isMistakeMode={phase === 'mistake_loop'}
-            onExit={() => setShowExitConfirm(true)}
-            headerTitle={engine.currentScreen.header}
-            language={props.language}
-            totalTime={isExamMode ? examTimeLimit : undefined}
-        />
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-0 md:p-8 pb-32 md:pb-32 w-full bg-gray-50/30 dark:bg-dark-bg/30">
+        
+        <div className="relative">
+            <LessonHeader 
+                currentScreenIndex={engine.currentIndex}
+                totalScreens={engine.totalScreens}
+                streak={engine.streak}
+                mistakeCount={engine.mistakeCount}
+                timerSeconds={engine.timerSeconds}
+                isSkipMode={activeMaxMistakes !== undefined && !engine.isLimitDisabled}
+                isMistakeMode={phase === 'mistake_loop'}
+                onExit={() => setShowExitConfirm(true)}
+                headerTitle={engine.currentScreen.header}
+                language={props.language}
+                totalTime={isExamMode ? examTimeLimit : undefined}
+            />
             
+            {/* Context Button */}
+            {activeProblemData && (
+                <button 
+                    onClick={() => setShowProblemContext(true)}
+                    className="absolute top-1/2 -translate-y-1/2 left-4 md:left-24 text-gray-400 hover:text-brand z-20"
+                    title="View Problem"
+                >
+                    <FileText size={18} />
+                </button>
+            )}
+        </div>
+
+        {/* RECOVERY MODAL (QUALITY CONTROL) */}
+        {qualityIssue && (
+            <div className="absolute top-20 left-1/2 -translate-x-1/2 z-[60] w-full max-w-lg px-4 animate-slide-in-bottom">
+                <div className="bg-white dark:bg-[#151515] border-2 border-red-500/50 dark:border-red-500/30 shadow-2xl rounded-2xl p-4 flex flex-col gap-3">
+                    <div className="flex items-start gap-3">
+                        <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-full text-red-500 shrink-0">
+                            <AlertCircle size={20} />
+                        </div>
+                        <div>
+                            <h4 className="font-bold text-gray-800 dark:text-white text-sm">
+                                {props.language === 'Chinese' ? "检测到内容质量问题" : "Content Quality Issue Detected"}
+                            </h4>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+                                {qualityIssue.reason}
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex gap-2 justify-end">
+                        <button 
+                            onClick={() => { setQualityIssue(null); setIgnoredIssues(prev => [...prev, engine.currentScreen.id]); }}
+                            className="px-4 py-2 text-xs font-bold text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+                        >
+                            {props.language === 'Chinese' ? "忽略 (Ignore)" : "Ignore"}
+                        </button>
+                        <button 
+                            onClick={() => handleRegenerateScreen(qualityIssue.defaultPrompt)}
+                            className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-xs font-bold flex items-center gap-2 shadow-sm transition-all"
+                        >
+                            <Wand2 size={12} />
+                            {props.language === 'Chinese' ? "AI 自动修复" : "Auto-Fix"}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* FEEDBACK & REPORT MODAL */}
+        {showReportModal && (
+            <div className="absolute inset-0 z-[70] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+                <div className="bg-white dark:bg-dark-card w-full max-w-sm rounded-3xl p-6 shadow-2xl border-2 border-red-100 dark:border-red-900/50">
+                    {!disputeResult ? (
+                        <>
+                            <div className="flex justify-between items-center mb-6">
+                                <h3 className="font-extrabold text-lg text-gray-800 dark:text-white">
+                                    {props.language === 'Chinese' ? "反馈与申诉" : "Feedback & Appeal"}
+                                </h3>
+                                <button onClick={() => setShowReportModal(false)} className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
+                                    <X size={20} className="text-gray-400" />
+                                </button>
+                            </div>
+                            
+                            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+                                {props.language === 'Chinese' 
+                                 ? "你认为你的答案是正确的吗？还是题目有问题？" 
+                                 : "Do you believe your answer is correct, or is the question flawed?"}
+                            </p>
+
+                            <div className="space-y-3">
+                                <button 
+                                    onClick={handleDispute}
+                                    disabled={isVerifying}
+                                    className="w-full py-4 bg-brand text-white rounded-2xl font-bold shadow-lg hover:bg-brand-light transition-all flex items-center justify-center gap-3"
+                                >
+                                    {isVerifying ? <Loader2 size={18} className="animate-spin"/> : <ShieldCheck size={18} />}
+                                    {isVerifying ? (props.language === 'Chinese' ? "AI 正在裁决..." : "AI Judging...") : (props.language === 'Chinese' ? "我的答案是正确的" : "My Answer is Correct")}
+                                </button>
+                                
+                                <button 
+                                    onClick={() => handleRegenerateScreen("The previous question was confusing or broken. Make it better.")}
+                                    className="w-full py-4 bg-red-50 dark:bg-red-900/10 border-2 border-red-100 dark:border-red-900/50 text-red-600 dark:text-red-400 rounded-2xl font-bold hover:bg-red-100 dark:hover:bg-red-900/30 transition-all flex items-center justify-center gap-3"
+                                >
+                                    <AlertTriangle size={18} />
+                                    {props.language === 'Chinese' ? "题目质量差 (重生成)" : "Bad Question (Regenerate)"}
+                                </button>
+                            </div>
+                        </>
+                    ) : (
+                        // DISPUTE RESULT VIEW
+                        <div className="text-center animate-fade-in-up">
+                            <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${disputeResult.verdict === 'correct' ? 'bg-green-100 text-green-500' : 'bg-red-100 text-red-500'}`}>
+                                {disputeResult.verdict === 'correct' ? <CheckCircle2 size={32} /> : <HeartCrack size={32} />}
+                            </div>
+                            
+                            <h3 className={`text-xl font-black mb-2 uppercase ${disputeResult.verdict === 'correct' ? 'text-green-600' : 'text-red-600'}`}>
+                                {disputeResult.verdict === 'correct' ? (props.language === 'Chinese' ? "申诉成功！" : "Appeal Accepted!") : (props.language === 'Chinese' ? "申诉驳回" : "Appeal Rejected")}
+                            </h3>
+                            
+                            <div className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed mb-6 bg-gray-50 dark:bg-gray-800 p-4 rounded-xl text-left border border-gray-100 dark:border-gray-700 max-h-48 overflow-y-auto custom-scrollbar">
+                                <MarkdownText content={disputeResult.explanation} />
+                            </div>
+
+                            <Button 
+                                onClick={() => { setShowReportModal(false); setDisputeResult(null); }}
+                                variant={disputeResult.verdict === 'correct' ? 'primary' : 'secondary'}
+                                className="w-full"
+                            >
+                                {props.language === 'Chinese' ? "我知道了" : "Got it"}
+                            </Button>
+                        </div>
+                    )}
+                </div>
+            </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-0 md:p-8 pb-32 md:pb-32 w-full bg-gray-50/30 dark:bg-dark-bg/30">
             <div className="mx-auto max-w-2xl transition-all duration-300 px-4 pt-4 md:px-0 md:pt-0">
                 {engine.currentScreen.widgets.map((widget, idx) => (
                     <div key={widget.id + idx} className={`animate-fade-in-up delay-${Math.min(idx * 100, 400)} mb-6`}>
@@ -394,6 +608,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
             isExamMode={isExamMode}
             isLastQuestion={engine.currentIndex === engine.totalScreens - 1}
             onRegenerate={handleRegenerateScreen}
+            onReport={() => setShowReportModal(true)}
             isRegenerating={isRegenerating}
         />
       </div>

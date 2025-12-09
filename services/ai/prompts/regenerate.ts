@@ -2,19 +2,21 @@
 import { BASE_SYSTEM_INSTRUCTION } from "./system";
 
 export const getRegenerateScreenPrompt = (
-    originalHeader: string,
+    originalScreen: any,
     context: any,
     userInstruction: string,
     lang: string,
     targetLang: string
 ) => {
     // Robustly determine topic from context
-    // Fallback to checking multiple property names to ensure we catch the topic
     const topic = context?.topic || context?.companyName || context?.title || "General Programming";
     const specificContext = context?.stageTitle ? `Stage: ${context.stageTitle}` : "";
     
     // Dump the full context object to help the AI if keys vary
     const contextDump = JSON.stringify(context || {});
+    const originalJson = JSON.stringify(originalScreen || {});
+
+    const isDefaultFix = !userInstruction || userInstruction.trim() === "";
 
     return `
     ${BASE_SYSTEM_INSTRUCTION}
@@ -26,16 +28,16 @@ export const getRegenerateScreenPrompt = (
     - Sub-Context: ${specificContext}
     - Target Language: ${targetLang}
     - User Language: ${lang}
-    - Original Header: "${originalHeader}"
-    - Full Context Data: ${contextDump}
+    - Original Screen JSON: \`\`\`json\n${originalJson}\n\`\`\`
     
     **USER INSTRUCTION**: 
-    "${userInstruction || "Generate a harder variation of this screen."}"
+    "${isDefaultFix ? "Analyze the original screen JSON. Detect logical flaws (e.g. asking for a variable name without context, trivial questions). Regenerate a BETTER version of this screen that is pedagogically sound." : userInstruction}"
 
     **CRITICAL ANTI-HALLUCINATION RULES**:
-    1. **STAY ON TOPIC**: If the MAIN TOPIC is specific (e.g. "OpenGL", "Kafka", "React"), you MUST generate content about that topic. Do NOT generate generic questions like "Bubble Sort", "Sum List", or "Two Sum" unless they are directly relevant.
-    2. **WIDGETS**: You MUST use a DIFFERENT widget type than the original if possible (e.g., if original was 'quiz', try 'fill-in' or 'parsons').
+    1. **STAY ON TOPIC**: If the MAIN TOPIC is specific (e.g. "OpenGL", "Kafka", "React"), you MUST generate content about that topic.
+    2. **WIDGETS**: You may keep the same widget type if fixing a specific error, OR switch types if the original was fundamentally flawed (e.g. 'lonely dialogue').
     3. **DATA**: Ensure code snippets are valid ${targetLang}.
+    4. **FILL-IN FIX**: If the original screen asked the user to fill in a variable name (e.g. \`__BLANK__ = {}\`), FIX IT by blanking the value instead (e.g. \`seen = __BLANK__\`).
 
     OUTPUT:
     - A single valid 'LessonScreen' object (JSON).

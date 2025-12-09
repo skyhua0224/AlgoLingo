@@ -16,10 +16,37 @@ export interface LessonScreen {
     isRetry?: boolean; 
 }
 
+export interface SolutionStrategy {
+    id: string;
+    title: string; // e.g. "哈希表优化法"
+    complexity: string;
+    code: string; // Raw code string for copying/display
+    language: string;
+    
+    // Deep Dive Content
+    derivation: string; // Markdown: detailed narrative, intuition, prerequisites, thought process
+    
+    // Structured Code for Interactive Widget
+    codeLines: {
+        code: string;
+        explanation: string;
+    }[];
+
+    // Strategy specific concept card for sidebar
+    concept?: {
+        front: string;
+        back: string;
+    };
+
+    intuition?: string;
+    isCustom?: boolean; 
+    tags?: string[]; // Concept tags in Chinese
+}
+
 export interface LessonPlan {
   title: string;
   description: string;
-  headerImage?: string; // Support for Forge generated covers
+  headerImage?: string; 
   unitId?: string; 
   screens: LessonScreen[];
   suggestedQuestions: string[]; 
@@ -31,17 +58,20 @@ export interface LessonPlan {
       lessonId?: string;
       phaseIndex?: number;
       
+      // Solution Context
+      targetSolution?: SolutionStrategy; 
+      
       // Engineering Context
       pillar?: string;
       topic?: string;
-      topicId?: string; // NEW: For saving progress
+      topicId?: string; 
       levelId?: string;
-      stepId?: string;  // NEW: For saving progress
+      stepId?: string;  
 
       // Career/Forge Context
-      roadmapId?: string; // NEW
-      stageId?: number;   // NEW
-      stageTitle?: string; // NEW: For regeneration context
+      roadmapId?: string; 
+      stageId?: number;   
+      stageTitle?: string; 
       companyName?: string; 
       roleName?: string;
       timeLimit?: number;
@@ -55,6 +85,8 @@ export interface SavedLesson {
   timestamp: number;
   plan: LessonPlan;
   language: string;
+  xpEarned?: number;     
+  mistakeCount?: number; 
 }
 
 export interface MistakeRecord {

@@ -16,19 +16,37 @@ export const MarkdownText: React.FC<MarkdownTextProps> = ({ content, className =
   } else if (typeof content === 'number') {
       textString = String(content);
   } else if (typeof content === 'object') {
-      // Try to salvage common patterns if AI returns object (e.g. localized strings or wrapped text)
       textString = content.text || content.en || content.content || JSON.stringify(content);
   } else {
       textString = String(content);
   }
 
-  // Split by bold (**text**) and code (`text`) markers
-  // Regex captures delimiters to include them in the split array
-  const parts = textString.split(/(\*\*.*?\*\*|`.*?`)/g);
+  // Simple parser to handle newlines, bold, code, headers, and lists
+  // This is a lightweight alternative to full markdown parsers to keep bundle small
+  const renderLine = (line: string, key: number) => {
+      // Header
+      if (line.startsWith('### ')) return <h4 key={key} className="text-sm font-bold mt-3 mb-1 text-gray-900 dark:text-white">{line.replace('### ', '')}</h4>;
+      if (line.startsWith('## ')) return <h3 key={key} className="text-base font-bold mt-4 mb-2 text-gray-900 dark:text-white">{line.replace('## ', '')}</h3>;
+      
+      // List item
+      if (line.trim().startsWith('- ')) {
+          return (
+            <li key={key} className="ml-4 list-disc pl-1 text-gray-700 dark:text-gray-300">
+                {parseInline(line.trim().substring(2))}
+            </li>
+          );
+      }
 
-  return (
-    <span className={`leading-relaxed ${className}`}>
-      {parts.map((part, index) => {
+      // Normal paragraph
+      if (!line.trim()) return <div key={key} className="h-2" />; // Spacer
+      
+      return <div key={key} className="min-h-[20px]">{parseInline(line)}</div>;
+  };
+
+  const parseInline = (text: string) => {
+      // Split by bold (**text**) and code (`text`) markers
+      const parts = text.split(/(\*\*.*?\*\*|`.*?`)/g);
+      return parts.map((part, index) => {
         if (part.startsWith('**') && part.endsWith('**')) {
           return (
             <strong key={index} className="font-bold text-gray-900 dark:text-white">
@@ -47,7 +65,12 @@ export const MarkdownText: React.FC<MarkdownTextProps> = ({ content, className =
           );
         }
         return <span key={index}>{part}</span>;
-      })}
-    </span>
+      });
+  };
+
+  return (
+    <div className={`leading-relaxed space-y-1 ${className}`}>
+      {textString.split('\n').map((line, i) => renderLine(line, i))}
+    </div>
   );
 };

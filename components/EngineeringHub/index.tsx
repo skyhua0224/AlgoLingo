@@ -23,10 +23,16 @@ export const EngineeringHub: React.FC<EngineeringHubProps> = ({ preferences, onU
     const { state, actions } = useAppManager();
     const { engineeringNav } = state;
 
-    // Navigation State (Local, initialized from Global if available)
-    const [activePillarId, setActivePillarId] = useState<'system' | 'cs' | 'track' | null>(null);
-    const [activeTopic, setActiveTopic] = useState<EngineeringTopic | null>(null);
-    const [activeTrackData, setActiveTrackData] = useState<SkillTrack | null>(null);
+    // Navigation State (Initialized safely from Global)
+    const [activePillarId, setActivePillarId] = useState<'system' | 'cs' | 'track' | null>(
+        engineeringNav?.pillarId || null
+    );
+    const [activeTopic, setActiveTopic] = useState<EngineeringTopic | null>(
+        engineeringNav?.topic || null
+    );
+    const [activeTrackData, setActiveTrackData] = useState<SkillTrack | null>(
+        engineeringNav?.trackData || null
+    );
     
     // Data State
     const [topicProfile, setTopicProfile] = useState<TopicProfile | null>(null);
@@ -35,23 +41,16 @@ export const EngineeringHub: React.FC<EngineeringHubProps> = ({ preferences, onU
     const [loading, setLoading] = useState(false);
     const [loadingMsg, setLoadingMsg] = useState("");
 
-    // RESTORE STATE ON MOUNT
+    // RESTORE PROFILE ON MOUNT (If returning to a specific topic)
     useEffect(() => {
-        if (engineeringNav && engineeringNav.pillarId) {
-            setActivePillarId(engineeringNav.pillarId);
-            setActiveTrackData(engineeringNav.trackData);
-            setActiveTopic(engineeringNav.topic);
-            
-            // If we have a topic, we need to restore its profile
-            if (engineeringNav.topic && engineeringNav.pillarId) {
-                const profileKey = `algolingo_eng_v3_${engineeringNav.pillarId}_${engineeringNav.topic.id}`;
-                const saved = localStorage.getItem(profileKey);
-                if (saved) {
-                    try { setTopicProfile(JSON.parse(saved)); } catch(e) {}
-                }
+        if (activeTopic && activePillarId) {
+            const profileKey = `algolingo_eng_v3_${activePillarId}_${activeTopic.id}`;
+            const saved = localStorage.getItem(profileKey);
+            if (saved) {
+                try { setTopicProfile(JSON.parse(saved)); } catch(e) {}
             }
         }
-    }, []);
+    }, []); 
 
     // UPDATE GLOBAL STATE ON CHANGE
     useEffect(() => {
@@ -125,12 +124,10 @@ export const EngineeringHub: React.FC<EngineeringHubProps> = ({ preferences, onU
             return; 
         }
 
-        // If no modules, we need to GENERATE the syllabus (Modules -> Topics)
         setLoading(true);
         setLoadingMsg(language === 'Chinese' ? "AI 正在生成专精大纲..." : "AI is generating specialization syllabus...");
 
         try {
-            // Fix: safely extract string for API call
             const trackTitle = typeof track.title === 'string' ? track.title : (track.title.en || 'Custom Track');
             const trackDesc = typeof track.description === 'string' ? track.description : (track.description.en || '');
 
@@ -139,14 +136,13 @@ export const EngineeringHub: React.FC<EngineeringHubProps> = ({ preferences, onU
             // Merge new modules into existing track object
             const updatedTrack = { ...track, modules: enrichedTrack.modules };
             
-            // Save back to localStorage (Global User Tracks)
+            // Save back to localStorage
             const allTracks = JSON.parse(localStorage.getItem('algolingo_my_tracks') || '[]');
             const idx = allTracks.findIndex((t: SkillTrack) => t.id === track.id);
             if (idx !== -1) {
                 allTracks[idx] = updatedTrack;
                 localStorage.setItem('algolingo_my_tracks', JSON.stringify(allTracks));
             } else {
-                // Handle case where track wasn't in list yet (e.g. brand new add)
                 allTracks.push(updatedTrack);
                 localStorage.setItem('algolingo_my_tracks', JSON.stringify(allTracks));
             }
@@ -165,11 +161,10 @@ export const EngineeringHub: React.FC<EngineeringHubProps> = ({ preferences, onU
     // --- LESSON START LOGIC ---
 
     const handleStartLevel = async (step: EngineeringStep) => {
-        if (!activeTopic) return;
+        if (!activeTopic || !activePillarId) return;
         
         // 1. Check for Cached Plan (History)
         if (step.cachedPlan) {
-            // Use cached plan immediately
             const plan = { ...step.cachedPlan, isLocalReplay: true };
             onStartLesson(plan);
             return;
@@ -185,16 +180,16 @@ export const EngineeringHub: React.FC<EngineeringHubProps> = ({ preferences, onU
             const lessonTitle = `${activeTopic.title[langKey]}: ${step.title[langKey]}`;
             const contextDescription = step.description[langKey];
             
-            // Injecting topicId and stepId into context for progress tracking AND history saving
+            // Correctly pass the actual pillar ID (including 'track') to ensure context persistence matches storage
             const plan = await generateEngineeringLesson(
-                activePillarId === 'cs' ? 'cs' : 'system', // Default to system prompt style for tracks
+                activePillarId, // Pass 'system', 'cs', OR 'track' directly
                 lessonTitle, 
                 [...activeTopic.keywords, step.focus], 
-                step.id, // Pass step ID instead of focus keyword, prompts now handle regex matching on ID
+                step.id,
                 preferences,
                 contextDescription,
-                activeTopic.id, // Pass Topic ID
-                step.id         // Pass Step ID
+                activeTopic.id,
+                step.id
             );
             
             onStartLesson(plan);
@@ -225,7 +220,7 @@ export const EngineeringHub: React.FC<EngineeringHubProps> = ({ preferences, onU
             <TopicMap 
                 topic={activeTopic}
                 profile={topicProfile}
-                pillarId={activePillarId as any}
+                pillarId={activePillarId === 'cs' ? 'cs' : 'system'} // Keep UI styling consistent
                 onBack={() => { setActiveTopic(null); setTopicProfile(null); }}
                 onStartPhase={handleStartLevel} 
                 language={language}
@@ -233,15 +228,13 @@ export const EngineeringHub: React.FC<EngineeringHubProps> = ({ preferences, onU
         );
     }
 
-    // 2. Track Detail View (Reusing PillarDetailView for structure consistency)
+    // 2. Track Detail View
     if (activePillarId === 'track' && activeTrackData) {
-        // Helper to ensure LocalizedContent format
         const ensureLocalized = (content: string | LocalizedContent): LocalizedContent => {
             if (typeof content === 'string') return { en: content, zh: content };
             return content;
         };
 
-        // Convert SkillTrack to EngineeringPillar shape for the view
         const mockPillarData: EngineeringPillar = {
             id: activeTrackData.id,
             title: ensureLocalized(activeTrackData.title),
@@ -259,7 +252,7 @@ export const EngineeringHub: React.FC<EngineeringHubProps> = ({ preferences, onU
         );
     }
 
-    // 3. Pillar Detail View (Static Data)
+    // 3. Pillar Detail View
     if (activePillarId === 'system' || activePillarId === 'cs') {
         const data = activePillarId === 'system' ? SOFTWARE_ARCH_DATA : CS_FUNDAMENTALS_DATA;
         return (

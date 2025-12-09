@@ -1,19 +1,24 @@
 
-import React, { useState } from 'react';
-import { ArrowLeft, History, PlayCircle, BookOpen, Code, Star, BookOpenCheck, Crown, AlertTriangle, FastForward } from 'lucide-react';
-import { SavedLesson } from '../types';
+import React, { useState, useEffect } from 'react';
+import { ArrowLeft, History, PlayCircle, BookOpen, Code, Star, BookOpenCheck, Crown, AlertTriangle, FastForward, Settings, Crosshair, Loader2, FileText } from 'lucide-react';
+import { SavedLesson, SolutionStrategy, UserPreferences, ProblemData } from '../types';
 import { Button } from './Button';
 import { LevelNode, MasteryPlate } from './common/GamifiedMap';
+import { SolutionSetup } from './SolutionSetup';
+import { useAppManager } from '../hooks/useAppManager';
+import { ProblemDescription } from './common/ProblemDescription';
+import { ProblemGenerationModal } from './ProblemGenerationModal';
 
 interface UnitMapProps {
   problemName: string;
   currentLevel: number; // 0-6
   savedLessons: SavedLesson[];
-  onStartLevel: (level: number, isSkip?: boolean) => void;
+  onStartLevel: (level: number, isSkip?: boolean, solutionContext?: SolutionStrategy) => void;
   onLoadSaved: (lesson: SavedLesson) => void;
   onBack: () => void;
   language: 'Chinese' | 'English';
-  failedSkips?: Record<string, boolean>; // To track if skip is disabled
+  preferences: UserPreferences;
+  failedSkips?: Record<string, boolean>; 
 }
 
 const LOCALE = {
@@ -40,7 +45,12 @@ const LOCALE = {
         mastered: "已精通",
         leetcodeMode: "力扣学习",
         masteryLoop: "精通挑战",
-        masteryHub: "精通中心"
+        masteryHub: "精通中心",
+        strategyBtn: "解题策略",
+        strategyDesc: "当前目标解法",
+        viewProblem: "查看题目",
+        genProblem: "正在生成题目信息...",
+        loadingContext: "AI 正在分析题目上下文...",
     },
     English: {
         unit: "Problem",
@@ -65,15 +75,63 @@ const LOCALE = {
         mastered: "Mastered",
         leetcodeMode: "LeetCode Study",
         masteryLoop: "Mastery Challenge",
-        masteryHub: "Mastery Hub"
+        masteryHub: "Mastery Hub",
+        strategyBtn: "Strategy",
+        strategyDesc: "Target Solution",
+        viewProblem: "View Problem",
+        genProblem: "Generating problem info...",
+        loadingContext: "AI Analyzing Context...",
     }
 };
 
-export const UnitMap: React.FC<UnitMapProps> = ({ problemName, currentLevel, savedLessons, onStartLevel, onLoadSaved, onBack, language, failedSkips }) => {
+export const UnitMap: React.FC<UnitMapProps> = ({ problemName, currentLevel, savedLessons, onStartLevel, onLoadSaved, onBack, language, failedSkips, preferences }) => {
+  const { state, actions } = useAppManager();
   const [showSkipModal, setShowSkipModal] = useState(false);
+  const [showSolutionSetup, setShowSolutionSetup] = useState(false);
+  const [showProblemDetail, setShowProblemDetail] = useState(false);
+  const [activeStrategy, setActiveStrategy] = useState<SolutionStrategy | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  
   const t = LOCALE[language];
 
-  // 6 Phases: Indices 0 to 5. Index 6 is LeetCode (Virtual)
+  // Load problem data or trigger generation on mount
+  useEffect(() => {
+      const activeProblem = state.activeProblem;
+      if (!activeProblem) return;
+
+      const cachedData = state.problemDataCache[activeProblem.id];
+      if (!cachedData) {
+          setIsGenerating(true);
+      }
+  }, [state.activeProblem, state.problemDataCache]);
+
+  // Load saved strategy selection
+  useEffect(() => {
+      const savedKey = `algolingo_active_strategy_${problemName}_${preferences.targetLanguage}`;
+      const saved = localStorage.getItem(savedKey);
+      if (saved) {
+          try { setActiveStrategy(JSON.parse(saved)); } catch(e) {}
+      } 
+  }, [problemName, preferences.targetLanguage]);
+
+  const handleGenerationComplete = (data: ProblemData) => {
+      if (state.activeProblem) {
+          actions.handleSaveProblemData(state.activeProblem.id, data);
+          // Auto-select first strategy
+          if (data.solutions.length > 0) {
+              handleStrategyConfirm(data.solutions[0]);
+          }
+      }
+      setIsGenerating(false);
+  };
+
+  const handleStrategyConfirm = (strategy: SolutionStrategy) => {
+      setActiveStrategy(strategy);
+      localStorage.setItem(`algolingo_active_strategy_${problemName}_${preferences.targetLanguage}`, JSON.stringify(strategy));
+      setShowSolutionSetup(false);
+  };
+
+  // 6 Phases
   const pathNodes = [
       { id: 0, type: 'lesson', icon: <BookOpen size={24} />, label: t.intro, subtitle: "Level 1" },
       { id: 1, type: 'lesson', icon: <Code size={24} />, label: t.basics, subtitle: "Level 2" },
@@ -86,35 +144,56 @@ export const UnitMap: React.FC<UnitMapProps> = ({ problemName, currentLevel, sav
   const isSkipLocked = failedSkips && failedSkips[problemName];
   const isMastered = currentLevel >= 6;
 
-  const handleNodeClick = (nodeId: number, isLocked: boolean) => {
-      // Boss Node Logic
+  const handleNodeClick = async (nodeId: number, isLocked: boolean) => {
       if (nodeId === 5) {
-          // If locked and skip available -> Skip Modal
           if (isLocked) {
               if (!isSkipLocked) {
                   setShowSkipModal(true);
                   return;
               }
           } else {
-              // If unlocked or mastered, start Mastery Phase (Index 5)
-              onStartLevel(5);
+              onStartLevel(5, false, activeStrategy || undefined);
           }
           return;
       }
       
       if (!isLocked) {
-          onStartLevel(nodeId);
+          onStartLevel(nodeId, false, activeStrategy || undefined);
       }
   };
 
   const confirmSkip = () => {
       setShowSkipModal(false);
-      onStartLevel(5, true); // true = isSkip
+      onStartLevel(5, true, activeStrategy || undefined); // true = isSkip
   };
+
+  const activeProblemData = state.activeProblem ? state.problemDataCache[state.activeProblem.id] : null;
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-50 dark:bg-dark-bg relative">
       
+      {/* Generation Modal */}
+      {isGenerating && (
+          <ProblemGenerationModal 
+              problemName={problemName}
+              preferences={preferences}
+              onComplete={handleGenerationComplete}
+              onCancel={onBack}
+          />
+      )}
+
+      {/* Strategy Selection Modal */}
+      {showSolutionSetup && activeProblemData && (
+          <SolutionSetup 
+              problemContext={activeProblemData.context}
+              preGeneratedSolutions={activeProblemData.solutions}
+              preferences={preferences}
+              language={language}
+              onConfirm={handleStrategyConfirm}
+              onCancel={() => setShowSolutionSetup(false)}
+          />
+      )}
+
       {/* Skip Confirmation Modal */}
       {showSkipModal && (
           <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in-up">
@@ -150,15 +229,47 @@ export const UnitMap: React.FC<UnitMapProps> = ({ problemName, currentLevel, sav
             </div>
         </div>
         
-        <div className="hidden md:flex items-center gap-2 text-xs font-bold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-1.5 rounded-full">
-             <Star size={14} className="text-yellow-500 fill-yellow-500"/>
-             <span>{Math.min(currentLevel, 6)}/6 {t.completed}</span>
+        <div className="flex items-center gap-2">
+             {activeProblemData && (
+                 <button 
+                    onClick={() => setShowSolutionSetup(true)}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-300 text-xs font-bold hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors border border-blue-100 dark:border-blue-900/50"
+                 >
+                     <Crosshair size={14} />
+                     <span className="hidden md:inline">{activeStrategy ? activeStrategy.title : t.strategyBtn}</span>
+                 </button>
+             )}
+
+             <div className="hidden md:flex items-center gap-2 text-xs font-bold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-1.5 rounded-full">
+                 <Star size={14} className="text-yellow-500 fill-yellow-500"/>
+                 <span>{Math.min(currentLevel, 6)}/6 {t.completed}</span>
+            </div>
         </div>
       </div>
 
-      {/* Grid Container */}
-      <div className="flex-1 pt-8 pb-24 px-4 md:px-16 w-full max-w-5xl mx-auto animate-fade-in-up">
+      {/* Content Container */}
+      <div className="flex-1 pt-8 pb-24 px-4 md:px-16 w-full max-w-5xl mx-auto animate-fade-in-up space-y-8">
         
+        {/* LEETCODE STYLE PROBLEM CARD */}
+        {activeProblemData && (
+            <div className="animate-fade-in-down">
+                <div className="flex justify-between items-center mb-2 px-1">
+                    <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                        <FileText size={14}/> {t.viewProblem}
+                    </h3>
+                    <button 
+                        onClick={() => setShowProblemDetail(!showProblemDetail)}
+                        className="text-brand text-xs font-bold hover:underline"
+                    >
+                        {showProblemDetail ? "收起" : "展开"}
+                    </button>
+                </div>
+                {showProblemDetail && (
+                    <ProblemDescription context={activeProblemData.context} />
+                )}
+            </div>
+        )}
+
         <div className="grid grid-cols-2 md:grid-cols-3 gap-6 md:gap-10">
             {pathNodes.map((node) => {
                 const isLocked = node.id > currentLevel;
@@ -171,8 +282,8 @@ export const UnitMap: React.FC<UnitMapProps> = ({ problemName, currentLevel, sav
                         <MasteryPlate 
                             key={node.id}
                             title={t.masteryHub}
-                            onLeetCodeClick={() => onStartLevel(6)}
-                            onMasteryLoopClick={() => onStartLevel(5)}
+                            onLeetCodeClick={() => onStartLevel(6, false, activeStrategy || undefined)}
+                            onMasteryLoopClick={() => onStartLevel(5, false, activeStrategy || undefined)}
                             leetcodeLabel={t.leetcodeMode}
                             masteryLoopLabel={t.masteryLoop}
                         />

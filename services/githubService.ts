@@ -15,11 +15,25 @@ export interface SyncPayload {
     engineeringData?: Record<string, any>;
 }
 
+// Helper: Sanitize Input (Remove non-ASCII characters and whitespace)
+// This prevents "String contains non ISO-8859-1 code point" errors in fetch headers.
+const sanitize = (str: string | undefined): string => {
+    if (!str) return "";
+    // 1. Trim whitespace
+    // 2. Remove any character that is NOT printable ASCII (0x20-0x7E)
+    return str.trim().replace(/[^\x20-\x7E]/g, '');
+};
+
 // Helper: Get Headers
-const getHeaders = (token: string) => ({
-    'Authorization': `token ${token}`,
-    'Accept': 'application/vnd.github.v3+json'
-});
+const getHeaders = (token: string) => {
+    const cleanToken = sanitize(token);
+    if (!cleanToken) throw new Error("Invalid Token: Token is empty or contains invalid characters.");
+    
+    return {
+        'Authorization': `token ${cleanToken}`,
+        'Accept': 'application/vnd.github.v3+json'
+    };
+};
 
 // 1. Check Status (Does cloud data exist? What is the metadata?)
 export const checkCloudStatus = async (token: string, gistId?: string): Promise<{ 
@@ -28,15 +42,16 @@ export const checkCloudStatus = async (token: string, gistId?: string): Promise<
     cloudData?: SyncPayload; 
     error?: string 
 }> => {
-    if (!token) return { exists: false, error: "No Token" };
+    const cleanToken = sanitize(token);
+    if (!cleanToken) return { exists: false, error: "No Token" };
 
     try {
-        let targetGistId = gistId;
+        let targetGistId = sanitize(gistId);
         let foundGist: any = null;
 
         // A. If ID provided, check directly
         if (targetGistId) {
-            const res = await fetch(`https://api.github.com/gists/${targetGistId}`, { headers: getHeaders(token) });
+            const res = await fetch(`https://api.github.com/gists/${targetGistId}`, { headers: getHeaders(cleanToken) });
             if (res.ok) {
                 foundGist = await res.json();
             } else if (res.status !== 404) {
@@ -46,7 +61,7 @@ export const checkCloudStatus = async (token: string, gistId?: string): Promise<
 
         // B. If no ID or ID failed, search by description
         if (!foundGist) {
-            const res = await fetch(`https://api.github.com/gists`, { headers: getHeaders(token) });
+            const res = await fetch(`https://api.github.com/gists`, { headers: getHeaders(cleanToken) });
             if (res.ok) {
                 const gists = await res.json();
                 if (Array.isArray(gists)) {
@@ -74,6 +89,9 @@ export const checkCloudStatus = async (token: string, gistId?: string): Promise<
 
 // 2. Push Local -> Cloud
 export const pushToGist = async (token: string, data: any, gistId?: string): Promise<{ success: boolean; newGistId?: string; timestamp?: number; error?: string }> => {
+    const cleanToken = sanitize(token);
+    const cleanGistId = sanitize(gistId);
+    
     const now = Date.now();
     let payloadString = "";
 
@@ -113,12 +131,12 @@ export const pushToGist = async (token: string, data: any, gistId?: string): Pro
             files: { [GIST_FILENAME]: { content: payloadString } }
         };
 
-        const url = gistId ? `https://api.github.com/gists/${gistId}` : `https://api.github.com/gists`;
-        const method = gistId ? 'PATCH' : 'POST';
+        const url = cleanGistId ? `https://api.github.com/gists/${cleanGistId}` : `https://api.github.com/gists`;
+        const method = cleanGistId ? 'PATCH' : 'POST';
 
         const res = await fetch(url, {
             method: method,
-            headers: getHeaders(token),
+            headers: getHeaders(cleanToken),
             body: JSON.stringify(body)
         });
 
@@ -131,10 +149,12 @@ export const pushToGist = async (token: string, data: any, gistId?: string): Pro
     }
 };
 
-// 3. Pull Cloud -> Local (Wrapper for consistent return type)
-// Note: Logic is mostly handled in checkCloudStatus, this is just for symmetry or re-fetch if needed
+// 3. Pull Cloud -> Local
 export const pullFromGist = async (token: string, gistId: string): Promise<{ success: boolean; data?: SyncPayload; error?: string }> => {
-    const status = await checkCloudStatus(token, gistId);
+    const cleanToken = sanitize(token);
+    const cleanGistId = sanitize(gistId);
+    
+    const status = await checkCloudStatus(cleanToken, cleanGistId);
     if (status.exists && status.cloudData) {
         return { success: true, data: status.cloudData };
     }
@@ -143,7 +163,5 @@ export const pullFromGist = async (token: string, gistId: string): Promise<{ suc
 
 // --- Legacy Wrapper for Backward Compatibility (Optional) ---
 export const syncWithGist = async (token: string, gistId: string | undefined, currentData: any) => {
-    // This function can be deprecated or refactored to use the above
-    // For now, we leave the new UI to handle the logic flow using the functions above
     return { success: false, error: "Please use the new sync flow." };
 };

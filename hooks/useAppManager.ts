@@ -1,23 +1,19 @@
 
-import { useState, useEffect, useCallback } from 'react';
-import { 
-    UserStats, ProgressMap, LessonPlan, SavedLesson, MistakeRecord, UserPreferences, ApiConfig, RetentionRecord, AppView 
+import { useState, useEffect } from 'react';
+import {
+    UserStats, ProgressMap, LessonPlan, SavedLesson, MistakeRecord, UserPreferences, AppView, SolutionStrategy, Problem, LeetCodeContext, ProblemData
 } from '../types';
 import { ForgeRoadmap } from '../types/forge';
 import { CareerSession } from '../types/career';
-import { 
-    INITIAL_STATS, DEFAULT_API_CONFIG, PROBLEM_CATEGORIES, PROBLEM_MAP 
+import { EngineeringTopic, SkillTrack } from '../types/engineering';
+import {
+    INITIAL_STATS, DEFAULT_API_CONFIG
 } from '../constants';
-import { 
-    generateLessonPlan, generateDailyWorkoutPlan, generateSyntaxClinicPlan, generateVariantLesson
+import {
+    generateLessonPlan, generateDailyWorkoutPlan, generateSyntaxClinicPlan, generateVariantLesson, generateLeetCodeContext
 } from '../services/geminiService';
 import { generateRapidExam } from '../services/ai/career/generator';
-import { syncWithGist } from '../services/githubService';
-import { EngineeringTopic, SkillTrack, TopicProfile } from '../types/engineering';
 
-type ViewState = 'dashboard' | 'unit-map' | 'runner' | 'loading' | 'forge-detail' | 'career-runner';
-
-// Navigation state for Engineering Hub
 export interface EngineeringNavState {
     pillarId: 'system' | 'cs' | 'track' | null;
     topic: EngineeringTopic | null;
@@ -26,255 +22,115 @@ export interface EngineeringNavState {
 
 export const useAppManager = () => {
     // --- STATE ---
-    const [view, setView] = useState<ViewState>('dashboard');
+    const [view, setView] = useState<AppView>('algorithms');
     const [activeTab, setActiveTab] = useState<AppView>('algorithms');
-    
-    // Data Stores
-    const [progressMap, setProgressMap] = useState<ProgressMap>({});
-    const [stats, setStats] = useState<UserStats>(INITIAL_STATS);
-    const [savedLessons, setSavedLessons] = useState<SavedLesson[]>([]);
-    const [mistakes, setMistakes] = useState<MistakeRecord[]>([]);
-    const [preferences, setPreferences] = useState<UserPreferences>({
-        userName: 'Senior Engineer',
-        hasOnboarded: false,
-        targetLanguage: 'Python',
-        spokenLanguage: 'Chinese',
-        apiConfig: DEFAULT_API_CONFIG,
-        theme: 'system',
-        failedSkips: {},
-        notificationConfig: { enabled: false, webhookUrl: '', type: 'custom' },
-        syncConfig: { enabled: false, githubToken: '' }
+
+    // Data
+    const [preferences, setPreferences] = useState<UserPreferences>(() => {
+        const saved = localStorage.getItem('algolingo_preferences');
+        return saved ? JSON.parse(saved) : {
+            userName: 'Guest',
+            hasOnboarded: false,
+            targetLanguage: 'Python',
+            spokenLanguage: 'English',
+            apiConfig: DEFAULT_API_CONFIG,
+            theme: 'system',
+            notificationConfig: { enabled: false, webhookUrl: '', type: 'custom' },
+            syncConfig: { enabled: false, githubToken: '' }
+        };
     });
 
-    // Session State
-    const [activeProblem, setActiveProblem] = useState<{id: string, name: string} | null>(null);
-    const [activeNodeIndex, setActiveNodeIndex] = useState<number>(0);
+    const [stats, setStats] = useState<UserStats>(() => {
+        const saved = localStorage.getItem('algolingo_stats');
+        return saved ? JSON.parse(saved) : INITIAL_STATS;
+    });
+
+    const [progressMap, setProgressMap] = useState<ProgressMap>(() => {
+        const saved = localStorage.getItem('algolingo_progress_v2');
+        return saved ? JSON.parse(saved) : {};
+    });
+
+    const [mistakes, setMistakes] = useState<MistakeRecord[]>(() => {
+        const saved = localStorage.getItem('algolingo_mistakes');
+        return saved ? JSON.parse(saved) : [];
+    });
+
+    const [savedLessons, setSavedLessons] = useState<SavedLesson[]>(() => {
+        const saved = localStorage.getItem('algolingo_saved_lessons');
+        return saved ? JSON.parse(saved) : [];
+    });
+
+    const [careerSessions, setCareerSessions] = useState<CareerSession[]>(() => {
+        const saved = localStorage.getItem('algolingo_career_sessions');
+        return saved ? JSON.parse(saved) : [];
+    });
+
+    // NEW: Problem Data Cache (Context + Solutions)
+    const [problemDataCache, setProblemDataCache] = useState<Record<string, ProblemData>>(() => {
+        const saved = localStorage.getItem('algolingo_problem_data');
+        return saved ? JSON.parse(saved) : {};
+    });
+
+    // Session / Navigation Context
+    const [activeProblem, setActiveProblem] = useState<Problem | null>(null);
+    // Derived from cache for convenience
+    const activeProblemContext = activeProblem && problemDataCache[activeProblem.id] 
+        ? problemDataCache[activeProblem.id].context 
+        : null;
+    
+    const [activeNodeIndex, setActiveNodeIndex] = useState(0);
     const [currentLessonPlan, setCurrentLessonPlan] = useState<LessonPlan | null>(null);
     const [activeForgeItem, setActiveForgeItem] = useState<ForgeRoadmap | null>(null);
-    const [activeCareerSession, setActiveCareerSession] = useState<CareerSession | null>(null); 
-    const [careerSessions, setCareerSessions] = useState<CareerSession[]>([]); // Persistent Career History
-    const [isSkipAttempt, setIsSkipAttempt] = useState(false);
-    
-    // Engineering Navigation State (New)
-    const [engineeringNav, setEngineeringNav] = useState<EngineeringNavState>({
-        pillarId: null,
-        topic: null,
-        trackData: null
-    });
-    
-    // Loading & Error State
-    const [loadingContext, setLoadingContext] = useState<'lesson' | 'review' | 'clinic' | 'variant' | 'career_exam'>('lesson');
+    const [activeCareerSession, setActiveCareerSession] = useState<CareerSession | null>(null);
+    const [loadingContext, setLoadingContext] = useState<'lesson' | 'review' | 'career_exam'>('lesson');
     const [pendingExamConfig, setPendingExamConfig] = useState<{company: string, role: string, jd: string} | null>(null);
     const [generationError, setGenerationError] = useState<string | null>(null);
     const [generationRawError, setGenerationRawError] = useState<string | null>(null);
+    const [isSkipAttempt, setIsSkipAttempt] = useState(false);
+    const [engineeringNav, setEngineeringNav] = useState<EngineeringNavState>({ pillarId: null, topic: null, trackData: null });
 
-    const getEngineeringData = () => {
-        const data: Record<string, any> = {};
-        for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key && (key.startsWith('algolingo_syntax_v3_') || key.startsWith('algolingo_eng_v3_'))) {
-                try {
-                    data[key] = JSON.parse(localStorage.getItem(key)!);
-                } catch (e) {}
-            }
-        }
-        ['algolingo_my_tracks', 'algolingo_forge_history_v2', 'algolingo_discovered_tracks'].forEach(key => {
-            const val = localStorage.getItem(key);
-            if (val) {
-                try { data[key] = JSON.parse(val); } catch(e) {}
-            }
-        });
-        // Export Active Session if exists
-        const careerSession = localStorage.getItem('algolingo_active_career_session');
-        if (careerSession) data['algolingo_active_career_session'] = JSON.parse(careerSession);
-        
-        // Export Career History
-        const careerHistory = localStorage.getItem('algolingo_career_sessions');
-        if (careerHistory) data['algolingo_career_sessions'] = JSON.parse(careerHistory);
+    // --- PERSISTENCE ---
+    useEffect(() => { localStorage.setItem('algolingo_preferences', JSON.stringify(preferences)); }, [preferences]);
+    useEffect(() => { localStorage.setItem('algolingo_stats', JSON.stringify(stats)); }, [stats]);
+    useEffect(() => { localStorage.setItem('algolingo_progress_v2', JSON.stringify(progressMap)); }, [progressMap]);
+    useEffect(() => { localStorage.setItem('algolingo_mistakes', JSON.stringify(mistakes)); }, [mistakes]);
+    useEffect(() => { localStorage.setItem('algolingo_saved_lessons', JSON.stringify(savedLessons)); }, [savedLessons]);
+    useEffect(() => { localStorage.setItem('algolingo_career_sessions', JSON.stringify(careerSessions)); }, [careerSessions]);
+    useEffect(() => { localStorage.setItem('algolingo_problem_data', JSON.stringify(problemDataCache)); }, [problemDataCache]);
 
-        return data;
-    };
-
-    const saveEngineeringData = (data: Record<string, any>) => {
-        if (!data) return;
-        Object.entries(data).forEach(([key, value]) => {
-            if (
-                key.startsWith('algolingo_syntax_v3_') || 
-                key.startsWith('algolingo_eng_v3_') ||
-                ['algolingo_my_tracks', 'algolingo_forge_history_v2', 'algolingo_discovered_tracks', 'algolingo_active_career_session', 'algolingo_career_sessions'].includes(key)
-            ) {
-                localStorage.setItem(key, JSON.stringify(value));
-            }
-        });
-    };
-
+    // Apply Theme
     useEffect(() => {
-        const root = document.documentElement;
-        const isDark = preferences.theme === 'dark' || (preferences.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-        if (isDark) root.classList.add('dark');
-        else root.classList.remove('dark');
+        const root = window.document.documentElement;
+        if (preferences.theme === 'dark' || (preferences.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            root.classList.add('dark');
+        } else {
+            root.classList.remove('dark');
+        }
     }, [preferences.theme]);
 
-    // Load Active Career Session & History
-    useEffect(() => {
-        const savedSession = localStorage.getItem('algolingo_active_career_session');
-        if (savedSession) {
-            try {
-                setActiveCareerSession(JSON.parse(savedSession));
-            } catch (e) { console.error(e); }
-        }
-        const savedHistory = localStorage.getItem('algolingo_career_sessions');
-        if (savedHistory) {
-            try {
-                setCareerSessions(JSON.parse(savedHistory));
-            } catch (e) { console.error(e); }
-        }
-    }, []);
+    // --- ACTIONS ---
 
-    useEffect(() => {
-        const loadData = () => {
-            try {
-                const loadedProgress = localStorage.getItem('algolingo_progress_v2');
-                const loadedStats = localStorage.getItem('algolingo_stats');
-                const loadedSaved = localStorage.getItem('algolingo_saved_lessons');
-                const loadedMistakes = localStorage.getItem('algolingo_mistakes');
-                const loadedPrefs = localStorage.getItem('algolingo_prefs');
-
-                if (loadedProgress) {
-                    const parsed = JSON.parse(loadedProgress);
-                    const keys = Object.keys(parsed);
-                    if (keys.length > 0 && typeof parsed[keys[0]] === 'number') {
-                         const lang = loadedPrefs ? JSON.parse(loadedPrefs).targetLanguage || 'Python' : 'Python';
-                         setProgressMap({ [lang]: parsed });
-                    } else {
-                        setProgressMap(parsed);
-                    }
-                }
-
-                if (loadedStats) setStats({ ...INITIAL_STATS, ...JSON.parse(loadedStats) });
-                if (loadedSaved) setSavedLessons(JSON.parse(loadedSaved));
-                if (loadedMistakes) setMistakes(JSON.parse(loadedMistakes));
-                if (loadedPrefs) {
-                    const p = JSON.parse(loadedPrefs);
-                    setPreferences(prev => ({
-                        ...prev,
-                        ...p,
-                        apiConfig: { ...DEFAULT_API_CONFIG, ...p.apiConfig },
-                        syncConfig: { enabled: false, githubToken: '', ...p.syncConfig },
-                        notificationConfig: { enabled: false, webhookUrl: '', type: 'custom', ...p.notificationConfig }
-                    }));
-                }
-            } catch (e) {
-                console.error("Data Load Error", e);
-            }
-        };
-        loadData();
-    }, []);
-
-    const updatePreferences = (newPrefs: Partial<UserPreferences>) => {
-        setPreferences(prev => {
-            const updated = { ...prev, ...newPrefs };
-            localStorage.setItem('algolingo_prefs', JSON.stringify(updated));
-            return updated;
-        });
-    };
-
-    const saveStats = (newStats: UserStats) => {
-        setStats(newStats);
-        localStorage.setItem('algolingo_stats', JSON.stringify(newStats));
-    };
-
-    const saveMistakes = (newMistakes: MistakeRecord[]) => {
-        setMistakes(newMistakes);
-        localStorage.setItem('algolingo_mistakes', JSON.stringify(newMistakes));
-    };
-
-    const saveProgress = (newMap: ProgressMap) => {
-        setProgressMap(newMap);
-        localStorage.setItem('algolingo_progress_v2', JSON.stringify(newMap));
-    };
-
-    const handleDataLoaded = (data: any) => {
-        try {
-            if (data.stats) {
-                const mergedStats = { ...INITIAL_STATS, ...data.stats };
-                if (!mergedStats.league) mergedStats.league = INITIAL_STATS.league;
-                saveStats(mergedStats);
-            }
-            if (data.progressMap || data.progress) {
-                saveProgress(data.progressMap || data.progress || {});
-            }
-            if (data.mistakes) {
-                saveMistakes(data.mistakes);
-            }
-            if (data.engineeringData) {
-                saveEngineeringData(data.engineeringData);
-            }
-            if (data.preferences) {
-                const mergedPrefs = { 
-                    ...preferences, 
-                    ...data.preferences,
-                    hasOnboarded: true, 
-                    apiConfig: { ...DEFAULT_API_CONFIG, ...data.preferences.apiConfig },
-                    syncConfig: { ...preferences.syncConfig, ...data.preferences.syncConfig }, 
-                };
-                updatePreferences(mergedPrefs);
-            } else {
-                updatePreferences({ hasOnboarded: true });
-            }
-            setView('dashboard');
-            setActiveTab('algorithms');
-        } catch (e) {
-            console.error("Data Import Logic Error", e);
-            alert("Error processing data. Check console.");
-        }
-    };
-
-    const handleImportData = (file: File) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            try {
-                const data = JSON.parse(e.target?.result as string);
-                handleDataLoaded(data);
-                alert(preferences.spokenLanguage === 'Chinese' ? "数据导入成功" : "Data imported successfully");
-            } catch (err) {
-                alert("Import failed: Invalid JSON");
-            }
-        };
-        reader.readAsText(file);
-    };
-
-    const handleExportData = () => {
-        const data = {
-            stats,
-            progressMap,
-            mistakes,
-            savedLessons,
-            preferences,
-            engineeringData: getEngineeringData(),
-            version: "3.3",
-            exportedAt: new Date().toISOString()
-        };
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `algolingo_backup.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+    const updatePreferences = (p: Partial<UserPreferences>) => {
+        setPreferences(prev => ({ ...prev, ...p }));
     };
 
     const handleSelectProblem = (id: string, name: string, currentLevel: number) => {
         setActiveProblem({ id, name });
-        const currentLang = preferences.targetLanguage;
-        if (!progressMap[currentLang]) {
-            saveProgress({ ...progressMap, [currentLang]: {} });
+        // Ensure progress entry exists
+        if (!progressMap[preferences.targetLanguage]) {
+            setProgressMap(prev => ({ ...prev, [preferences.targetLanguage]: {} }));
         }
         setView('unit-map');
     };
 
-    const handleStartNode = async (nodeIndex: number, isSkip: boolean = false) => {
+    const handleSaveProblemData = (problemId: string, data: ProblemData) => {
+        setProblemDataCache(prev => ({
+            ...prev,
+            [problemId]: data
+        }));
+    };
+
+    const handleStartNode = async (nodeIndex: number, isSkip: boolean = false, targetSolution?: SolutionStrategy) => {
         if (!activeProblem) return;
         setIsSkipAttempt(isSkip);
         setActiveNodeIndex(nodeIndex);
@@ -282,12 +138,26 @@ export const useAppManager = () => {
         setGenerationError(null);
         setGenerationRawError(null);
 
+        // If we are starting a node, we MUST have the context already generated.
+        // The UnitMap ensures this via the modal before calling this.
+        // However, for safety in Simulator mode:
         if (nodeIndex === 6) {
+            if (!activeProblemContext) {
+                // This shouldn't happen if UnitMap works correctly, but handle gracefully
+                setGenerationError("Problem context missing. Please regenerate in Unit Map.");
+                return;
+            }
+
             setCurrentLessonPlan({
                 title: activeProblem.name,
                 description: "LeetCode Simulator",
                 screens: [], 
-                suggestedQuestions: []
+                suggestedQuestions: [],
+                context: {
+                    type: 'algo',
+                    // Inject the target solution if selected, or default to first available
+                    targetSolution: targetSolution || problemDataCache[activeProblem.id]?.solutions[0]
+                }
             });
             setView('runner');
             return;
@@ -296,7 +166,7 @@ export const useAppManager = () => {
         setView('loading');
         try {
             const problemMistakes = mistakes.filter(m => m.problemName === activeProblem.name);
-            const plan = await generateLessonPlan(activeProblem.name, nodeIndex, preferences, problemMistakes, savedLessons);
+            const plan = await generateLessonPlan(activeProblem.name, nodeIndex, preferences, problemMistakes, savedLessons, targetSolution);
             setCurrentLessonPlan(plan);
             setView('runner');
         } catch (e: any) {
@@ -308,70 +178,108 @@ export const useAppManager = () => {
 
     const handleStartReview = async (strategy: 'ai' | 'all' | 'specific' | 'category' | 'type' | 'time' | 'urgent', targetId?: string) => {
         setLoadingContext('review');
+        setView('loading');
         setGenerationError(null);
-        setActiveNodeIndex(0); 
         
-        if (strategy === 'ai') {
-            setView('loading');
-            try {
-                const currentLang = preferences.targetLanguage;
-                const learnedProblems = Object.keys(progressMap[currentLang] || {}).filter(pid => progressMap[currentLang][pid] > 0);
-                
-                const plan = await generateDailyWorkoutPlan(mistakes, learnedProblems, preferences);
-                setCurrentLessonPlan(plan);
-                setView('runner');
-            } catch (e: any) {
-                setGenerationError(e.message);
-                if (e.rawOutput) setGenerationRawError(e.rawOutput);
+        try {
+            let plan: LessonPlan;
+            let targetMistakes = mistakes.filter(m => !m.isResolved);
+
+            if (strategy === 'specific' && targetId) {
+                targetMistakes = mistakes.filter(m => m.id === targetId);
+                const mistake = targetMistakes[0];
+                if (mistake) {
+                    // Retry specific logic
+                    plan = {
+                        title: `Review: ${mistake.problemName}`,
+                        description: "Single mistake retry",
+                        screens: [{ id: 'retry', header: 'Retry', widgets: [mistake.widget!], isRetry: true }],
+                        suggestedQuestions: []
+                    };
+                } else {
+                    throw new Error("Mistake not found");
+                }
+            } else {
+                // Bulk review
+                const learnedIds = Object.keys(progressMap[preferences.targetLanguage] || {});
+                plan = await generateDailyWorkoutPlan(targetMistakes, learnedIds, preferences);
             }
-            return;
+            
+            setCurrentLessonPlan(plan);
+            setActiveNodeIndex(-1); // Special index for review
+            setView('runner');
+        } catch (e: any) {
+            setGenerationError(e.message);
         }
-        setCurrentLessonPlan({ title: "Review", description: "Review", screens: [], suggestedQuestions: [] });
-        setView('runner');
     };
 
     const handleStartClinic = async () => {
-        setLoadingContext('clinic');
-        setGenerationError(null);
-        setActiveNodeIndex(0); 
+        setLoadingContext('review');
         setView('loading');
         try {
             const plan = await generateSyntaxClinicPlan(preferences);
             setCurrentLessonPlan(plan);
+            setActiveNodeIndex(-1);
             setView('runner');
         } catch (e: any) {
             setGenerationError(e.message);
-            if (e.rawOutput) setGenerationRawError(e.rawOutput);
         }
-    }
+    };
 
     const handleGenerateVariant = async (mistakeId: string) => {
-        const targetMistake = mistakes.find(m => m.id === mistakeId);
-        if (!targetMistake) return;
-        setLoadingContext('variant');
-        setGenerationError(null);
-        setActiveNodeIndex(0); 
+        setLoadingContext('review');
         setView('loading');
         try {
-            const plan = await generateVariantLesson(targetMistake, preferences);
+            const mistake = mistakes.find(m => m.id === mistakeId);
+            if (!mistake) throw new Error("Mistake not found");
+            const plan = await generateVariantLesson(mistake, preferences);
             setCurrentLessonPlan(plan);
+            setActiveNodeIndex(-1);
             setView('runner');
         } catch (e: any) {
             setGenerationError(e.message);
-            if (e.rawOutput) setGenerationRawError(e.rawOutput);
         }
     };
 
     const handleStartCustomLesson = (plan: LessonPlan, isSkip: boolean = false) => {
         setCurrentLessonPlan(plan);
-        setActiveNodeIndex(0);
+        const idx = plan.context?.phaseIndex !== undefined ? plan.context.phaseIndex : (plan.context?.type === 'career_exam' ? 0 : 0);
+        setActiveNodeIndex(idx);
         setIsSkipAttempt(isSkip);
+        setLoadingContext(plan.context?.type === 'career_exam' ? 'career_exam' : 'lesson');
         setView('runner');
     };
 
-    // Allow LessonRunner to update the current plan (e.g. when regenerating screens)
-    const handleUpdateCurrentPlan = (newPlan: LessonPlan) => {
-        setCurrentLessonPlan(newPlan);
+    const handleStartCareerSession = (session: CareerSession) => {
+        if (session.mode === 'simulation') {
+            setActiveCareerSession(session);
+            setCareerSessions(prev => {
+                const idx = prev.findIndex(s => s.id === session.id);
+                if (idx >= 0) {
+                    const updated = [...prev];
+                    updated[idx] = session;
+                    return updated;
+                }
+                return [session, ...prev];
+            });
+            setView('career-runner');
+        }
+    };
+
+    const handleStartCareerExam = async (company: string, role: string, jdContext: string) => {
+        setPendingExamConfig({ company, role, jd: jdContext });
+        setLoadingContext('career_exam');
+        setView('loading');
+        setGenerationError(null);
+
+        try {
+            const plan = await generateRapidExam(company, role, jdContext, preferences);
+            setCurrentLessonPlan(plan);
+            setActiveNodeIndex(0); 
+            setView('runner');
+        } catch (e: any) {
+            setGenerationError(e.message);
+        }
     };
 
     const handleViewForgeItem = (roadmap: ForgeRoadmap) => {
@@ -379,183 +287,149 @@ export const useAppManager = () => {
         setView('forge-detail');
     };
 
-    const handleStartCareerSession = (session: CareerSession) => {
-        setActiveCareerSession(session);
-        localStorage.setItem('algolingo_active_career_session', JSON.stringify(session));
+    const handleLessonComplete = (resultStats: { xp: number; streak: number }, shouldSave: boolean, sessionMistakes: MistakeRecord[]) => {
+        const newStats = { ...stats };
+        newStats.xp += resultStats.xp;
+        newStats.streak = resultStats.streak > 0 ? resultStats.streak : newStats.streak; 
         
-        // Update History
-        const updatedHistory = [session, ...careerSessions.filter(s => s.id !== session.id)].slice(0, 20);
-        setCareerSessions(updatedHistory);
-        localStorage.setItem('algolingo_career_sessions', JSON.stringify(updatedHistory));
+        const today = new Date().toISOString().split('T')[0];
+        newStats.history = { ...newStats.history, [today]: (newStats.history[today] || 0) + resultStats.xp };
+        setStats(newStats);
 
-        setView('career-runner');
-    };
+        if (sessionMistakes.length > 0) {
+            setMistakes(prev => [...prev, ...sessionMistakes]);
+        }
 
-    const handleStartCareerExam = async (company: string, role: string, jdContext: string) => {
-        setLoadingContext('career_exam');
-        setPendingExamConfig({ company, role, jd: jdContext });
-        setGenerationError(null);
-        setGenerationRawError(null);
-        setActiveNodeIndex(0);
-        setIsSkipAttempt(true); // Exams are basically "Skip Mode" (Lives system)
-        setView('loading');
-        
-        try {
-            const plan = await generateRapidExam(company, role, jdContext, preferences);
-            setCurrentLessonPlan(plan);
-            setView('runner');
-        } catch (e: any) {
-            console.error("Exam Gen Failed", e);
-            setGenerationError(e.message || "Exam Generation Failed");
-            if (e.rawOutput) setGenerationRawError(e.rawOutput);
+        if (shouldSave && currentLessonPlan) {
+            const newSave: SavedLesson = {
+                id: Date.now().toString(),
+                problemId: activeProblem?.id || 'custom',
+                nodeIndex: activeNodeIndex,
+                timestamp: Date.now(),
+                plan: currentLessonPlan,
+                language: preferences.targetLanguage,
+                xpEarned: resultStats.xp,
+                mistakeCount: sessionMistakes.length
+            };
+            setSavedLessons(prev => [newSave, ...prev].slice(0, 50)); 
+            
+            if (activeProblem && activeNodeIndex !== -1) {
+                const currentLevel = progressMap[preferences.targetLanguage]?.[activeProblem.id] || 0;
+                const nextLevel = activeNodeIndex + 1;
+                if (nextLevel > currentLevel) {
+                    const newMap = { ...progressMap };
+                    if (!newMap[preferences.targetLanguage]) newMap[preferences.targetLanguage] = {};
+                    newMap[preferences.targetLanguage][activeProblem.id] = nextLevel;
+                    setProgressMap(newMap);
+                }
+            }
         }
     };
 
     const handleRetryLoading = () => {
-        if (loadingContext === 'lesson') handleStartNode(activeNodeIndex, isSkipAttempt);
-        else if (loadingContext === 'review') handleStartReview('ai');
-        else if (loadingContext === 'clinic') handleStartClinic();
-        else if (loadingContext === 'variant') setView('dashboard'); 
-        else if (loadingContext === 'career_exam' && pendingExamConfig) {
+        if (loadingContext === 'lesson' && activeProblem) {
+            handleStartNode(activeNodeIndex, isSkipAttempt);
+        } else if (loadingContext === 'review') {
+            handleStartReview('ai'); 
+        } else if (loadingContext === 'career_exam' && pendingExamConfig) {
             handleStartCareerExam(pendingExamConfig.company, pendingExamConfig.role, pendingExamConfig.jd);
         }
     };
 
-    const handleLessonComplete = (result: { xp: number; streak: number }, shouldSave: boolean, newMistakes: MistakeRecord[]) => {
-        const newStats = { ...stats, xp: stats.xp + result.xp, streak: stats.streak + result.streak };
-        saveStats(newStats);
-        
-        // --- PROGRESS PERSISTENCE (ENGINEERING & CAREER) ---
-        const ctx = currentLessonPlan?.context;
+    const handleUpdateCurrentPlan = (newPlan: LessonPlan) => {
+        setCurrentLessonPlan(newPlan);
+    };
 
-        // 1. ENGINEERING HUB (PILLARS & TRACKS)
-        if (ctx?.type === 'pillar' && ctx.topicId && ctx.stepId && ctx.pillar) {
-            const key = `algolingo_eng_v3_${ctx.pillar}_${ctx.topicId}`;
-            const savedProfile = localStorage.getItem(key);
-            if (savedProfile) {
-                try {
-                    const profile = JSON.parse(savedProfile) as TopicProfile;
-                    const stepIdx = profile.roadmap.findIndex((s: any) => s.id === ctx.stepId);
-                    if (stepIdx !== -1) {
-                        // Update Status
-                        profile.roadmap[stepIdx].status = 'completed';
-                        
-                        // --- SAVE CACHED PLAN FOR REPLAY (CRITICAL) ---
-                        if (currentLessonPlan) {
-                            profile.roadmap[stepIdx].cachedPlan = currentLessonPlan;
-                        }
+    // Data Import/Export
+    const handleExportData = () => {
+        const data = {
+            stats, progress: progressMap, mistakes, preferences, savedLessons, careerSessions, problemDataCache,
+            version: "3.2",
+            timestamp: Date.now()
+        };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `algolingo_backup_${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+    };
 
-                        // Unlock next step
-                        if (stepIdx + 1 < profile.roadmap.length) {
-                            profile.roadmap[stepIdx + 1].status = 'active';
-                            profile.currentStepIndex = stepIdx + 1;
-                        }
-                        localStorage.setItem(key, JSON.stringify(profile));
-                    }
-                } catch (e) {
-                    console.error("Failed to save Engineering progress", e);
-                }
+    const handleImportData = (file: File) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = JSON.parse(e.target?.result as string);
+                handleDataLoaded(data);
+            } catch (err) {
+                alert("Invalid file format");
             }
-        }
+        };
+        reader.readAsText(file);
+    };
 
-        // 2. FORGE / CAREER (JD PREP)
-        if (ctx?.type === 'forge' && ctx.roadmapId && ctx.stageId) {
-            const key = 'algolingo_forge_history_v2';
-            const savedHistory = localStorage.getItem(key);
-            if (savedHistory) {
-                try {
-                    const history = JSON.parse(savedHistory);
-                    const roadmapIdx = history.findIndex((r: any) => r.id === ctx.roadmapId);
-                    if (roadmapIdx !== -1) {
-                        const roadmap = history[roadmapIdx];
-                        const stageIdx = roadmap.stages.findIndex((s: any) => s.id === ctx.stageId);
-                        if (stageIdx !== -1) {
-                            roadmap.stages[stageIdx].status = 'completed';
-                            if (stageIdx + 1 < roadmap.stages.length) {
-                                roadmap.stages[stageIdx + 1].status = 'unlocked';
-                            }
-                            
-                            // Save Generated Plan for Replay (This ensures regeneration persists)
-                            if (currentLessonPlan) {
-                                roadmap.stages[stageIdx].lessonPlan = currentLessonPlan;
-                            }
-
-                            // Save Updated History
-                            history[roadmapIdx] = roadmap;
-                            localStorage.setItem(key, JSON.stringify(history));
-                            
-                            // Sync active view state if user is currently viewing this roadmap
-                            // CRITICAL FIX: Create a SHALLOW COPY ({...roadmap}) to force React to detect change and re-render ForgeDetailView
-                            if (activeForgeItem?.id === ctx.roadmapId) {
-                                setActiveForgeItem({ ...roadmap });
-                            }
-                        }
-                    }
-                } catch (e) {
-                    console.error("Failed to save Forge progress", e);
-                }
+    const handleDataLoaded = (data: any) => {
+        try {
+            if (data.stats) localStorage.setItem('algolingo_stats', JSON.stringify(data.stats));
+            if (data.progress) localStorage.setItem('algolingo_progress_v2', JSON.stringify(data.progress));
+            if (data.mistakes) localStorage.setItem('algolingo_mistakes', JSON.stringify(data.mistakes));
+            if (data.savedLessons) localStorage.setItem('algolingo_saved_lessons', JSON.stringify(data.savedLessons));
+            if (data.careerSessions) localStorage.setItem('algolingo_career_sessions', JSON.stringify(data.careerSessions));
+            if (data.problemDataCache) localStorage.setItem('algolingo_problem_data', JSON.stringify(data.problemDataCache));
+            
+            if (data.engineeringData) {
+                Object.entries(data.engineeringData).forEach(([key, value]) => {
+                    localStorage.setItem(key, JSON.stringify(value));
+                });
             }
-        }
 
-        // IF EXAM: Save to SavedLessons with Tag
-        if (currentLessonPlan && currentLessonPlan.context?.type === 'career_exam') {
-            const savedLesson: SavedLesson = {
-                id: `exam_${Date.now()}`,
-                problemId: 'career_exam',
-                nodeIndex: 0,
-                timestamp: Date.now(),
-                plan: currentLessonPlan,
-                language: preferences.targetLanguage
+            const currentPrefs = JSON.parse(localStorage.getItem('algolingo_preferences') || '{}');
+            const newPrefs = { 
+                ...currentPrefs, 
+                ...data.preferences, 
+                hasOnboarded: true 
             };
-            const newSaved = [savedLesson, ...savedLessons].slice(0, 50);
-            setSavedLessons(newSaved);
-            localStorage.setItem('algolingo_saved_lessons', JSON.stringify(newSaved));
-        }
+            localStorage.setItem('algolingo_preferences', JSON.stringify(newPrefs));
 
-        if (view === 'runner' && activeForgeItem) {
-            setView('forge-detail');
-            setCurrentLessonPlan(null);
-            return;
-        }
+            if (data.stats) setStats(data.stats);
+            if (data.progress) setProgressMap(data.progress);
+            if (data.mistakes) setMistakes(data.mistakes);
+            if (data.savedLessons) setSavedLessons(data.savedLessons);
+            if (data.careerSessions) setCareerSessions(data.careerSessions);
+            if (data.problemDataCache) setProblemDataCache(data.problemDataCache);
+            
+            setView('algorithms');
+            setActiveTab('algorithms');
+            setPreferences(newPrefs);
 
-        // Restore Engineering Hub View if returning from engineering lesson
-        if (ctx?.type === 'pillar') {
-            setView('dashboard');
-            setActiveTab('engineering');
-        } else {
-            setView('dashboard');
+        } catch (e) {
+            console.error("Data restore failed", e);
+            alert("Failed to restore data. Please check the file format.");
         }
-        setCurrentLessonPlan(null);
+    };
+
+    const onResetData = () => {
+        if (window.confirm("Reset all data?")) {
+            localStorage.clear();
+            window.location.reload();
+        }
     };
 
     return {
-        state: {
-            view, activeTab,
-            progressMap, stats, mistakes, savedLessons, preferences,
-            activeProblem, activeNodeIndex, currentLessonPlan,
-            loadingContext, generationError, generationRawError,
-            isSkipAttempt, activeForgeItem, 
-            activeCareerSession, careerSessions, pendingExamConfig,
-            engineeringNav // Expose this
+        state: { 
+            view, activeTab, preferences, stats, progressMap, mistakes, savedLessons,
+            activeProblem, activeProblemContext, problemDataCache, // Exported for components
+            activeNodeIndex, currentLessonPlan, activeForgeItem, activeCareerSession,
+            loadingContext, pendingExamConfig, generationError, generationRawError,
+            isSkipAttempt, engineeringNav, careerSessions
         },
-        actions: {
-            setView, setActiveTab,
-            updatePreferences,
-            handleImportData, handleExportData, handleDataLoaded,
-            handleSelectProblem,
-            handleStartNode,
-            handleStartReview,
-            handleStartClinic,
-            handleGenerateVariant,
-            handleStartCustomLesson,
-            handleViewForgeItem, 
-            handleStartCareerSession, 
-            handleStartCareerExam,
-            handleRetryLoading,
-            handleLessonComplete,
-            handleUpdateCurrentPlan, // Export new action
-            onResetData: () => { localStorage.clear(); window.location.reload(); },
-            setEngineeringNav
+        actions: { 
+            updatePreferences, handleSelectProblem, handleStartNode, handleStartReview, 
+            handleStartClinic, handleGenerateVariant, setActiveTab, setView,
+            handleImportData, handleDataLoaded, handleExportData, onResetData,
+            handleStartCustomLesson, handleRetryLoading, handleLessonComplete,
+            handleStartCareerSession, handleStartCareerExam, handleViewForgeItem, 
+            handleUpdateCurrentPlan, setEngineeringNav, handleSaveProblemData
         }
     };
 };

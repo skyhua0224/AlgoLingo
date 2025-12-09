@@ -27,14 +27,52 @@ const WIDGET_LOCALE = {
     }
 };
 
-// Shared cleaning logic: Removes comments, trailing semicolons, and braces
-export const cleanCodeLine = (line: string) => {
+// Shared cleaning logic: Removes comments and non-essential trailing punctuation
+export const cleanCodeLine = (line: string | any) => {
+    // Safety check for non-string inputs
+    let text = line;
+    if (typeof text !== 'string') {
+        if (text && typeof text === 'object') {
+            text = text.code || text.content || text.text || JSON.stringify(text);
+        } else {
+            text = String(text || '');
+        }
+    }
+
     // 1. Remove comments
-    let cleaned = line.replace(/\s*#.*$/, '').replace(/\s*\/\/.*$/, '');
-    // 2. Remove trailing semicolons and braces (open or close)
-    // This helps focus on logic, not syntax trivia
-    cleaned = cleaned.replace(/[;{}]+$/, '');
-    // 3. Trim whitespace
+    let cleaned = text.replace(/\s*#.*$/, '').replace(/\s*\/\/.*$/, '');
+    
+    // 2. Trim whitespace
+    cleaned = cleaned.trim();
+    
+    // 3. Remove trailing semicolons (Standard Parsons practice)
+    cleaned = cleaned.replace(/;+$/, '');
+    
+    // 4. Handle pure closing braces (e.g. "}", "};")
+    // These are usually structural noise in Parsons and are removed.
+    if (cleaned === '}' || cleaned === '};') {
+        return ''; 
+    }
+    
+    // 5. Smart Brace Handling
+    // We want to remove '{' if it's a block opener (e.g. "if (x) {")
+    // But we MUST PRESERVE '{' if it's data initialization (e.g. "map = {", "return {", "new int[] {")
+    if (cleaned.endsWith('{')) {
+        const trimmedWithoutBrace = cleaned.slice(0, -1).trim();
+        const lastChar = trimmedWithoutBrace.slice(-1);
+        
+        // Symbols that imply data structure or assignment usually precede a brace we want to KEEP.
+        // = (Assignment)
+        // : (Dict/JSON)
+        // , (List item)
+        // [ (Array)
+        // ( (Function call arg)
+        // Also 'return' keyword
+        if (!['=', ':', ',', '[', '('].includes(lastChar) && !trimmedWithoutBrace.endsWith('return')) {
+             cleaned = trimmedWithoutBrace;
+        }
+    }
+    
     return cleaned.trim();
 };
 
@@ -71,9 +109,7 @@ export const ParsonsWidget: React.FC<ParsonsProps> = ({ widget, onUpdateOrder, s
             }
 
             // Shuffle implementation
-            // We want to ensure that the shuffled version is NOT the same as the original.
             let shuffled = [...original];
-            
             const shuffleArray = (array: string[]) => {
                 for (let i = array.length - 1; i > 0; i--) {
                     const j = Math.floor(Math.random() * (i + 1));
@@ -92,11 +128,9 @@ export const ParsonsWidget: React.FC<ParsonsProps> = ({ widget, onUpdateOrder, s
 
             // FORCE SWAP: If randomness fails or original list is short/repetitive
             if (JSON.stringify(shuffled) === originalJson) {
-                // If the first two items are different, swap them.
                 if (shuffled[0] !== shuffled[1]) {
                      [shuffled[0], shuffled[1]] = [shuffled[1], shuffled[0]];
                 } else {
-                     // If first two are same, try to find one to swap with the first
                      for(let i=1; i<shuffled.length; i++) {
                          if (shuffled[i] !== shuffled[0]) {
                              [shuffled[0], shuffled[i]] = [shuffled[i], shuffled[0]];

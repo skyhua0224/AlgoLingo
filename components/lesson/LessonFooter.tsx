@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '../Button';
-import { Check, X, ArrowRight, Flag, RotateCcw, Sparkles, Send, Loader2 } from 'lucide-react';
+import { Check, X, ArrowRight, Flag, RotateCcw, Sparkles, Send, Loader2, MessageSquarePlus, AlertTriangle } from 'lucide-react';
 
 interface LessonFooterProps {
   status: 'idle' | 'correct' | 'wrong';
@@ -11,12 +11,13 @@ interface LessonFooterProps {
   isExamMode?: boolean;
   isLastQuestion?: boolean;
   onRegenerate?: (instruction: string) => Promise<void>;
+  onReport?: () => void; // New prop for reporting bad questions/answers
   isRegenerating?: boolean;
 }
 
 export const LessonFooter: React.FC<LessonFooterProps> = ({ 
     status, onCheck, onNext, language, isExamMode, isLastQuestion, 
-    onRegenerate, isRegenerating 
+    onRegenerate, onReport, isRegenerating 
 }) => {
   const isZh = language === 'Chinese';
   const [showRegenPopover, setShowRegenPopover] = useState(false);
@@ -30,8 +31,9 @@ export const LessonFooter: React.FC<LessonFooterProps> = ({
     continue: isZh ? "继续" : "CONTINUE",
     next: isZh ? "下一题" : "Next Question",
     submit: isZh ? "交卷" : "Submit Exam",
-    regen: isZh ? "重新生成" : "Regenerate",
-    regenHint: isZh ? "输入修改要求 (留空则随机重置)..." : "Enter instructions (empty for random)..."
+    regen: isZh ? "重新生成本页" : "Regenerate Screen",
+    regenHint: isZh ? "输入修改要求 (例如：太难了，简单点)..." : "Instructions (e.g. 'Too hard, simplify')...",
+    regenBtn: isZh ? "确认生成" : "Confirm"
   };
 
   const getBgColor = () => {
@@ -81,16 +83,28 @@ export const LessonFooter: React.FC<LessonFooterProps> = ({
         {/* Buttons Container */}
         <div className="flex items-center gap-3">
             
-            {/* Regenerate Button & Popover */}
+            {/* Feedback / Report Button (Visible only on Error) */}
+            {status === 'wrong' && onReport && (
+                <button
+                    onClick={onReport}
+                    className="p-3.5 rounded-xl border-2 border-red-200 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-colors bg-white dark:bg-dark-card shadow-sm"
+                    title={isZh ? "报错 / 申诉" : "Report / Appeal"}
+                >
+                    <AlertTriangle size={24} />
+                </button>
+            )}
+
+            {/* Regenerate Button & Popover (Visible only on Idle) */}
             {status === 'idle' && onRegenerate && (
                 <div className="relative" ref={popoverRef}>
                     {showRegenPopover && (
-                        <div className="absolute bottom-full right-0 mb-4 w-72 bg-white dark:bg-[#1e1e1e] rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 p-3 animate-scale-in origin-bottom-right z-[60]">
-                            <div className="text-xs font-bold text-gray-400 mb-2 px-1 uppercase tracking-wider">
+                        <div className="absolute bottom-full right-0 mb-4 w-72 bg-white dark:bg-[#1e1e1e] rounded-2xl shadow-2xl border-2 border-brand/20 p-4 animate-scale-in origin-bottom-right z-[60]">
+                            <div className="flex items-center gap-2 text-brand-dark dark:text-brand-light font-bold mb-3 text-xs uppercase tracking-wider border-b border-gray-100 dark:border-gray-700 pb-2">
+                                <Sparkles size={14} />
                                 {t.regen}
                             </div>
                             <textarea
-                                className="w-full h-20 p-3 bg-gray-50 dark:bg-black/40 border border-gray-200 dark:border-gray-600 rounded-xl text-sm mb-3 focus:border-brand outline-none resize-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500"
+                                className="w-full h-24 p-3 bg-gray-50 dark:bg-black/40 border border-gray-200 dark:border-gray-600 rounded-xl text-sm mb-3 focus:border-brand outline-none resize-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500"
                                 placeholder={t.regenHint}
                                 value={instruction}
                                 onChange={(e) => setInstruction(e.target.value)}
@@ -99,10 +113,10 @@ export const LessonFooter: React.FC<LessonFooterProps> = ({
                             <button 
                                 onClick={handleRegenSubmit}
                                 disabled={isRegenerating}
-                                className="w-full py-2 bg-brand text-white rounded-lg font-bold text-xs flex items-center justify-center gap-2 hover:bg-brand-dark transition-colors"
+                                className="w-full py-2.5 bg-brand text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-brand-dark transition-colors shadow-md"
                             >
-                                {isRegenerating ? <Loader2 size={14} className="animate-spin"/> : <Sparkles size={14}/>}
-                                {t.regen}
+                                {isRegenerating ? <Loader2 size={14} className="animate-spin"/> : <Send size={14}/>}
+                                {t.regenBtn}
                             </button>
                         </div>
                     )}
@@ -110,10 +124,10 @@ export const LessonFooter: React.FC<LessonFooterProps> = ({
                     <button 
                         onClick={() => setShowRegenPopover(!showRegenPopover)}
                         disabled={isRegenerating}
-                        className="p-3 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-500 hover:text-brand hover:bg-brand/10 transition-all border border-transparent hover:border-brand/20"
+                        className={`p-3.5 rounded-xl transition-all border-2 ${showRegenPopover ? 'bg-brand text-white border-brand' : 'bg-white dark:bg-dark-card text-gray-400 border-gray-200 dark:border-gray-700 hover:border-brand hover:text-brand'}`}
                         title={t.regen}
                     >
-                        {isRegenerating ? <Loader2 size={24} className="animate-spin text-brand"/> : <RotateCcw size={24} />}
+                        {isRegenerating ? <Loader2 size={24} className="animate-spin"/> : <MessageSquarePlus size={24} />}
                     </button>
                 </div>
             )}

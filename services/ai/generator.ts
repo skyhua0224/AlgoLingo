@@ -1,4 +1,5 @@
 
+// ... existing imports ...
 import { getClient } from "./client";
 import { getLessonPlanSystemInstruction, getLeetCodeContextSystemInstruction, getJudgeSystemInstruction, getVariantSystemInstruction, getDailyWorkoutSystemInstruction } from "./prompts";
 import { getSystemArchitectPrompt } from "./prompts/engineering/system_architect";
@@ -6,11 +7,11 @@ import { getCSKernelPrompt } from "./prompts/engineering/cs_kernel";
 import { getSyntaxRoadmapPrompt } from "./prompts/engineering/syntax_roadmap";
 import { getSyntaxTrainerPrompt } from "./prompts/engineering/syntax_trainer";
 import { lessonPlanSchema, leetCodeContextSchema, judgeResultSchema } from "./schemas";
-import { UserPreferences, MistakeRecord, LessonPlan, Widget, LeetCodeContext, SavedLesson } from "../../types";
+import { UserPreferences, MistakeRecord, LessonPlan, Widget, LeetCodeContext, SavedLesson, SolutionStrategy } from "../../types";
 import { PROBLEM_MAP } from "../../constants";
 import { SyntaxProfile, SyntaxUnit, SyntaxLesson } from "../../types/engineering";
 
-// --- CUSTOM ERROR CLASS ---
+// ... existing AIGenerationError and helper classes ...
 export class AIGenerationError extends Error {
     rawOutput?: string;
     constructor(message: string, rawOutput?: string) {
@@ -20,13 +21,11 @@ export class AIGenerationError extends Error {
     }
 }
 
-// --- VALIDATION HELPER ---
 const isValidWidget = (w: Widget): boolean => {
     if (!w || !w.type) {
         return false;
     }
-    
-    // Normalize type for validation
+    // ... existing validation logic ...
     const type = w.type.toLowerCase().replace('fillin', 'fill-in').replace('interactivecode', 'interactive-code');
     
     switch (type) {
@@ -37,10 +36,8 @@ const isValidWidget = (w: Widget): boolean => {
         case 'quiz': 
             return !!w.quiz && !!w.quiz.question && Array.isArray(w.quiz.options);
         case 'code': 
-            // 'code' is deprecated, but we validate it before conversion
             return !!w.code && !!w.code.content;
         case 'interactive-code': 
-            // Relaxed check because we repair it in generator
             return !!w.interactiveCode || !!(w as any).code; 
         case 'parsons': 
             return !!w.parsons && Array.isArray(w.parsons.lines);
@@ -52,7 +49,6 @@ const isValidWidget = (w: Widget): boolean => {
             return !!w.stepsList && Array.isArray(w.stepsList.items);
         case 'callout': 
             return !!w.callout && !!w.callout.title;
-        // New Widgets
         case 'terminal':
             return !!w.terminal && !!w.terminal.command;
         case 'code-walkthrough':
@@ -68,7 +64,6 @@ const isValidWidget = (w: Widget): boolean => {
     }
 };
 
-// --- GENERIC API CALL WRAPPER ---
 const callAI = async (
     preferences: UserPreferences,
     systemInstruction: string,
@@ -76,10 +71,11 @@ const callAI = async (
     schema?: any,
     jsonMode: boolean = false
 ): Promise<string> => {
+    // ... existing callAI implementation ...
     const provider = preferences.apiConfig.provider;
 
-    // 1. OpenAI Compatible
     if (provider === 'openai') {
+        // ... openai logic ...
         const { apiKey, baseUrl, model } = preferences.apiConfig.openai;
         const url = `${baseUrl || 'https://api.openai.com/v1'}/chat/completions`;
         
@@ -121,7 +117,6 @@ const callAI = async (
         }
     }
 
-    // 2. Google Gemini
     const client = getClient(preferences);
     const modelId = preferences.apiConfig.gemini.model || 'gemini-2.5-flash';
     
@@ -151,21 +146,32 @@ const callAI = async (
     }
 };
 
-
 // --- LESSON PLAN GENERATOR ---
 export const generateLessonPlan = async (
   problemName: string, 
   phaseIndex: number, 
   preferences: UserPreferences,
   mistakes: MistakeRecord[] = [],
-  savedLessons: SavedLesson[] = []
+  savedLessons: SavedLesson[] = [],
+  targetSolution?: SolutionStrategy // NEW PARAMETER
 ): Promise<LessonPlan> => {
   
   const targetLang = preferences.targetLanguage;
   const speakLang = preferences.spokenLanguage;
-  const systemInstruction = getLessonPlanSystemInstruction(problemName, targetLang, speakLang, phaseIndex);
+  const systemInstruction = getLessonPlanSystemInstruction(problemName, targetLang, speakLang, phaseIndex, targetSolution);
   
   let userPrompt = `Generate the lesson plan for Phase ${phaseIndex + 1} of ${problemName}.`;
+  
+  // Append targeted solution context
+  if (targetSolution) {
+      userPrompt += `\n\n**MANDATORY STRATEGY**: You MUST teach the '${targetSolution.title}' approach.
+      Reference Code Logic: 
+      ${targetSolution.code.substring(0, 500)}...
+      Derivation: ${targetSolution.derivation.substring(0, 300)}...
+      
+      Do NOT generate content for any other algorithm (e.g. do not teach Brute Force if I selected HashMap).`;
+  }
+
   if (mistakes.length > 0) {
       userPrompt += `\nContext: The user previously struggled with: ${mistakes.map(m => m.context).join(', ')}. Please reinforce these concepts.`;
   }
@@ -194,25 +200,25 @@ export const generateLessonPlan = async (
           throw new AIGenerationError("JSON Parse Error: The AI response was not valid JSON.", text);
       }
 
-      // --- CLIENT SIDE SANITIZATION & REPAIR ---
+      // ... existing validation/repair logic ...
       if (!plan.screens) plan.screens = [];
-      
+      if (phaseIndex !== 6 && plan.screens.length < 17) {
+          throw new AIGenerationError(`Quality Control Failed: AI generated only ${plan.screens.length}/17 screens. Please retry.`, text);
+      }
+
       plan.screens = plan.screens.map(screen => {
           if (!screen.widgets) screen.widgets = [];
-          
           let newWidgets: Widget[] = [];
-
+          
           screen.widgets.forEach(w => {
-              // --- TYPE SANITIZATION (CRITICAL FIX) ---
-              // AI often outputs 'fillin' instead of 'fill-in', or 'interactivecode' instead of 'interactive-code'
+              // ... existing sanitization ...
               if (w.type) {
                   w.type = w.type.toLowerCase() as any;
                   if (w.type === ('fillin' as any)) w.type = 'fill-in';
                   if (w.type === ('interactivecode' as any)) w.type = 'interactive-code';
                   if (w.type === ('mermaidvisual' as any)) w.type = 'mermaid';
               }
-
-              // 1. REPAIR: Legacy 'code' type -> 'interactive-code'
+              // ... rest of sanitization ...
               if (w.type === 'code' || (w as any).type === 'code-display') {
                    const codeContent = (w as any).code?.content || (w as any).content || "";
                    const lang = (w as any).code?.language || (w as any).language || targetLang.toLowerCase();
@@ -229,103 +235,71 @@ export const generateLessonPlan = async (
                            }
                        });
                    }
-                   return; // Skip the old widget
+                   return; 
               }
-
-              // 2. REPAIR: Check for "code" nested inside "dialogue" (Common Hallucination)
               if (w.type === 'dialogue') {
-                  newWidgets.push(w); // Push the dialogue itself first
-                  
-                  // Hallucination check: Does it have a 'code' property?
+                  newWidgets.push(w);
                   if ((w as any).code) {
                       const codeData = (w as any).code;
-                      // Extract it into a separate valid InteractiveCode widget
                       newWidgets.push({
                           id: `auto_extracted_code_${w.id}_${Math.random().toString(36).substr(2,5)}`,
                           type: 'interactive-code',
                           interactiveCode: {
                               language: codeData.language || targetLang.toLowerCase(),
-                              lines: codeData.content 
-                                  ? codeData.content.split('\n').map((line: string) => ({
-                                      code: line,
-                                      explanation: "Code snippet from context."
-                                  })) 
-                                  : [],
+                              lines: codeData.content ? codeData.content.split('\n').map((line: string) => ({ code: line, explanation: "Code snippet from context." })) : [],
                               caption: "Code Example"
                           }
                       });
-                      delete (w as any).code; // Clean up the dirty property
+                      delete (w as any).code; 
                   }
-              } 
-              // 3. REPAIR: Malformed Interactive Code
-              else if (w.type === 'interactive-code') {
-                  // Case A: AI put data in 'code' instead of 'interactiveCode'
+              } else if (w.type === 'interactive-code') {
                   if (!w.interactiveCode && w.code) {
                       w.interactiveCode = {
                           language: w.code.language || 'python',
-                          lines: w.code.content ? w.code.content.split('\n').map((line: string) => ({
-                              code: line,
-                              explanation: w.code?.caption || "Logic step"
-                          })) : [],
+                          lines: w.code.content ? w.code.content.split('\n').map((line: string) => ({ code: line, explanation: w.code?.caption || "Logic step" })) : [],
                           caption: w.code.caption
                       };
                   }
-                  
-                  // Case B: AI put data in 'interactive_code' (snake_case)
-                  if (!w.interactiveCode && (w as any).interactive_code) {
-                      w.interactiveCode = (w as any).interactive_code;
-                  }
-
-                  // Case C: Missing structure entirely
-                  if (!w.interactiveCode) {
-                      w.interactiveCode = { language: 'python', lines: [] };
-                  }
-
-                  // Case D: Lines is string[] instead of object[]
+                  if (!w.interactiveCode && (w as any).interactive_code) w.interactiveCode = (w as any).interactive_code;
+                  if (!w.interactiveCode) w.interactiveCode = { language: 'python', lines: [] };
                   if (w.interactiveCode.lines && Array.isArray(w.interactiveCode.lines)) {
                       if (w.interactiveCode.lines.length > 0 && typeof w.interactiveCode.lines[0] === 'string') {
-                          w.interactiveCode.lines = (w.interactiveCode.lines as any as string[]).map(line => ({
-                              code: line,
-                              explanation: "Explanation generated by system."
-                          }));
+                          w.interactiveCode.lines = (w.interactiveCode.lines as any as string[]).map(line => ({ code: line, explanation: "Explanation generated by system." }));
                       }
                   }
-                  
                   newWidgets.push(w);
-              }
-              // 4. Fix Fill-In
-              else if (w.type === 'fill-in' && w.fillIn) {
-                  if (w.fillIn.inputMode === 'select' && (!w.fillIn.options || w.fillIn.options.length === 0)) {
-                      w.fillIn.options = [...(w.fillIn.correctValues || []), "Option A", "Option B"];
+              } else if (w.type === 'fill-in' && w.fillIn) {
+                  if ((!w.fillIn.inputMode || w.fillIn.inputMode === 'select') && (!w.fillIn.options || w.fillIn.options.length === 0)) {
+                      const correct = w.fillIn.correctValues || ["Answer"];
+                      w.fillIn.options = [...correct, "Error", "None", "Unknown"].slice(0, 4).sort(() => Math.random() - 0.5);
                   }
                   newWidgets.push(w);
-              }
-              // 5. Fix Quiz
-              else if (w.type === 'quiz' && w.quiz) {
-                  if (typeof w.quiz.correctIndex === 'string') {
-                      w.quiz.correctIndex = parseInt(w.quiz.correctIndex, 10);
-                  }
+              } else if (w.type === 'quiz' && w.quiz) {
+                  if (typeof w.quiz.correctIndex === 'string') w.quiz.correctIndex = parseInt(w.quiz.correctIndex, 10);
                   if (isNaN(w.quiz.correctIndex)) w.quiz.correctIndex = 0;
                   newWidgets.push(w);
-              }
-              // Standard push for others
-              else {
+              } else if (w.type === 'parsons' && w.parsons) {
+                  if (w.parsons.lines && Array.isArray(w.parsons.lines)) {
+                      w.parsons.lines = w.parsons.lines.map((l: any) => {
+                          if (typeof l === 'string') return l;
+                          if (typeof l === 'object' && l) return l.code || l.content || l.text || "";
+                          return String(l);
+                      });
+                  }
+                  newWidgets.push(w);
+              } else {
                   newWidgets.push(w);
               }
           });
 
-          // --- FIX LONELY DIALOGUE (AGGRESSIVE MODE) ---
-          // If a screen ends up with only 1 widget and it's a dialogue, we MUST inject a companion.
+          // ... fix lonely dialogue ...
           if (newWidgets.length === 1 && newWidgets[0].type === 'dialogue') {
               const dialogueText = newWidgets[0].dialogue?.text || "";
               const textLower = dialogueText.toLowerCase();
-              
-              // Detect intent from text
               const isCodeMentioned = textLower.includes('code') || textLower.includes('example') || textLower.includes('代码') || textLower.includes('function') || textLower.includes('class');
               const isQuestion = textLower.includes('?') || textLower.includes('what') || textLower.includes('how') || textLower.includes('什么') || textLower.includes('如何');
 
               if (isCodeMentioned) {
-                   // Inject Code Placeholder
                    newWidgets.push({
                       id: `auto_filler_code_${screen.id}`,
                       type: 'interactive-code',
@@ -336,7 +310,6 @@ export const generateLessonPlan = async (
                       }
                    });
               } else if (isQuestion) {
-                   // Inject Quiz Placeholder
                    newWidgets.push({
                        id: `auto_filler_quiz_${screen.id}`,
                        type: 'quiz',
@@ -348,7 +321,6 @@ export const generateLessonPlan = async (
                        }
                    });
               } else {
-                   // Inject Callout
                    newWidgets.push({
                       id: `auto_filler_callout_${screen.id}`,
                       type: 'callout',
@@ -361,17 +333,13 @@ export const generateLessonPlan = async (
               }
           }
 
-          // --- FINAL VALIDATION FILTER ---
           const validWidgets = newWidgets.filter(w => isValidWidget(w));
-
-          // Ensure only one interactive widget per screen to prevent overwhelming user
           const interactiveTypes = ['quiz', 'parsons', 'fill-in', 'leetcode', 'steps-list', 'terminal', 'code-walkthrough', 'mini-editor', 'arch-canvas', 'interactive-code', 'visual-quiz'];
           let interactiveCount = 0;
           
           const finalWidgets = validWidgets.filter(w => {
               const isInteractive = interactiveTypes.includes(w.type) || 
                                    (w.type === 'flipcard' && w.flipcard?.mode === 'assessment');
-              
               if (isInteractive) {
                   if (interactiveCount > 0) return false; 
                   interactiveCount++;
@@ -380,11 +348,9 @@ export const generateLessonPlan = async (
               return true; 
           });
           
-          // Fallback: If filtering removed everything (rare), restore at least the dialogue
           if (finalWidgets.length === 0 && newWidgets.length > 0) {
               return { ...screen, widgets: [newWidgets[0]] };
           }
-          
           return { ...screen, widgets: finalWidgets };
       });
 
@@ -393,6 +359,13 @@ export const generateLessonPlan = async (
       if (plan.screens.length === 0) {
           throw new AIGenerationError("Validation Error: AI generated 0 valid screens.", text);
       }
+
+      // Inject solution context so lesson runner knows what we are teaching
+      plan.context = {
+          ...plan.context,
+          type: 'algo',
+          targetSolution
+      };
 
       return plan;
 
@@ -404,11 +377,13 @@ export const generateLessonPlan = async (
   }
 };
 
+// ... Rest of the file (generateDailyWorkoutPlan, etc.) ...
 export const generateDailyWorkoutPlan = async (
     mistakes: MistakeRecord[],
     learnedProblemIds: string[],
     preferences: UserPreferences
 ): Promise<LessonPlan> => {
+    // ... existing implementation
     const learnedProblemNames = learnedProblemIds.map(id => PROBLEM_MAP[id]).filter(n => !!n);
     if (learnedProblemNames.length === 0) {
         return generateLessonPlan("Two Sum", 0, preferences);
@@ -432,20 +407,15 @@ export const generateDailyWorkoutPlan = async (
     return plan;
 };
 
-export const generateVariantLesson = async (
-    mistake: MistakeRecord,
-    preferences: UserPreferences
-): Promise<LessonPlan> => {
+// ... other exports ...
+export const generateVariantLesson = async (mistake: MistakeRecord, preferences: UserPreferences): Promise<LessonPlan> => {
     const systemInstruction = getVariantSystemInstruction(preferences.targetLanguage, preferences.spokenLanguage);
     const prompt = `Create VARIANT of: ${mistake.problemName}. Widget Data: ${JSON.stringify(mistake.widget)}`;
     const text = await callAI(preferences, systemInstruction, prompt, lessonPlanSchema, true);
     return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
 };
 
-export const generateLeetCodeContext = async (
-    problemName: string,
-    preferences: UserPreferences
-): Promise<LeetCodeContext> => {
+export const generateLeetCodeContext = async (problemName: string, preferences: UserPreferences): Promise<LeetCodeContext> => {
     const systemInstruction = getLeetCodeContextSystemInstruction(problemName, preferences.spokenLanguage, preferences.targetLanguage);
     try {
         const text = await callAI(preferences, systemInstruction, `Generate full LeetCode simulation data for ${problemName}`, leetCodeContextSchema, true);
@@ -467,17 +437,20 @@ export const validateUserCode = async (code: string, problemDesc: string, prefer
     }
 };
 
+// ... Engineering and Syntax exports ...
 export const generateEngineeringLesson = async (
-    pillar: 'system' | 'cs',
+    pillar: 'system' | 'cs' | 'track', 
     topic: string,
     keywords: string[],
     level: string, 
     preferences: UserPreferences,
     extraContext?: string,
-    topicId?: string, // NEW
-    stepId?: string   // NEW
+    topicId?: string, 
+    stepId?: string
 ): Promise<LessonPlan> => {
-    const systemInstruction = pillar === 'system' 
+    const useSystemPrompt = pillar === 'system' || pillar === 'track';
+    
+    const systemInstruction = useSystemPrompt 
         ? getSystemArchitectPrompt(topic, keywords, level, extraContext)
         : getCSKernelPrompt(topic, keywords, level); 
         
@@ -487,16 +460,7 @@ export const generateEngineeringLesson = async (
         const text = await callAI(preferences, systemInstruction, prompt, lessonPlanSchema, true);
         const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
         const plan = JSON.parse(cleanText);
-        // Inject persistence context
-        plan.context = { 
-            type: 'pillar', 
-            pillar, 
-            topic, 
-            phaseIndex: 0, 
-            levelId: level,
-            topicId: topicId, // Track ID
-            stepId: stepId    // Track ID
-        }; 
+        plan.context = { type: 'pillar', pillar, topic, phaseIndex: 0, levelId: level, topicId: topicId, stepId: stepId }; 
         return plan;
     } catch (e: any) {
         console.error("Engineering Lesson Generation Failed", e);
@@ -504,7 +468,6 @@ export const generateEngineeringLesson = async (
     }
 };
 
-// Re-exports
 export const generateReviewLesson = async (mistakes: MistakeRecord[], preferences: UserPreferences) => generateDailyWorkoutPlan(mistakes, ["p_1"], preferences);
 export const generateSyntaxClinicPlan = async (preferences: UserPreferences) => generateLessonPlan("Syntax Clinic", 1, preferences); 
 export const generateSyntaxRoadmap = async (profile: any, preferences: UserPreferences) => {
@@ -513,15 +476,7 @@ export const generateSyntaxRoadmap = async (profile: any, preferences: UserPrefe
     try {
        const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
        const data = JSON.parse(cleanText);
-       return data.units.map((u: any, idx: number) => ({
-            ...u,
-            status: idx === 0 ? 'active' : 'locked',
-            lessons: u.lessons.map((l: any, lIdx: number) => ({
-                ...l,
-                status: (idx === 0 && lIdx === 0) ? 'active' : 'locked',
-                currentPhaseIndex: 0
-            }))
-        }));
+       return data.units.map((u: any, idx: number) => ({ ...u, status: idx === 0 ? 'active' : 'locked', lessons: u.lessons.map((l: any, lIdx: number) => ({ ...l, status: (idx === 0 && lIdx === 0) ? 'active' : 'locked', currentPhaseIndex: 0 })) }));
     } catch(e) {
         throw new Error("Roadmap Gen Failed");
     }

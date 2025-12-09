@@ -71,6 +71,17 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
         setStatus('idle');
     }, [currentIndex]);
 
+    // NEW: Allow overturning a wrong judgment (e.g. AI accepted an appeal)
+    const rectifyMistake = useCallback(() => {
+        setStatus('correct');
+        // Restore streak if it was reset (simple heuristic: set it to 1 if it was 0, or increment)
+        setStreak(s => s === 0 ? 1 : s + 1);
+        setXpGained(x => x + 10);
+        
+        // CRITICAL: Remove the mistake from the manager so it doesn't count towards lives or history
+        mistakeManager.removeLastMistake();
+    }, [mistakeManager]);
+
     const handleCheck = useCallback((isCorrect: boolean) => {
         if (isCorrect) {
             setStatus('correct');
@@ -80,16 +91,7 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
             setStatus('wrong');
             setStreak(0);
             
-            // Check Failure Condition (Lives System)
-            const currentMistakeCount = mistakeManager.sessionMistakes.length;
-            
-            // Only fail if limit is NOT disabled
-            if (maxMistakes !== undefined && !isLimitDisabled && currentMistakeCount >= maxMistakes) {
-                mistakeManager.recordMistake(currentScreen, plan.title, nodeIndex);
-                setIsFailed(true);
-                return; // Stop processing
-            }
-
+            // Record mistake immediately
             if (mistakeManager.isInMistakeLoop) {
                 // If in review mode and wrong, push copy to end of queue to ensure mastery
                 setScreens(prev => [...prev, { ...currentScreen, id: currentScreen.id + '_retry_' + Date.now() }]);
@@ -97,8 +99,9 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
                 // Normal mode: Record mistake
                 mistakeManager.recordMistake(currentScreen, plan.title, nodeIndex);
             }
+            // Note: We do NOT set isFailed here anymore. We wait for handleNext.
         }
-    }, [currentScreen, plan.title, nodeIndex, mistakeManager, mistakeManager.isInMistakeLoop, maxMistakes, isLimitDisabled]);
+    }, [currentScreen, plan.title, nodeIndex, mistakeManager, mistakeManager.isInMistakeLoop]);
 
     // Special handler for Exam Mode - Records result but does NOT change status (silent advance)
     const submitExamAnswer = useCallback((isCorrect: boolean, userState: any) => {
@@ -130,7 +133,17 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
     }, [currentIndex, currentScreen, isLastScreen, mistakeManager, nodeIndex, onComplete, plan.title, xpGained, streak]);
 
     const handleNext = useCallback(() => {
-        if (isFailed) return; // Block next if failed
+        // --- FAILURE CHECK (Moved here) ---
+        // Check if current mistakes exceed the limit.
+        // We check mistakeManager.sessionMistakes.length.
+        if (maxMistakes !== undefined && !isLimitDisabled) {
+            if (mistakeManager.sessionMistakes.length > maxMistakes) {
+                setIsFailed(true);
+                return; // Stop processing, show fail screen
+            }
+        }
+
+        if (isFailed) return; // Block next if already failed (though UI handles this)
 
         if (!isLastScreen) {
             setStatus('idle');
@@ -143,7 +156,7 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
                 mistakeManager.sessionMistakes
             );
         }
-    }, [isLastScreen, onComplete, xpGained, streak, mistakeManager.sessionMistakes, isFailed]);
+    }, [isLastScreen, onComplete, xpGained, streak, mistakeManager.sessionMistakes, isFailed, maxMistakes, isLimitDisabled]);
 
     const retryCurrent = useCallback(() => {
         setStatus('idle');
@@ -171,6 +184,7 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
         startMistakeRepair,
         continueAsPractice,
         submitExamAnswer,
-        replaceCurrentScreen
+        replaceCurrentScreen,
+        rectifyMistake
     };
 };
