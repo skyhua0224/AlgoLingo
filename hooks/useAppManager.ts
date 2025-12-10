@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from 'react';
 import {
-    UserStats, ProgressMap, LessonPlan, SavedLesson, MistakeRecord, UserPreferences, AppView, SolutionStrategy, Problem, LeetCodeContext, ProblemData
+    UserStats, ProgressMap, LessonPlan, SavedLesson, MistakeRecord, UserPreferences, AppView, SolutionStrategy, Problem
 } from '../types';
 import { ForgeRoadmap } from '../types/forge';
 import { CareerSession } from '../types/career';
@@ -10,7 +10,7 @@ import {
     INITIAL_STATS, DEFAULT_API_CONFIG
 } from '../constants';
 import {
-    generateLessonPlan, generateDailyWorkoutPlan, generateSyntaxClinicPlan, generateVariantLesson, generateLeetCodeContext
+    generateLessonPlan, generateDailyWorkoutPlan, generateSyntaxClinicPlan, generateVariantLesson
 } from '../services/geminiService';
 import { generateRapidExam } from '../services/ai/career/generator';
 
@@ -65,19 +65,8 @@ export const useAppManager = () => {
         return saved ? JSON.parse(saved) : [];
     });
 
-    // NEW: Problem Data Cache (Context + Solutions)
-    const [problemDataCache, setProblemDataCache] = useState<Record<string, ProblemData>>(() => {
-        const saved = localStorage.getItem('algolingo_problem_data');
-        return saved ? JSON.parse(saved) : {};
-    });
-
     // Session / Navigation Context
     const [activeProblem, setActiveProblem] = useState<Problem | null>(null);
-    // Derived from cache for convenience
-    const activeProblemContext = activeProblem && problemDataCache[activeProblem.id] 
-        ? problemDataCache[activeProblem.id].context 
-        : null;
-    
     const [activeNodeIndex, setActiveNodeIndex] = useState(0);
     const [currentLessonPlan, setCurrentLessonPlan] = useState<LessonPlan | null>(null);
     const [activeForgeItem, setActiveForgeItem] = useState<ForgeRoadmap | null>(null);
@@ -96,7 +85,6 @@ export const useAppManager = () => {
     useEffect(() => { localStorage.setItem('algolingo_mistakes', JSON.stringify(mistakes)); }, [mistakes]);
     useEffect(() => { localStorage.setItem('algolingo_saved_lessons', JSON.stringify(savedLessons)); }, [savedLessons]);
     useEffect(() => { localStorage.setItem('algolingo_career_sessions', JSON.stringify(careerSessions)); }, [careerSessions]);
-    useEffect(() => { localStorage.setItem('algolingo_problem_data', JSON.stringify(problemDataCache)); }, [problemDataCache]);
 
     // Apply Theme
     useEffect(() => {
@@ -123,13 +111,6 @@ export const useAppManager = () => {
         setView('unit-map');
     };
 
-    const handleSaveProblemData = (problemId: string, data: ProblemData) => {
-        setProblemDataCache(prev => ({
-            ...prev,
-            [problemId]: data
-        }));
-    };
-
     const handleStartNode = async (nodeIndex: number, isSkip: boolean = false, targetSolution?: SolutionStrategy) => {
         if (!activeProblem) return;
         setIsSkipAttempt(isSkip);
@@ -138,26 +119,13 @@ export const useAppManager = () => {
         setGenerationError(null);
         setGenerationRawError(null);
 
-        // If we are starting a node, we MUST have the context already generated.
-        // The UnitMap ensures this via the modal before calling this.
-        // However, for safety in Simulator mode:
         if (nodeIndex === 6) {
-            if (!activeProblemContext) {
-                // This shouldn't happen if UnitMap works correctly, but handle gracefully
-                setGenerationError("Problem context missing. Please regenerate in Unit Map.");
-                return;
-            }
-
+            // Simulator Mode
             setCurrentLessonPlan({
                 title: activeProblem.name,
                 description: "LeetCode Simulator",
                 screens: [], 
-                suggestedQuestions: [],
-                context: {
-                    type: 'algo',
-                    // Inject the target solution if selected, or default to first available
-                    targetSolution: targetSolution || problemDataCache[activeProblem.id]?.solutions[0]
-                }
+                suggestedQuestions: []
             });
             setView('runner');
             return;
@@ -243,6 +211,7 @@ export const useAppManager = () => {
 
     const handleStartCustomLesson = (plan: LessonPlan, isSkip: boolean = false) => {
         setCurrentLessonPlan(plan);
+        // Try to infer node index from plan context if available, else default to 0
         const idx = plan.context?.phaseIndex !== undefined ? plan.context.phaseIndex : (plan.context?.type === 'career_exam' ? 0 : 0);
         setActiveNodeIndex(idx);
         setIsSkipAttempt(isSkip);
@@ -251,8 +220,10 @@ export const useAppManager = () => {
     };
 
     const handleStartCareerSession = (session: CareerSession) => {
+        // If simulation/interview mode, go to dedicated runner
         if (session.mode === 'simulation') {
             setActiveCareerSession(session);
+            // Save to history if new
             setCareerSessions(prev => {
                 const idx = prev.findIndex(s => s.id === session.id);
                 if (idx >= 0) {
@@ -288,18 +259,22 @@ export const useAppManager = () => {
     };
 
     const handleLessonComplete = (resultStats: { xp: number; streak: number }, shouldSave: boolean, sessionMistakes: MistakeRecord[]) => {
+        // Update Stats
         const newStats = { ...stats };
         newStats.xp += resultStats.xp;
         newStats.streak = resultStats.streak > 0 ? resultStats.streak : newStats.streak; 
         
+        // Update History
         const today = new Date().toISOString().split('T')[0];
         newStats.history = { ...newStats.history, [today]: (newStats.history[today] || 0) + resultStats.xp };
         setStats(newStats);
 
+        // Save Mistakes
         if (sessionMistakes.length > 0) {
             setMistakes(prev => [...prev, ...sessionMistakes]);
         }
 
+        // Save Lesson if needed
         if (shouldSave && currentLessonPlan) {
             const newSave: SavedLesson = {
                 id: Date.now().toString(),
@@ -311,10 +286,12 @@ export const useAppManager = () => {
                 xpEarned: resultStats.xp,
                 mistakeCount: sessionMistakes.length
             };
-            setSavedLessons(prev => [newSave, ...prev].slice(0, 50)); 
+            setSavedLessons(prev => [newSave, ...prev].slice(0, 50)); // Keep last 50
             
+            // Update Progress if it was a standard lesson
             if (activeProblem && activeNodeIndex !== -1) {
                 const currentLevel = progressMap[preferences.targetLanguage]?.[activeProblem.id] || 0;
+                // Only advance if we completed the current level or skipped ahead
                 const nextLevel = activeNodeIndex + 1;
                 if (nextLevel > currentLevel) {
                     const newMap = { ...progressMap };
@@ -343,8 +320,8 @@ export const useAppManager = () => {
     // Data Import/Export
     const handleExportData = () => {
         const data = {
-            stats, progress: progressMap, mistakes, preferences, savedLessons, careerSessions, problemDataCache,
-            version: "3.2",
+            stats, progress: progressMap, mistakes, preferences, savedLessons, careerSessions,
+            version: "3.1",
             timestamp: Date.now()
         };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -369,20 +346,22 @@ export const useAppManager = () => {
     };
 
     const handleDataLoaded = (data: any) => {
+        // DIRECT LOCALSTORAGE WRITE to avoid React state race conditions during full restore
         try {
             if (data.stats) localStorage.setItem('algolingo_stats', JSON.stringify(data.stats));
             if (data.progress) localStorage.setItem('algolingo_progress_v2', JSON.stringify(data.progress));
             if (data.mistakes) localStorage.setItem('algolingo_mistakes', JSON.stringify(data.mistakes));
             if (data.savedLessons) localStorage.setItem('algolingo_saved_lessons', JSON.stringify(data.savedLessons));
             if (data.careerSessions) localStorage.setItem('algolingo_career_sessions', JSON.stringify(data.careerSessions));
-            if (data.problemDataCache) localStorage.setItem('algolingo_problem_data', JSON.stringify(data.problemDataCache));
             
+            // Restore Engineering Data (Crucial for V3 features)
             if (data.engineeringData) {
                 Object.entries(data.engineeringData).forEach(([key, value]) => {
                     localStorage.setItem(key, JSON.stringify(value));
                 });
             }
 
+            // Merge Preferences safely
             const currentPrefs = JSON.parse(localStorage.getItem('algolingo_preferences') || '{}');
             const newPrefs = { 
                 ...currentPrefs, 
@@ -391,20 +370,11 @@ export const useAppManager = () => {
             };
             localStorage.setItem('algolingo_preferences', JSON.stringify(newPrefs));
 
-            if (data.stats) setStats(data.stats);
-            if (data.progress) setProgressMap(data.progress);
-            if (data.mistakes) setMistakes(data.mistakes);
-            if (data.savedLessons) setSavedLessons(data.savedLessons);
-            if (data.careerSessions) setCareerSessions(data.careerSessions);
-            if (data.problemDataCache) setProblemDataCache(data.problemDataCache);
-            
-            setView('algorithms');
-            setActiveTab('algorithms');
-            setPreferences(newPrefs);
-
+            // Force Reload immediately to reboot app with new data
+            window.location.reload();
         } catch (e) {
             console.error("Data restore failed", e);
-            alert("Failed to restore data. Please check the file format.");
+            alert("Failed to write data to storage. Please check disk space or permissions.");
         }
     };
 
@@ -418,8 +388,7 @@ export const useAppManager = () => {
     return {
         state: { 
             view, activeTab, preferences, stats, progressMap, mistakes, savedLessons,
-            activeProblem, activeProblemContext, problemDataCache, // Exported for components
-            activeNodeIndex, currentLessonPlan, activeForgeItem, activeCareerSession,
+            activeProblem, activeNodeIndex, currentLessonPlan, activeForgeItem, activeCareerSession,
             loadingContext, pendingExamConfig, generationError, generationRawError,
             isSkipAttempt, engineeringNav, careerSessions
         },
@@ -429,7 +398,7 @@ export const useAppManager = () => {
             handleImportData, handleDataLoaded, handleExportData, onResetData,
             handleStartCustomLesson, handleRetryLoading, handleLessonComplete,
             handleStartCareerSession, handleStartCareerExam, handleViewForgeItem, 
-            handleUpdateCurrentPlan, setEngineeringNav, handleSaveProblemData
+            handleUpdateCurrentPlan, setEngineeringNav
         }
     };
 };

@@ -13,10 +13,8 @@ import { ExamSummary } from './ExamSummary';
 import { StreakCelebration } from './StreakCelebration';
 import { GlobalAiAssistant } from '../GlobalAiAssistant';
 import { Button } from '../Button';
-import { LogOut, X, HeartCrack, AlertTriangle, ArrowRight, RefreshCw, AlertCircle, Wand2, ShieldCheck, HelpCircle, Loader2, CheckCircle2, FileText } from 'lucide-react';
-import { MarkdownText } from '../common/MarkdownText'; 
-import { ProblemDescription } from '../common/ProblemDescription';
-import { useAppManager } from '../../hooks/useAppManager';
+import { LogOut, X, HeartCrack, AlertTriangle, ArrowRight, RefreshCw, AlertCircle, Wand2, ShieldCheck, HelpCircle, Loader2, CheckCircle2 } from 'lucide-react';
+import { MarkdownText } from '../common/MarkdownText'; // Added Import
 
 // Direct Widget Imports
 import { DialogueWidget } from '../widgets/Dialogue';
@@ -27,10 +25,12 @@ import { ParsonsWidget } from '../widgets/Parsons';
 import { FillInWidget } from '../widgets/FillIn';
 import { QuizWidget as QuizWidgetPresenter } from '../widgets/Quiz'; 
 import { StepsWidget } from '../widgets/StepsList';
+// New Engineering Widgets
 import { TerminalWidget } from '../widgets/Terminal';
 import { CodeWalkthroughWidget } from '../widgets/CodeWalkthrough';
 import { MiniEditorWidget } from '../widgets/MiniEditor';
 import { ArchCanvasWidget } from '../widgets/ArchCanvas';
+// New Forge Widgets
 import { MermaidVisualWidget } from '../widgets/MermaidVisual';
 import { VisualQuizWidget } from '../widgets/VisualQuiz';
 import { ComparisonTableWidget } from '../widgets/ComparisonTable';
@@ -41,7 +41,7 @@ interface LessonRunnerProps {
   onComplete: (stats: { xp: number; streak: number }, shouldSave: boolean, mistakes: MistakeRecord[]) => void;
   onExit: () => void;
   onRegenerate?: () => void;
-  onUpdatePlan?: (newPlan: LessonPlan) => void; 
+  onUpdatePlan?: (newPlan: LessonPlan) => void; // New Prop
   language: 'Chinese' | 'English';
   preferences: UserPreferences;
   isReviewMode?: boolean;
@@ -58,7 +58,6 @@ interface QualityIssue {
 }
 
 export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
-  const { state } = useAppManager();
   
   if (props.nodeIndex === 6) {
     const windowTitle = props.plan.description === "LeetCode Simulator" ? "AlgoLingo Simulator" : "IDE Workspace";
@@ -99,11 +98,10 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
   const [sessionMistakes, setSessionMistakes] = useState<MistakeRecord[]>([]);
   const [hasRepaired, setHasRepaired] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
-  const [showProblemContext, setShowProblemContext] = useState(false);
   
   // Quality Control State
   const [qualityIssue, setQualityIssue] = useState<QualityIssue | null>(null);
-  const [ignoredIssues, setIgnoredIssues] = useState<string[]>([]);
+  const [ignoredIssues, setIgnoredIssues] = useState<string[]>([]); // Track IDs of screens user chose to ignore
 
   // Reporting State
   const [showReportModal, setShowReportModal] = useState(false);
@@ -112,12 +110,12 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
 
   // Detect Exam Mode
   const isExamMode = props.plan.context?.type === 'career_exam';
-  const examTimeLimit = 600; 
+  const examTimeLimit = 600; // 10 minutes for exam
 
+  // Determine Life Limit Mode (Survival Mode)
+  // CRITICAL FIX: If we are in 'mistake_loop' (Repair Mode), disable lives limit.
   const hasLifeLimit = props.isSkipContext || props.nodeIndex === 5;
   const activeMaxMistakes = (hasLifeLimit && phase !== 'mistake_loop') ? 2 : undefined;
-
-  const activeProblemData = state.activeProblem ? state.problemDataCache[state.activeProblem.id] : null;
 
   const handleEngineComplete = (stats: { xp: number; streak: number }, shouldSave: boolean, mistakes: MistakeRecord[]) => {
       setSessionMistakes(prev => [...prev, ...mistakes]);
@@ -150,10 +148,12 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
   useEffect(() => {
     setWidgetState({});
     
+    // --- QUALITY DETECTION LOGIC ---
     if (engine.currentScreen && !ignoredIssues.includes(engine.currentScreen.id)) {
         const screen = engine.currentScreen;
         const isZh = props.language === 'Chinese';
         
+        // 1. Lonely Dialogue Check
         if (screen.widgets.length === 1 && screen.widgets[0].type === 'dialogue') {
             setQualityIssue({
                 type: 'lonely_dialogue',
@@ -163,9 +163,11 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
             return;
         }
 
+        // 2. Broken Fill-In Check
         const fillIn = screen.widgets.find(w => w.type === 'fill-in');
         if (fillIn && fillIn.fillIn) {
              const { inputMode, options } = fillIn.fillIn;
+             // If select mode but no options provided
              if ((!inputMode || inputMode === 'select') && (!options || options.length === 0)) {
                  setQualityIssue({
                      type: 'broken_fillin',
@@ -176,6 +178,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
              }
         }
 
+        // 3. Bad Parsons Check (Too short)
         const parsons = screen.widgets.find(w => w.type === 'parsons');
         if (parsons && parsons.parsons && (!parsons.parsons.lines || parsons.parsons.lines.length < 3)) {
             setQualityIssue({
@@ -186,6 +189,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
             return;
         }
 
+        // No issues
         setQualityIssue(null);
     } else {
         setQualityIssue(null);
@@ -201,25 +205,34 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
   const isInteractiveScreen = !!activeWidget;
 
   const handleCheck = () => {
+    // If non-interactive, just next
     if (!isInteractiveScreen) {
         engine.nextScreen();
         return;
     }
 
     const isCorrect = validator.validate(activeWidget as Widget, widgetState);
+    
+    // Auto-correct specialized engineering widgets (Removed mini-editor)
     const isAutoPass = ['terminal', 'code-walkthrough', 'arch-canvas', 'mermaid', 'visual-quiz', 'comparison-table'].includes(activeWidget?.type || '');
+    
     const finalResult = isAutoPass ? true : isCorrect;
 
     if (isExamMode) {
+        // In exam mode, record answer silently and move next
+        // We pass current widgetState so it can be stored in history
         engine.submitExamAnswer(finalResult, widgetState);
     } else {
+        // Standard mode: show feedback
         engine.checkAnswer(finalResult);
     }
   };
 
   const handleRegenerateScreen = async (instruction: string) => {
       if (!engine.currentScreen) return;
+      
       setIsRegenerating(true);
+      // Dismiss the modal immediately to show loading state via button
       setQualityIssue(null);
 
       try {
@@ -229,13 +242,18 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
               instruction,
               props.preferences
           );
+          
+          // Update Engine State (UI)
           engine.replaceCurrentScreen(newScreen);
+          
+          // Update Global Plan State (Persistence)
           if (props.onUpdatePlan) {
               const updatedScreens = [...props.plan.screens];
               updatedScreens[engine.currentIndex] = newScreen;
               const updatedPlan = { ...props.plan, screens: updatedScreens };
               props.onUpdatePlan(updatedPlan);
           }
+
       } catch (e) {
           alert(props.language === 'Chinese' ? "重新生成失败，请重试" : "Regeneration failed, please try again");
       } finally {
@@ -274,10 +292,12 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       }
   };
 
+  // --- DISPUTE HANDLER ---
   const handleDispute = async () => {
       if (!activeWidget) return;
       setIsVerifying(true);
       
+      // Determine user answer from state
       let userAnswer: any = "No Answer";
       if (activeWidget.type === 'quiz' && widgetState.quizSelection !== undefined) {
           userAnswer = activeWidget.quiz?.options[widgetState.quizSelection] || "Index " + widgetState.quizSelection;
@@ -299,7 +319,9 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
           
           setDisputeResult(result);
           if (result.verdict === 'correct') {
+              // Rectify Engine - This now also clears the mistake inside the engine
               engine.rectifyMistake();
+              // Remove the mistake we just added from sessionMistakes in LessonRunner to keep summary accurate
               setSessionMistakes(prev => prev.slice(0, -1)); 
           }
       } catch (e) {
@@ -310,11 +332,10 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       }
   };
 
-  // --- RENDER LOGIC --- (Simplified for brevity, mostly same as original)
+  // --- RENDER: FAILED SCREEN ---
   if (engine.isFailed) {
       return (
           <div className="fixed inset-0 z-[120] bg-black/80 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in-up">
-              {/* Fail Screen UI */}
               <div className="bg-white dark:bg-dark-card rounded-3xl p-8 w-full max-w-md text-center shadow-2xl border-4 border-red-500 relative overflow-hidden">
                   <div className="absolute top-0 left-0 w-full h-2 bg-red-500"></div>
                   <div className="w-20 h-20 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-6 animate-pulse">
@@ -336,6 +357,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       );
   }
 
+  // --- RENDER: EXAM SUMMARY ---
   if (phase === 'exam_summary') {
       return (
           <ExamSummary 
@@ -348,6 +370,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       );
   }
 
+  // --- RENDER: MISTAKE INTRO ---
   if (phase === 'mistake_intro') {
       return (
           <div className="fixed inset-0 z-[100] bg-white dark:bg-dark-bg md:flex md:items-center md:justify-center md:bg-gray-100/90 md:dark:bg-black/90 md:backdrop-blur-sm">
@@ -358,6 +381,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       );
   }
 
+  // --- RENDER: LESSON SUMMARY ---
   if (phase === 'summary') {
       return (
         <div className="fixed inset-0 z-[100] bg-white dark:bg-dark-bg md:flex md:items-center md:justify-center md:bg-gray-100/90 md:dark:bg-black/90 md:backdrop-blur-sm">
@@ -378,6 +402,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       );
   }
 
+  // --- RENDER: STREAK CELEBRATION ---
   if (phase === 'streak_celebration') {
       return (
         <div className="fixed inset-0 z-[100] bg-white dark:bg-dark-bg md:flex md:items-center md:justify-center md:bg-gray-100/90 md:dark:bg-black/90 md:backdrop-blur-sm">
@@ -393,6 +418,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       );
   }
 
+  // --- RENDER: EXIT CONFIRM ---
   if (showExitConfirm) {
       return (
            <div className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
@@ -408,18 +434,9 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       );
   }
 
-  // --- MAIN RENDER ---
+  // --- RENDER: MAIN LESSON (WINDOWED RESTORED) ---
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-100/80 dark:bg-black/80 backdrop-blur-sm p-0 md:p-4">
-      {/* Problem View Modal */}
-      {showProblemContext && activeProblemData && (
-          <div className="fixed inset-0 z-[110] bg-black/60 flex items-center justify-center p-4" onClick={() => setShowProblemContext(false)}>
-              <div className="w-full max-w-2xl max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-                  <ProblemDescription context={activeProblemData.context} />
-              </div>
-          </div>
-      )}
-
       <div className="w-full h-full md:max-w-5xl md:h-[96vh] bg-white dark:bg-dark-bg md:rounded-3xl md:shadow-2xl flex flex-col overflow-hidden relative border border-gray-200 dark:border-gray-700 transition-all animate-scale-in">
         
         <GlobalAiAssistant 
@@ -429,32 +446,19 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
             currentPlan={props.plan} 
         />
         
-        <div className="relative">
-            <LessonHeader 
-                currentScreenIndex={engine.currentIndex}
-                totalScreens={engine.totalScreens}
-                streak={engine.streak}
-                mistakeCount={engine.mistakeCount}
-                timerSeconds={engine.timerSeconds}
-                isSkipMode={activeMaxMistakes !== undefined && !engine.isLimitDisabled}
-                isMistakeMode={phase === 'mistake_loop'}
-                onExit={() => setShowExitConfirm(true)}
-                headerTitle={engine.currentScreen.header}
-                language={props.language}
-                totalTime={isExamMode ? examTimeLimit : undefined}
-            />
-            
-            {/* Context Button */}
-            {activeProblemData && (
-                <button 
-                    onClick={() => setShowProblemContext(true)}
-                    className="absolute top-1/2 -translate-y-1/2 left-4 md:left-24 text-gray-400 hover:text-brand z-20"
-                    title="View Problem"
-                >
-                    <FileText size={18} />
-                </button>
-            )}
-        </div>
+        <LessonHeader 
+            currentScreenIndex={engine.currentIndex}
+            totalScreens={engine.totalScreens}
+            streak={engine.streak}
+            mistakeCount={engine.mistakeCount}
+            timerSeconds={engine.timerSeconds}
+            isSkipMode={activeMaxMistakes !== undefined && !engine.isLimitDisabled}
+            isMistakeMode={phase === 'mistake_loop'}
+            onExit={() => setShowExitConfirm(true)}
+            headerTitle={engine.currentScreen.header}
+            language={props.language}
+            totalTime={isExamMode ? examTimeLimit : undefined}
+        />
 
         {/* RECOVERY MODAL (QUALITY CONTROL) */}
         {qualityIssue && (

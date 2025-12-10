@@ -1,16 +1,14 @@
 
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, History, PlayCircle, BookOpen, Code, Star, BookOpenCheck, Crown, AlertTriangle, FastForward, Settings, Crosshair, Loader2, FileText } from 'lucide-react';
-import { SavedLesson, SolutionStrategy, UserPreferences, ProblemData } from '../types';
+import { ArrowLeft, History, PlayCircle, BookOpen, Code, Star, BookOpenCheck, Crown, AlertTriangle, FastForward, Settings, Crosshair } from 'lucide-react';
+import { SavedLesson, SolutionStrategy, UserPreferences } from '../types';
 import { Button } from './Button';
 import { LevelNode, MasteryPlate } from './common/GamifiedMap';
 import { SolutionSetup } from './SolutionSetup';
-import { useAppManager } from '../hooks/useAppManager';
-import { ProblemDescription } from './common/ProblemDescription';
-import { ProblemGenerationModal } from './ProblemGenerationModal';
 
 interface UnitMapProps {
   problemName: string;
+  problemDesc?: string; // New: Needed for solution generation context
   currentLevel: number; // 0-6
   savedLessons: SavedLesson[];
   onStartLevel: (level: number, isSkip?: boolean, solutionContext?: SolutionStrategy) => void;
@@ -47,10 +45,7 @@ const LOCALE = {
         masteryLoop: "精通挑战",
         masteryHub: "精通中心",
         strategyBtn: "解题策略",
-        strategyDesc: "当前目标解法",
-        viewProblem: "查看题目",
-        genProblem: "正在生成题目信息...",
-        loadingContext: "AI 正在分析题目上下文...",
+        strategyDesc: "当前目标解法"
     },
     English: {
         unit: "Problem",
@@ -77,53 +72,27 @@ const LOCALE = {
         masteryLoop: "Mastery Challenge",
         masteryHub: "Mastery Hub",
         strategyBtn: "Strategy",
-        strategyDesc: "Target Solution",
-        viewProblem: "View Problem",
-        genProblem: "Generating problem info...",
-        loadingContext: "AI Analyzing Context...",
+        strategyDesc: "Target Solution"
     }
 };
 
-export const UnitMap: React.FC<UnitMapProps> = ({ problemName, currentLevel, savedLessons, onStartLevel, onLoadSaved, onBack, language, failedSkips, preferences }) => {
-  const { state, actions } = useAppManager();
+export const UnitMap: React.FC<UnitMapProps> = ({ problemName, problemDesc, currentLevel, savedLessons, onStartLevel, onLoadSaved, onBack, language, failedSkips, preferences }) => {
   const [showSkipModal, setShowSkipModal] = useState(false);
   const [showSolutionSetup, setShowSolutionSetup] = useState(false);
-  const [showProblemDetail, setShowProblemDetail] = useState(false);
   const [activeStrategy, setActiveStrategy] = useState<SolutionStrategy | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
-  
   const t = LOCALE[language];
 
-  // Load problem data or trigger generation on mount
-  useEffect(() => {
-      const activeProblem = state.activeProblem;
-      if (!activeProblem) return;
-
-      const cachedData = state.problemDataCache[activeProblem.id];
-      if (!cachedData) {
-          setIsGenerating(true);
-      }
-  }, [state.activeProblem, state.problemDataCache]);
-
-  // Load saved strategy selection
+  // Load saved strategy on mount
   useEffect(() => {
       const savedKey = `algolingo_active_strategy_${problemName}_${preferences.targetLanguage}`;
       const saved = localStorage.getItem(savedKey);
       if (saved) {
           try { setActiveStrategy(JSON.parse(saved)); } catch(e) {}
-      } 
-  }, [problemName, preferences.targetLanguage]);
-
-  const handleGenerationComplete = (data: ProblemData) => {
-      if (state.activeProblem) {
-          actions.handleSaveProblemData(state.activeProblem.id, data);
-          // Auto-select first strategy
-          if (data.solutions.length > 0) {
-              handleStrategyConfirm(data.solutions[0]);
-          }
+      } else {
+          // If no strategy selected, force show setup (only if not mastered to avoid annoyance)
+          if (currentLevel < 6) setShowSolutionSetup(true);
       }
-      setIsGenerating(false);
-  };
+  }, [problemName, preferences.targetLanguage]);
 
   const handleStrategyConfirm = (strategy: SolutionStrategy) => {
       setActiveStrategy(strategy);
@@ -131,7 +100,7 @@ export const UnitMap: React.FC<UnitMapProps> = ({ problemName, currentLevel, sav
       setShowSolutionSetup(false);
   };
 
-  // 6 Phases
+  // 6 Phases: Indices 0 to 5. Index 6 is LeetCode (Virtual)
   const pathNodes = [
       { id: 0, type: 'lesson', icon: <BookOpen size={24} />, label: t.intro, subtitle: "Level 1" },
       { id: 1, type: 'lesson', icon: <Code size={24} />, label: t.basics, subtitle: "Level 2" },
@@ -144,7 +113,7 @@ export const UnitMap: React.FC<UnitMapProps> = ({ problemName, currentLevel, sav
   const isSkipLocked = failedSkips && failedSkips[problemName];
   const isMastered = currentLevel >= 6;
 
-  const handleNodeClick = async (nodeId: number, isLocked: boolean) => {
+  const handleNodeClick = (nodeId: number, isLocked: boolean) => {
       if (nodeId === 5) {
           if (isLocked) {
               if (!isSkipLocked) {
@@ -167,26 +136,14 @@ export const UnitMap: React.FC<UnitMapProps> = ({ problemName, currentLevel, sav
       onStartLevel(5, true, activeStrategy || undefined); // true = isSkip
   };
 
-  const activeProblemData = state.activeProblem ? state.problemDataCache[state.activeProblem.id] : null;
-
   return (
     <div className="flex flex-col min-h-screen bg-gray-50 dark:bg-dark-bg relative">
       
-      {/* Generation Modal */}
-      {isGenerating && (
-          <ProblemGenerationModal 
-              problemName={problemName}
-              preferences={preferences}
-              onComplete={handleGenerationComplete}
-              onCancel={onBack}
-          />
-      )}
-
       {/* Strategy Selection Modal */}
-      {showSolutionSetup && activeProblemData && (
+      {showSolutionSetup && (
           <SolutionSetup 
-              problemContext={activeProblemData.context}
-              preGeneratedSolutions={activeProblemData.solutions}
+              problemName={problemName}
+              problemDesc={problemDesc}
               preferences={preferences}
               language={language}
               onConfirm={handleStrategyConfirm}
@@ -229,16 +186,14 @@ export const UnitMap: React.FC<UnitMapProps> = ({ problemName, currentLevel, sav
             </div>
         </div>
         
-        <div className="flex items-center gap-2">
-             {activeProblemData && (
-                 <button 
-                    onClick={() => setShowSolutionSetup(true)}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-300 text-xs font-bold hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors border border-blue-100 dark:border-blue-900/50"
-                 >
-                     <Crosshair size={14} />
-                     <span className="hidden md:inline">{activeStrategy ? activeStrategy.title : t.strategyBtn}</span>
-                 </button>
-             )}
+        <div className="flex items-center gap-3">
+             <button 
+                onClick={() => setShowSolutionSetup(true)}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-300 text-xs font-bold hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors border border-blue-100 dark:border-blue-900/50"
+             >
+                 <Crosshair size={14} />
+                 <span className="hidden md:inline">{activeStrategy ? activeStrategy.title : t.strategyBtn}</span>
+             </button>
 
              <div className="hidden md:flex items-center gap-2 text-xs font-bold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-1.5 rounded-full">
                  <Star size={14} className="text-yellow-500 fill-yellow-500"/>
@@ -247,26 +202,19 @@ export const UnitMap: React.FC<UnitMapProps> = ({ problemName, currentLevel, sav
         </div>
       </div>
 
-      {/* Content Container */}
-      <div className="flex-1 pt-8 pb-24 px-4 md:px-16 w-full max-w-5xl mx-auto animate-fade-in-up space-y-8">
+      {/* Grid Container */}
+      <div className="flex-1 pt-8 pb-24 px-4 md:px-16 w-full max-w-5xl mx-auto animate-fade-in-up">
         
-        {/* LEETCODE STYLE PROBLEM CARD */}
-        {activeProblemData && (
-            <div className="animate-fade-in-down">
-                <div className="flex justify-between items-center mb-2 px-1">
-                    <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                        <FileText size={14}/> {t.viewProblem}
-                    </h3>
-                    <button 
-                        onClick={() => setShowProblemDetail(!showProblemDetail)}
-                        className="text-brand text-xs font-bold hover:underline"
-                    >
-                        {showProblemDetail ? "收起" : "展开"}
-                    </button>
+        {/* Active Strategy Banner */}
+        {activeStrategy && (
+            <div className="mb-8 p-4 bg-white dark:bg-dark-card border-l-4 border-blue-500 rounded-r-xl shadow-sm flex justify-between items-center animate-fade-in-down">
+                <div>
+                    <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">{t.strategyDesc}</div>
+                    <div className="font-bold text-gray-800 dark:text-white">{activeStrategy.title}</div>
                 </div>
-                {showProblemDetail && (
-                    <ProblemDescription context={activeProblemData.context} />
-                )}
+                <button onClick={() => setShowSolutionSetup(true)} className="p-2 text-gray-400 hover:text-blue-500 transition-colors">
+                    <Settings size={18}/>
+                </button>
             </div>
         )}
 

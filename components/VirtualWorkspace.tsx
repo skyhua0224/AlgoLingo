@@ -237,7 +237,7 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
     const handleGenerateSolutions = async () => {
         setIsGeneratingSolution(true);
         try {
-            const newData = await generateLeetCodeSolutions(safeContext as LeetCodeContext, preferences);
+            const newData = await generateLeetCodeSolutions(safeContext.meta.title, safeContext.problem.description, preferences);
             setSolutions(newData.approaches);
             
             const cacheKey = `algolingo_sol_v3_${safeContext.meta.slug}_${preferences.targetLanguage}`;

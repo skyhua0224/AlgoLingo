@@ -1,7 +1,7 @@
 
 import { GoogleGenAI } from "@google/genai";
 import { getClient } from "./ai/client";
-import { UserPreferences, LessonPlan, Widget, LessonScreen, SolutionStrategy, LeetCodeContext } from "../types";
+import { UserPreferences, LessonPlan, Widget, LessonScreen, SolutionStrategy } from "../types";
 import { ForgeRoadmap } from "../types/forge";
 import { SkillTrack, EngineeringStep } from "../types/engineering";
 import { AIGenerationError } from "./ai/generator";
@@ -100,7 +100,6 @@ const callAI = async (
     modelOverride?: string
 ): Promise<string> => {
     const client = getClient(preferences);
-    // Use modelOverride if provided, otherwise default to user preference
     const modelId = modelOverride || preferences.apiConfig.gemini.model || 'gemini-2.5-flash';
     const useJsonMode = jsonMode && (!tools || tools.length === 0);
 
@@ -127,24 +126,31 @@ const callAI = async (
 import { getSystemArchitectPrompt } from "./ai/prompts/engineering/system_architect";
 import { getCSKernelPrompt } from "./ai/prompts/engineering/cs_kernel";
 
-// --- GENERATE SOLUTIONS (Updated for Detail & Chinese) ---
+// --- NEW: GENERATE SOLUTIONS ---
 export const generateLeetCodeSolutions = async (
-    problemContext: LeetCodeContext,
+    problemTitle: string,
+    problemDesc: string,
     preferences: UserPreferences
 ) => {
-    // Use user selected model instead of forcing Pro
-    const model = preferences.apiConfig.gemini.model; 
+    // Force High-Tier Model for Solutions (gemini-3-pro-preview)
+    const model = 'gemini-3-pro-preview'; 
+    const systemInstruction = getLeetCodeSolutionSystemInstruction(preferences.targetLanguage, preferences.spokenLanguage);
     
-    // Convert context object to string for prompt
-    const contextStr = `
-    Title: ${problemContext.meta.title}
-    Description: ${problemContext.problem.description}
-    Examples: ${JSON.stringify(problemContext.problem.examples)}
+    const prompt = `
+    Generate expert, professor-level solutions for: "${problemTitle}".
+    Problem Description: ${problemDesc.substring(0, 1000)}...
+    
+    REQUIREMENTS:
+    1. **Two Approaches**: "Brute Force / Naive" (Briefly) AND "Optimal / Best Practice" (In Depth).
+    2. **Deep Content**: 
+       - 'derivation': A detailed narrative of HOW to derive the solution.
+       - 'mermaid': A flowchart string of the algorithm logic.
+       - 'glossary': A list of specific language keywords/functions used (e.g. enumerate, zip) and their explanations.
+    3. **Widgets**: Use 'interactive-code' for the implementation with detailed line comments.
+    
+    OUTPUT FORMAT: JSON with "approaches": [ { id, title, complexity, code, derivation, mermaid, glossary, strategy, widgets } ]
+    **IMPORTANT**: The top-level 'code' field in each approach MUST contain the raw solution string for reference.
     `;
-
-    const systemInstruction = getLeetCodeSolutionSystemInstruction(preferences.targetLanguage, contextStr);
-    
-    const prompt = `Based on the problem context, generate 3 detailed solution strategies in Chinese.`;
 
     const text = await callAI(preferences, systemInstruction, prompt, undefined, true, undefined, model);
     return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
@@ -152,27 +158,28 @@ export const generateLeetCodeSolutions = async (
 
 export const refineUserSolution = async (
     userNotes: string,
-    problemName: string,
+    problemTitle: string,
     preferences: UserPreferences
 ) => {
-    const model = preferences.apiConfig.gemini.model; // Use User model
-    const systemInstruction = getLeetCodeSolutionSystemInstruction(preferences.targetLanguage, `Problem: ${problemName}`);
+    const model = 'gemini-3-pro-preview'; 
+    const systemInstruction = getLeetCodeSolutionSystemInstruction(preferences.targetLanguage, preferences.spokenLanguage);
     
     const prompt = `
-    The user has provided a CUSTOM solution/idea: "${userNotes}".
-    Refine this into a structured "SolutionApproach" object (JSON) matching the standard format.
+    The user has provided rough notes or code for a CUSTOM solution to "${problemTitle}".
+    Refine this into a structured "SolutionApproach" object (JSON).
     
-    REQUIREMENTS:
-    1. **Title**: Summarize the approach in Chinese (e.g. "用户自定义：递归法").
-    2. **Derivation**: Explain the logic clearly in Chinese Markdown. Fill in gaps if user notes are sparse.
-    3. **Code Parsing**: If the user provided code, parse it into 'codeLines' with explanations. If they provided text, generate the code for them in ${preferences.targetLanguage}.
+    User Input: "${userNotes}"
     
-    OUTPUT FORMAT: Single object inside "approaches" array: { id, title, complexity, tags, derivation, codeLines }
+    TASK:
+    1. Clean up the code (if any) or generate code from the logic description.
+    2. Write a 'derivation' explaining this specific custom approach.
+    3. Generate a 'mermaid' chart for it.
+    
+    OUTPUT FORMAT: A single object { id: "custom_refine", title: "Custom Solution (Refined)", code: "...", complexity: "...", derivation: "...", mermaid: "...", glossary: [...], strategy: "...", widgets: [...] }
     `;
 
     const text = await callAI(preferences, systemInstruction, prompt, undefined, true, undefined, model);
-    const data = JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
-    return data.approaches ? data.approaches[0] : data;
+    return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
 };
 
 // --- ENGINEERING GENERATOR ---

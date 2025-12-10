@@ -18,35 +18,19 @@ export interface LessonScreen {
 
 export interface SolutionStrategy {
     id: string;
-    title: string; // e.g. "哈希表优化法"
+    title: string; // e.g. "HashMap Approach"
     complexity: string;
-    code: string; // Raw code string for copying/display
+    code: string; // The core logic code
     language: string;
-    
-    // Deep Dive Content
-    derivation: string; // Markdown: detailed narrative, intuition, prerequisites, thought process
-    
-    // Structured Code for Interactive Widget
-    codeLines: {
-        code: string;
-        explanation: string;
-    }[];
-
-    // Strategy specific concept card for sidebar
-    concept?: {
-        front: string;
-        back: string;
-    };
-
+    derivation: string; // How to derive it
     intuition?: string;
-    isCustom?: boolean; 
-    tags?: string[]; // Concept tags in Chinese
+    isCustom?: boolean; // Is this user generated?
 }
 
 export interface LessonPlan {
   title: string;
   description: string;
-  headerImage?: string; 
+  headerImage?: string; // Support for Forge generated covers
   unitId?: string; 
   screens: LessonScreen[];
   suggestedQuestions: string[]; 
@@ -58,20 +42,20 @@ export interface LessonPlan {
       lessonId?: string;
       phaseIndex?: number;
       
-      // Solution Context
-      targetSolution?: SolutionStrategy; 
+      // Solution Context (New)
+      targetSolution?: SolutionStrategy; // The specific solution we are teaching
       
       // Engineering Context
       pillar?: string;
       topic?: string;
-      topicId?: string; 
+      topicId?: string; // NEW: For saving progress
       levelId?: string;
-      stepId?: string;  
+      stepId?: string;  // NEW: For saving progress
 
       // Career/Forge Context
-      roadmapId?: string; 
-      stageId?: number;   
-      stageTitle?: string; 
+      roadmapId?: string; // NEW
+      stageId?: number;   // NEW
+      stageTitle?: string; // NEW: For regeneration context
       companyName?: string; 
       roleName?: string;
       timeLimit?: number;
@@ -85,8 +69,8 @@ export interface SavedLesson {
   timestamp: number;
   plan: LessonPlan;
   language: string;
-  xpEarned?: number;     
-  mistakeCount?: number; 
+  xpEarned?: number;     // Added: XP gained in this session
+  mistakeCount?: number; // Added: Number of mistakes made
 }
 
 export interface MistakeRecord {
