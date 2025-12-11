@@ -46,12 +46,15 @@ export const getLessonPlanSystemInstruction = (
     let strategyInstruction = "";
     if (targetSolution) {
         strategyInstruction = `
-    **MANDATORY STRATEGY**:
+    **MANDATORY AUTHORITATIVE SOURCE**:
     - The user has explicitly selected the **"${targetSolution.title}"** strategy.
-    - You MUST teach THIS specific approach. Do NOT teach brute force or other methods unless for brief comparison.
-    - Base your explanations, diagrams, and code snippets on the logic of: 
-      "${targetSolution.code.substring(0, 300)}..."
-    - Use the derivation logic provided: "${targetSolution.derivation.substring(0, 200)}..."
+    - **CRITICAL**: You MUST teach THIS specific approach. Do NOT teach brute force or other methods unless for brief comparison.
+    - Base ALL code snippets, visual diagrams, and logic steps on the following implementation:
+      \`\`\`${targetLang}
+      ${targetSolution.code}
+      \`\`\`
+    - Use the derivation logic provided: "${targetSolution.derivation.substring(0, 500)}..."
+    - **WIDGET CONSISTENCY**: When generating 'interactive-code' or 'parsons', ensure the lines match the logic of the code above.
         `;
     } else {
         strategyInstruction = `

@@ -1,29 +1,30 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { LeetCodeContext, UserPreferences, Widget } from '../types';
-import { Play, RotateCcw, Terminal, Activity, CheckCircle, XCircle, ChevronDown, AlertTriangle, FileText, Code2, Layout, Columns, Rows, Loader2, Flag, BookOpen, Sparkles, Edit3, Save, Lightbulb, Brain, Layers, Share2, PanelLeft, MessageCircleQuestion, GraduationCap } from 'lucide-react';
-import { validateUserCode, generateLeetCodeSolutions, refineUserSolution, generateAiAssistance } from '../services/geminiService';
+import { LeetCodeContext, UserPreferences, Widget, SolutionStrategy } from '../types';
+import { Play, Terminal, CheckCircle, XCircle, ChevronDown, Loader2, Flag, BookOpen, Sparkles, Share2, PanelLeft, MessageCircleQuestion, GraduationCap, Lightbulb, Brain, Plus, RefreshCw, LayoutList, Key, HelpCircle, X, GripVertical, GripHorizontal, FileText, ChevronRight, Tag, Zap } from 'lucide-react';
+import { validateUserCode, refineUserSolution, regenerateSolutionStrategy, generateAiAssistance } from '../services/geminiService';
 import { InteractiveCodeWidget } from './widgets/InteractiveCode';
 import { CalloutWidget } from './widgets/Callout';
-import { MermaidVisualWidget } from './widgets/MermaidVisual'; // New import
+import { MermaidVisualWidget } from './widgets/MermaidVisual';
 import { MarkdownText } from './common/MarkdownText';
 
-// ... interface definitions ...
 interface VirtualWorkspaceProps {
     context: LeetCodeContext;
     preferences: UserPreferences;
     onSuccess: () => void;
-    isSidebarOpen?: boolean;
-    onToggleSidebar?: () => void;
+    strategies?: SolutionStrategy[];
+    activeStrategyId?: string | null;
+    onSelectStrategy?: (id: string) => void;
+    onGenerateStrategies?: () => void;
+    onAddCustomStrategy?: (strategy: SolutionStrategy) => void;
+    onUpdateStrategy?: (strategy: SolutionStrategy) => void; // New Prop for repairing strategies
+    isGenerating?: boolean;
 }
 
-// ... type definitions ...
-type LayoutMode = 'standard' | 'tri-pane' | 'zen';
-type LeftTab = 'description' | 'solution';
 type ConsoleTab = 'console' | 'analysis';
+type LeftPanelTab = 'description' | 'solution';
 
 interface ExecutionResult {
-    // ... 
     status: "Accepted" | "Wrong Answer" | "Compile Error" | "Runtime Error" | "Time Limit Exceeded";
     error_message?: string;
     total_correct?: number;
@@ -48,27 +49,6 @@ interface ExecutionResult {
     };
 }
 
-interface SolutionApproach {
-    // ...
-    id: string;
-    title: string;
-    complexity: string; // "Time: O(n) | Space: O(1)"
-    tags?: string[];
-    
-    // Deep Dive Content
-    derivation?: string; // New: Detailed narrative
-    mermaid?: string; // New: Flowchart code
-    glossary?: { term: string; definition: string }[]; // New: Keyword explanations
-    
-    intuition?: string; 
-    prerequisites?: string[]; 
-    strategy?: string; 
-    similarPatterns?: string[]; 
-    
-    widgets: Widget[];
-}
-
-// ... SNIPPETS constant ...
 const SNIPPETS: Record<string, { label: string; detail: string; insert: string }[]> = {
     Python: [
         { label: 'for', detail: 'Loop range', insert: 'for i in range(n):\n    ' },
@@ -82,34 +62,51 @@ const SNIPPETS: Record<string, { label: string; detail: string; insert: string }
     ],
 };
 
-export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, preferences, onSuccess, isSidebarOpen, onToggleSidebar }) => {
-    // ... existing state ...
-    const [layoutMode, setLayoutMode] = useState<LayoutMode>('tri-pane'); // Default to Tri-pane
+const SUPPORTED_LANGUAGES = ['Python', 'Java', 'C++', 'JavaScript', 'Go', 'C'];
+
+// Strict font style for perfect alignment between textarea and pre
+const EDITOR_FONT_STYLE = {
+    fontFamily: 'Menlo, Monaco, Consolas, "Andale Mono", "Ubuntu Mono", "Courier New", monospace',
+    fontSize: '14px',
+    lineHeight: '1.5',
+    letterSpacing: '0px',
+    fontVariantLigatures: 'none',
+    tabSize: 4,
+};
+
+export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ 
+    context, preferences, onSuccess, 
+    strategies = [], activeStrategyId, onSelectStrategy, onGenerateStrategies, onAddCustomStrategy, onUpdateStrategy, isGenerating = false
+}) => {
     const [currentLanguage, setCurrentLanguage] = useState(preferences.targetLanguage);
-    
-    const [activeLeftTab, setActiveLeftTab] = useState<LeftTab>('description'); 
     const [activeConsoleTab, setActiveConsoleTab] = useState<ConsoleTab>('console');
+    const [activeLeftTab, setActiveLeftTab] = useState<LeftPanelTab>('description');
     
-    // Solution State
-    const [solutions, setSolutions] = useState<SolutionApproach[]>([]);
-    const [activeSolutionIdx, setActiveSolutionIdx] = useState(0);
-    const [isGeneratingSolution, setIsGeneratingSolution] = useState(false);
+    // Layout State
+    const [leftPanelWidth, setLeftPanelWidth] = useState(40); // Percentage
+    const [consoleHeight, setConsoleHeight] = useState(30); // Percentage of right pane
+    const [isDragging, setIsDragging] = useState<'horizontal' | 'vertical' | null>(null);
+
+    // Custom Solution Input State
+    const [isCustomMode, setIsCustomMode] = useState(false);
     const [customSolutionInput, setCustomSolutionInput] = useState('');
     const [isRefiningCustom, setIsRefiningCustom] = useState(false);
-    const [isCustomMode, setIsCustomMode] = useState(false); // NEW: Toggle between standard and custom view
 
-    // ... Interactive Ask AI State ...
+    // Interactive Ask AI State
     const [selectedText, setSelectedText] = useState('');
     const [selectionPos, setSelectionPos] = useState<{top: number, left: number} | null>(null);
     const [aiPopup, setAiPopup] = useState<{loading: boolean, content: string | null} | null>(null);
     const solutionContainerRef = useRef<HTMLDivElement>(null);
+
+    // Knowledge Expansion State
+    const [knowledgePopup, setKnowledgePopup] = useState<{title: string, content: string | null} | null>(null);
 
     const safeContext = useMemo(() => {
         return {
             meta: context?.meta || { title: 'Untitled Problem', difficulty: 'Medium', slug: 'unknown' },
             problem: context?.problem || { description: 'No description available.', examples: [], constraints: [] },
             starterCode: context?.starterCode || '# Write your code here\n',
-            starterCodeMap: context?.starterCodeMap || {},
+            starterCodeMap: context?.starterCodeMap || {}, 
             sidebar: context?.sidebar
         };
     }, [context]);
@@ -125,31 +122,68 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
     const [cursorPosition, setCursorPosition] = useState(0);
     const [suggestionPosition, setSuggestionPosition] = useState({ top: 0, left: 0 });
 
-    // ... Load Solutions from Cache ...
-    useEffect(() => {
-        const cacheKey = `algolingo_sol_v3_${safeContext.meta.slug}_${preferences.targetLanguage}`;
-        const cached = localStorage.getItem(cacheKey);
-        if (cached) {
-            try {
-                const parsed = JSON.parse(cached);
-                setSolutions(parsed.approaches || []);
-            } catch(e) {}
-        }
-    }, [safeContext.meta.slug, preferences.targetLanguage]);
+    // Drag Handlers
+    const containerRef = useRef<HTMLDivElement>(null);
+    const rightPaneRef = useRef<HTMLDivElement>(null);
 
-    // ... Init Code Effect ...
+    // Auto-switch to solution tab if a strategy is active or generating
     useEffect(() => {
-        const map = safeContext.starterCodeMap;
+        if (activeStrategyId || isGenerating) {
+            setActiveLeftTab('solution');
+        }
+    }, [activeStrategyId, isGenerating]);
+
+    const handleMouseDown = (type: 'horizontal' | 'vertical') => (e: React.MouseEvent) => {
+        e.preventDefault();
+        setIsDragging(type);
+    };
+
+    useEffect(() => {
+        const handleMouseMove = (e: MouseEvent) => {
+            if (!isDragging) return;
+
+            if (isDragging === 'horizontal' && containerRef.current) {
+                const containerRect = containerRef.current.getBoundingClientRect();
+                const newWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
+                setLeftPanelWidth(Math.max(20, Math.min(80, newWidth)));
+            } 
+            else if (isDragging === 'vertical' && rightPaneRef.current) {
+                const paneRect = rightPaneRef.current.getBoundingClientRect();
+                // Calculate height from bottom
+                const newHeight = ((paneRect.bottom - e.clientY) / paneRect.height) * 100;
+                setConsoleHeight(Math.max(10, Math.min(80, newHeight)));
+            }
+        };
+
+        const handleMouseUp = () => {
+            setIsDragging(null);
+        };
+
+        if (isDragging) {
+            document.addEventListener('mousemove', handleMouseMove);
+            document.addEventListener('mouseup', handleMouseUp);
+        }
+
+        return () => {
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [isDragging]);
+
+
+    // Reset code when language changes
+    useEffect(() => {
+        const map = safeContext.starterCodeMap || {};
         if (map && map[currentLanguage]) {
             setCode(map[currentLanguage]);
         } else if (currentLanguage === preferences.targetLanguage) {
             setCode(safeContext.starterCode);
         } else {
-            setCode(`# Write your ${currentLanguage} solution here...\n`);
+            setCode(`// Write your ${currentLanguage} solution here...\n`);
         }
     }, [currentLanguage, safeContext.starterCode, safeContext.starterCodeMap, preferences.targetLanguage]);
 
-    // ... Scroll Sync ...
+    // Scroll Sync
     const handleScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
         if (preRef.current) {
             preRef.current.scrollTop = e.currentTarget.scrollTop;
@@ -157,7 +191,7 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
         }
     };
 
-    // ... Editor Logic (Update suggestions, insert, keydown, change) ...
+    // Editor Logic
     const updateSuggestions = (val: string, cursor: number) => {
         const textBeforeCursor = val.slice(0, cursor);
         const words = textBeforeCursor.split(/[\s\(\)\{\}\[\]\.,;]+/);
@@ -234,30 +268,32 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
         }
     };
 
-    const handleGenerateSolutions = async () => {
-        setIsGeneratingSolution(true);
-        try {
-            const newData = await generateLeetCodeSolutions(safeContext.meta.title, safeContext.problem.description, preferences);
-            setSolutions(newData.approaches);
-            
-            const cacheKey = `algolingo_sol_v3_${safeContext.meta.slug}_${preferences.targetLanguage}`;
-            localStorage.setItem(cacheKey, JSON.stringify(newData));
-        } catch (e) {
-            alert("AI Generation Failed");
-        } finally {
-            setIsGeneratingSolution(false);
-        }
-    };
-
     const handleRefineCustom = async () => {
         if (!customSolutionInput.trim()) return;
         setIsRefiningCustom(true);
         try {
-            const refined = await refineUserSolution(customSolutionInput, safeContext.meta.title, preferences);
-            // Append as a new approach
-            setSolutions(prev => [...prev, refined]);
-            setActiveSolutionIdx(solutions.length); // Switch to it
-            setIsCustomMode(false); // Switch back to view mode
+            const data = await refineUserSolution(customSolutionInput, safeContext.meta.title, preferences);
+            if (onAddCustomStrategy) {
+                const customStrategy: SolutionStrategy = {
+                    id: `custom_${Date.now()}`,
+                    title: "Custom Solution",
+                    complexity: data.complexity || "Analysis Pending",
+                    tags: ["Custom"],
+                    derivation: data.derivation || "Custom logic provided by user.",
+                    rationale: data.rationale,
+                    analogy: data.analogy,
+                    memoryTip: data.memoryTip,
+                    mermaid: data.mermaid,
+                    code: data.code || customSolutionInput,
+                    codeWidgets: data.codeWidgets || [],
+                    keywords: data.keywords || [],
+                    language: preferences.targetLanguage,
+                    isCustom: true
+                };
+                onAddCustomStrategy(customStrategy);
+            }
+            setIsCustomMode(false);
+            setCustomSolutionInput('');
         } catch(e) {
             alert("Failed to refine custom solution.");
         } finally {
@@ -265,7 +301,7 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
         }
     };
 
-    // ... Interactive Ask AI Logic ...
+    // Ask AI Logic
     useEffect(() => {
         const handleSelection = () => {
             const selection = window.getSelection();
@@ -304,121 +340,112 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
         }
     };
 
+    const handleExpandKnowledge = async (point: string) => {
+        setKnowledgePopup({ title: point, content: null });
+        try {
+            const context = `Problem: ${safeContext.meta.title}. Concept: ${point}.`;
+            const explanation = await generateAiAssistance(context, `Explain "${point}" in the context of this algorithm problem briefly.`, preferences, 'gemini-2.5-flash');
+            setKnowledgePopup({ title: point, content: explanation });
+        } catch (e) {
+            setKnowledgePopup({ title: point, content: "Error fetching explanation." });
+        }
+    };
+
+    // Regenerate Mermaid Diagram logic
+    const handleRegenerateDiagram = async (instruction: string) => {
+        if (!onUpdateStrategy || !activeStrategyId) return;
+        const activeSolution = strategies.find(s => s.id === activeStrategyId);
+        if (!activeSolution) return;
+
+        try {
+            // Call API to fix the strategy's mermaid part
+            const updatedStrategy = await regenerateSolutionStrategy(activeSolution, "Regenerate the Mermaid diagram. " + instruction, preferences);
+            onUpdateStrategy(updatedStrategy);
+        } catch (e) {
+            alert("Failed to regenerate diagram.");
+        }
+    };
+
     // --- RENDERERS ---
 
-    const renderHeader = () => (
-        <div className="flex items-center justify-between bg-gray-50 dark:bg-[#111] border-b border-gray-200 dark:border-gray-800 px-4 py-2 shrink-0 z-20">
-            {/* ... same header code ... */}
-            <div className="flex items-center gap-4">
-                <div className="relative group">
-                    <button className="flex items-center gap-2 text-xs font-bold bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-700 px-3 py-1.5 rounded-lg text-gray-700 dark:text-gray-200 hover:border-brand transition-colors">
-                        {currentLanguage} <ChevronDown size={14} className="opacity-50"/>
-                    </button>
-                    <div className="absolute top-full left-0 mt-1 w-32 bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl overflow-hidden hidden group-hover:block z-50">
-                         {Object.keys(safeContext.starterCodeMap).map(lang => (
-                             <button key={lang} onClick={() => setCurrentLanguage(lang as any)} className="w-full text-left px-4 py-2 text-xs font-bold hover:bg-gray-100 dark:hover:bg-gray-800">
-                                 {lang}
-                             </button>
-                         ))}
+    const renderDescriptionPanel = () => {
+        const difficultyColor = safeContext.meta.difficulty === 'Easy' ? 'text-green-600 bg-green-100 dark:bg-green-900/30' : 
+                          safeContext.meta.difficulty === 'Medium' ? 'text-yellow-600 bg-yellow-100 dark:bg-yellow-900/30' :
+                          'text-red-600 bg-red-100 dark:bg-red-900/30';
+
+        return (
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-6 bg-white dark:bg-[#0c0c0c] h-full">
+                <div className="mb-6 border-b border-gray-100 dark:border-gray-800 pb-4">
+                    <h2 className="text-2xl font-black text-gray-900 dark:text-white mb-3">{safeContext.meta.title}</h2>
+                    <div className="flex items-center gap-3 text-xs font-bold">
+                        <span className={`px-3 py-1 rounded-full ${difficultyColor}`}>
+                            {safeContext.meta.difficulty}
+                        </span>
+                        <div className="flex gap-2">
+                            <span className="bg-gray-100 dark:bg-gray-800 text-gray-500 px-2 py-1 rounded flex items-center gap-1"><Tag size={10}/> Algorithm</span>
+                        </div>
                     </div>
                 </div>
-                
-                <div className="flex bg-gray-200 dark:bg-gray-800 p-1 rounded-lg">
-                     <button 
-                        onClick={() => setLayoutMode('standard')} 
-                        className={`p-1.5 rounded-md flex items-center gap-2 ${layoutMode === 'standard' ? 'bg-white dark:bg-dark-card shadow-sm text-gray-800 dark:text-white' : 'opacity-50 hover:opacity-100'}`}
-                     >
-                        <Columns size={14} />
-                     </button>
-                     <button 
-                        onClick={() => setLayoutMode('tri-pane')} 
-                        className={`p-1.5 rounded-md flex items-center gap-2 ${layoutMode === 'tri-pane' ? 'bg-white dark:bg-dark-card shadow-sm text-gray-800 dark:text-white' : 'opacity-50 hover:opacity-100'}`}
-                     >
-                        <PanelLeft size={14} />
-                     </button>
-                     <button 
-                        onClick={() => setLayoutMode('zen')} 
-                        className={`p-1.5 rounded-md flex items-center gap-2 ${layoutMode === 'zen' ? 'bg-white dark:bg-dark-card shadow-sm text-gray-800 dark:text-white' : 'opacity-50 hover:opacity-100'}`}
-                     >
-                        <Layout size={14} />
-                     </button>
+
+                <div className="prose dark:prose-invert prose-sm max-w-none text-gray-700 dark:text-gray-300 leading-relaxed font-sans mb-8">
+                    <MarkdownText content={safeContext.problem.description} />
+                </div>
+
+                <div className="space-y-4">
+                    {safeContext.problem.examples.map((ex, i) => (
+                        <div key={i} className="bg-gray-50 dark:bg-[#1a1a1a] rounded-xl overflow-hidden border border-gray-100 dark:border-gray-800">
+                            <div className="bg-gray-100 dark:bg-[#252526] px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wide">
+                                Example {i + 1}
+                            </div>
+                            <div className="p-4 font-mono text-xs md:text-sm space-y-2">
+                                <div><span className="text-gray-500 font-bold">Input:</span> <span className="text-gray-800 dark:text-gray-200">{ex.input}</span></div>
+                                <div><span className="text-gray-500 font-bold">Output:</span> <span className="text-gray-800 dark:text-gray-200">{ex.output}</span></div>
+                                {ex.explanation && (
+                                    <div className="pt-2 border-t border-gray-200 dark:border-gray-700 mt-2 text-gray-600 dark:text-gray-400">
+                                        <span className="font-bold">Explanation:</span> {ex.explanation}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                <div className="mt-8">
+                    <h4 className="text-sm font-bold text-gray-900 dark:text-white mb-3">Constraints:</h4>
+                    <ul className="list-disc pl-5 space-y-1 text-xs md:text-sm font-mono text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-[#1a1a1a] p-4 rounded-xl border border-gray-100 dark:border-gray-800">
+                        {safeContext.problem.constraints.map((c, i) => (
+                            <li key={i}>{c}</li>
+                        ))}
+                    </ul>
                 </div>
             </div>
-            
-            <div className="flex gap-2">
-                {layoutMode === 'standard' && (
-                    <div className="flex bg-gray-200 dark:bg-gray-800 p-1 rounded-lg">
-                        <button onClick={() => setActiveLeftTab('description')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activeLeftTab === 'description' ? 'bg-white dark:bg-dark-card shadow-sm text-brand' : 'text-gray-500'}`}>Description</button>
-                        <button onClick={() => setActiveLeftTab('solution')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activeLeftTab === 'solution' ? 'bg-white dark:bg-dark-card shadow-sm text-brand' : 'text-gray-500'}`}>Solution</button>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
+        );
+    }
 
-    const renderDescription = () => (
-        <div className="h-full overflow-y-auto custom-scrollbar p-6 bg-white dark:bg-[#0c0c0c] text-gray-800 dark:text-gray-200 border-r border-gray-200 dark:border-gray-800">
-            {/* ... same description code ... */}
-            <h2 className="text-2xl font-black mb-4">{safeContext.meta.title}</h2>
-            <div className="flex gap-2 mb-6">
-                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${safeContext.meta.difficulty === 'Easy' ? 'bg-green-100 text-green-700' : safeContext.meta.difficulty === 'Medium' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
-                    {safeContext.meta.difficulty}
-                </span>
-            </div>
-            <div className="prose dark:prose-invert prose-sm max-w-none mb-8">
-                <MarkdownText content={safeContext.problem.description} className="whitespace-pre-wrap leading-7" />
-            </div>
-            
-            <h3 className="text-sm font-bold uppercase text-gray-400 mb-3">Examples</h3>
-            <div className="space-y-4 mb-8">
-                {safeContext.problem.examples.map((ex, i) => (
-                    <div key={i} className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4 font-mono text-xs">
-                        <div className="mb-2"><strong className="text-gray-500">Input:</strong> {ex.input}</div>
-                        <div className="mb-2"><strong className="text-gray-500">Output:</strong> {ex.output}</div>
-                        {ex.explanation && <div><strong className="text-gray-500">Explanation:</strong> {ex.explanation}</div>}
+    const renderSolutionPanel = () => {
+        // --- GENERATING STATE (INLINE) ---
+        if (isGenerating) {
+             return (
+                <div className="h-full flex flex-col items-center justify-center bg-white dark:bg-[#0c0c0c] p-8 text-center animate-fade-in-up">
+                    <div className="w-16 h-16 relative mb-6">
+                        <div className="absolute inset-0 bg-brand/20 rounded-full animate-ping"></div>
+                        <div className="relative w-16 h-16 bg-white dark:bg-dark-card rounded-full flex items-center justify-center shadow-xl border-4 border-brand/20">
+                            <Zap size={24} className="text-brand animate-pulse" />
+                        </div>
                     </div>
-                ))}
-            </div>
-
-            <h3 className="text-sm font-bold uppercase text-gray-400 mb-3">Constraints</h3>
-            <ul className="list-disc pl-5 space-y-1 text-xs font-mono text-gray-600 dark:text-gray-400">
-                {safeContext.problem.constraints.map((c, i) => <li key={i}>{c}</li>)}
-            </ul>
-        </div>
-    );
-
-    const renderSolution = () => {
-        if (solutions.length === 0 && !isCustomMode) {
-            return (
-                <div className="h-full flex flex-col items-center justify-center p-8 text-center bg-white dark:bg-[#0c0c0c] border-r border-gray-200 dark:border-gray-800">
-                    {/* ... generate button ... */}
-                    <div className="w-20 h-20 bg-purple-100 dark:bg-purple-900/20 rounded-full flex items-center justify-center mb-6 animate-pulse-soft">
-                        <Brain size={40} className="text-purple-600 dark:text-purple-400" />
-                    </div>
-                    <h3 className="text-xl font-bold mb-2 text-gray-900 dark:text-white">Detailed Solutions</h3>
-                    <p className="text-sm text-gray-500 mb-8 max-w-xs leading-relaxed">
-                        Generate comprehensive guides including Derivation, Flowcharts, and Deep Dives using Gemini Pro 3.
-                    </p>
-                    <div className="flex gap-3">
-                        <button 
-                            onClick={handleGenerateSolutions}
-                            disabled={isGeneratingSolution}
-                            className="px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-bold text-sm shadow-xl transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            {isGeneratingSolution ? <Loader2 size={16} className="animate-spin"/> : <Sparkles size={16}/>}
-                            {isGeneratingSolution ? "Thinking..." : "Generate AI Solutions"}
-                        </button>
-                        <button
-                            onClick={() => setIsCustomMode(true)}
-                            className="px-6 py-3 border-2 border-gray-200 dark:border-gray-700 rounded-xl font-bold text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
-                        >
-                            Add My Own
-                        </button>
+                    <h2 className="text-lg font-black text-gray-900 dark:text-white mb-2">
+                        {preferences.spokenLanguage === 'Chinese' ? "Gemini 正在撰写官方题解..." : "Gemini is writing the Official Solution..."}
+                    </h2>
+                    <div className="space-y-1 text-center text-gray-400 text-xs font-mono">
+                        <p className="animate-fade-in-up delay-100">Analyzing Complexity...</p>
+                        <p className="animate-fade-in-up delay-200">Deriving State Equations...</p>
+                        <p className="animate-fade-in-up delay-300">Optimizing Code Structure...</p>
                     </div>
                 </div>
-            );
+             );
         }
 
+        // --- CUSTOM ADD MODE ---
         if (isCustomMode) {
             return (
                 <div className="h-full flex flex-col bg-white dark:bg-[#0c0c0c] border-r border-gray-200 dark:border-gray-800 p-6">
@@ -441,13 +468,68 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
                         {isRefiningCustom ? "AI Refining..." : "Analyze & Save Solution"}
                     </button>
                 </div>
-            )
+            );
         }
 
-        const activeSolution = solutions[activeSolutionIdx];
+        // --- EMPTY STATE ---
+        if (!activeStrategyId || strategies.length === 0) {
+             return (
+                <div className="h-full flex flex-col bg-white dark:bg-[#0c0c0c] overflow-y-auto">
+                    <div className="p-6">
+                        <div className="flex items-center justify-between mb-6">
+                            <h3 className="text-xl font-black text-gray-900 dark:text-white flex items-center gap-2">
+                                <BookOpen size={20} className="text-purple-500" />
+                                {preferences.spokenLanguage === 'Chinese' ? "选择解题策略" : "Select Strategy"}
+                            </h3>
+                            <button 
+                                onClick={onGenerateStrategies}
+                                disabled={isGenerating}
+                                className="px-4 py-2 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-lg text-xs font-bold hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors flex items-center gap-2 disabled:opacity-50"
+                            >
+                                {isGenerating ? <Loader2 size={14} className="animate-spin"/> : <RefreshCw size={14}/>}
+                                {isGenerating ? "Generating..." : "Generate More"}
+                            </button>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 gap-4">
+                            {strategies.map(strat => (
+                                <button
+                                    key={strat.id}
+                                    onClick={() => onSelectStrategy && onSelectStrategy(strat.id)}
+                                    className="p-5 rounded-2xl border-2 border-gray-200 dark:border-gray-800 hover:border-purple-500 dark:hover:border-purple-500 bg-white dark:bg-dark-card text-left transition-all group hover:shadow-lg relative overflow-hidden"
+                                >
+                                    <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
+                                        <Sparkles size={60} />
+                                    </div>
+                                    <h4 className="text-lg font-bold text-gray-900 dark:text-white mb-2">{strat.title}</h4>
+                                    <div className="flex gap-2 mb-3">
+                                        <span className="text-[10px] font-mono bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded text-gray-500">{strat.complexity}</span>
+                                        {strat.tags.map((t, i) => (
+                                            <span key={i} className="text-[10px] bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-300 px-2 py-1 rounded font-bold">{t}</span>
+                                        ))}
+                                    </div>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2">{strat.rationale || strat.derivation}</p>
+                                </button>
+                            ))}
+                            
+                            <button
+                                onClick={() => setIsCustomMode(true)}
+                                className="p-5 rounded-2xl border-2 border-dashed border-gray-300 dark:border-gray-700 hover:border-brand hover:text-brand text-gray-400 transition-all flex flex-col items-center justify-center gap-2"
+                            >
+                                <Plus size={24} />
+                                <span className="font-bold text-sm">Add Custom Strategy</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+             );
+        }
+
+        // --- ACTIVE STRATEGY VIEW ---
+        const activeSolution = strategies.find(s => s.id === activeStrategyId) || strategies[0];
 
         return (
-            <div className="h-full flex flex-col bg-white dark:bg-[#0c0c0c] border-r border-gray-200 dark:border-gray-800 relative">
+            <div className="h-full flex flex-col bg-white dark:bg-[#0c0c0c] relative">
                 
                 {/* Ask AI Popover */}
                 {(selectionPos || aiPopup) && (
@@ -477,26 +559,54 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
                     </div>
                 )}
 
-                {/* Solution Tabs */}
-                <div className="flex overflow-x-auto border-b border-gray-200 dark:border-gray-800 p-2 gap-2 shrink-0 bg-gray-50/50 dark:bg-gray-900/50">
-                    {solutions.map((sol, idx) => (
+                {/* Knowledge Popup */}
+                {knowledgePopup && (
+                    <div className="absolute inset-0 z-[120] flex items-center justify-center pointer-events-none">
+                        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-2xl border border-brand/20 max-w-sm w-full pointer-events-auto animate-scale-in mx-4">
+                            <div className="flex justify-between items-start mb-3">
+                                <h3 className="text-sm font-black text-brand uppercase tracking-wider flex items-center gap-2">
+                                    <Lightbulb size={16}/> {knowledgePopup.title}
+                                </h3>
+                                <button onClick={() => setKnowledgePopup(null)} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
+                            </div>
+                            {knowledgePopup.content ? (
+                                <div className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-medium">
+                                    <MarkdownText content={knowledgePopup.content} />
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-2 text-gray-500 text-xs"><Loader2 size={14} className="animate-spin"/> AI Explaining...</div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* Strategy Tabs */}
+                <div className="flex overflow-x-auto border-b border-gray-200 dark:border-gray-800 p-2 gap-2 shrink-0 bg-gray-50/50 dark:bg-gray-900/50 items-center">
+                    <button 
+                        onClick={() => onSelectStrategy && onSelectStrategy("")}
+                        className="px-2 py-1.5 rounded-lg text-xs font-bold text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 mr-2"
+                        title="Back to List"
+                    >
+                        <LayoutList size={16}/>
+                    </button>
+                    {strategies.map((sol) => (
                         <button
-                            key={idx}
-                            onClick={() => setActiveSolutionIdx(idx)}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${activeSolutionIdx === idx ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 ring-1 ring-purple-500/20' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+                            key={sol.id}
+                            onClick={() => onSelectStrategy && onSelectStrategy(sol.id)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 ${activeSolution?.id === sol.id ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 ring-1 ring-purple-500/20' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
                         >
                             {sol.title}
+                            {activeSolution?.id === sol.id && <CheckCircle size={12}/>}
                         </button>
                     ))}
-                    <button onClick={() => setIsCustomMode(true)} className="px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap text-brand hover:bg-brand/10 border border-brand/20">
-                        + Add Custom
+                    <button onClick={() => setIsCustomMode(true)} className="px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap text-brand hover:bg-brand/10 border border-brand/20 flex items-center gap-1">
+                        <Plus size={12}/>
                     </button>
                 </div>
 
                 {/* Content */}
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-6" ref={solutionContainerRef}>
-                    <div className="space-y-8 animate-fade-in-up">
-                        {/* Title & Stats */}
+                    <div className="space-y-8 animate-fade-in-up pb-12">
                         <div className="pb-6 border-b border-gray-100 dark:border-gray-800">
                             <h2 className="text-2xl font-black text-gray-900 dark:text-white mb-3">{activeSolution.title}</h2>
                             <div className="flex flex-wrap gap-2">
@@ -511,60 +621,75 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
                             </div>
                         </div>
 
-                        {/* Derivation (New) */}
-                        {activeSolution.derivation && (
-                            <div className="bg-blue-50 dark:bg-blue-900/10 p-5 rounded-2xl border border-blue-100 dark:border-blue-900/30">
-                                <h3 className="text-sm font-black text-blue-700 dark:text-blue-300 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                    <GraduationCap size={16} /> Professor's Derivation
-                                </h3>
-                                <div className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed selection:bg-blue-200 dark:selection:bg-blue-900">
-                                    <MarkdownText content={activeSolution.derivation} />
+                        {/* --- DETAILED SECTIONS --- */}
+                        {activeSolution.sections ? (
+                            activeSolution.sections.map((sec, i) => (
+                                <div key={i} className="bg-white dark:bg-dark-card p-5 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                                    <h3 className="text-sm font-black text-gray-800 dark:text-white uppercase tracking-widest mb-3 flex items-center gap-2 border-b border-gray-100 dark:border-gray-800 pb-2">
+                                        <BookOpen size={16} className="text-brand"/> {sec.header}
+                                    </h3>
+                                    <div className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-sans">
+                                        <MarkdownText content={sec.content} />
+                                    </div>
                                 </div>
-                            </div>
+                            ))
+                        ) : (
+                            <>
+                                {activeSolution.derivation && (
+                                    <div className="bg-white dark:bg-dark-card p-5 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                                        <h3 className="text-sm font-black text-gray-800 dark:text-white uppercase tracking-widest mb-3 flex items-center gap-2 border-b border-gray-100 dark:border-gray-800 pb-2">
+                                            <GraduationCap size={16} className="text-brand"/> Logic & Derivation
+                                        </h3>
+                                        <div className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-sans">
+                                            <MarkdownText content={activeSolution.derivation} />
+                                        </div>
+                                    </div>
+                                )}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {activeSolution.analogy && (
+                                        <div className="bg-purple-50 dark:bg-purple-900/10 p-5 rounded-2xl border border-purple-100 dark:border-purple-900/30 shadow-sm">
+                                            <h3 className="text-xs font-black text-purple-600 dark:text-purple-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                                                <Sparkles size={14}/> Concept Analogy
+                                            </h3>
+                                            <div className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-medium">
+                                                <MarkdownText content={activeSolution.analogy} />
+                                            </div>
+                                        </div>
+                                    )}
+                                    {activeSolution.memoryTip && (
+                                        <div className="bg-green-50 dark:bg-green-900/10 p-5 rounded-2xl border border-green-100 dark:border-green-900/30 shadow-sm">
+                                            <h3 className="text-xs font-black text-green-600 dark:text-green-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                                                <Brain size={14}/> Memory Tip
+                                            </h3>
+                                            <div className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-medium">
+                                                <MarkdownText content={activeSolution.memoryTip} />
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </>
                         )}
 
-                        {/* Intuition (Fallback if derivation missing) */}
-                        {!activeSolution.derivation && activeSolution.intuition && (
-                            <div className="bg-blue-50 dark:bg-blue-900/10 p-5 rounded-2xl border border-blue-100 dark:border-blue-900/30">
-                                <h3 className="text-sm font-black text-blue-700 dark:text-blue-300 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                    <Lightbulb size={16} /> Intuition
-                                </h3>
-                                <div className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-                                    <MarkdownText content={activeSolution.intuition} />
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Mermaid Flowchart (New) */}
                         {activeSolution.mermaid && (
                             <div>
                                 <h3 className="text-sm font-black text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-2">
                                     <Share2 size={16} /> Logic Flow
                                 </h3>
-                                <MermaidVisualWidget widget={{ id: 'sol-flow', type: 'mermaid', mermaid: { chart: activeSolution.mermaid, caption: "Algorithm Visualization" } }} />
+                                <MermaidVisualWidget 
+                                    key={activeSolution.id} 
+                                    widget={{ id: 'sol-flow', type: 'mermaid', mermaid: { chart: activeSolution.mermaid, caption: "Algorithm Visualization" } }} 
+                                    onRegenerate={handleRegenerateDiagram} 
+                                />
                             </div>
                         )}
 
-                        {/* Logic/Strategy Section */}
-                        {activeSolution.strategy && (
-                            <div>
-                                <h3 className="text-sm font-black text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                    <Brain size={16} /> Strategy
-                                </h3>
-                                <div className="text-sm text-gray-800 dark:text-gray-200 leading-7">
-                                    <MarkdownText content={activeSolution.strategy} />
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Glossary (New) */}
-                        {activeSolution.glossary && activeSolution.glossary.length > 0 && (
+                        {activeSolution.keywords && activeSolution.keywords.length > 0 && (
                             <div className="bg-yellow-50 dark:bg-yellow-900/10 p-5 rounded-2xl border border-yellow-100 dark:border-yellow-900/30">
                                 <h3 className="text-sm font-black text-yellow-700 dark:text-yellow-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                    <BookOpen size={16} /> Key Concepts & Syntax
+                                    <Key size={16} /> Key Concepts & Syntax
                                 </h3>
                                 <div className="grid grid-cols-1 gap-3">
-                                    {activeSolution.glossary.map((item, i) => (
+                                    {activeSolution.keywords.map((item, i) => (
                                         <div key={i} className="flex flex-col gap-1">
                                             <code className="text-xs font-bold text-yellow-800 dark:text-yellow-300 bg-yellow-100 dark:bg-yellow-900/40 px-2 py-1 rounded w-fit">
                                                 {item.term}
@@ -578,8 +703,29 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
                             </div>
                         )}
                         
-                        {/* Code Widgets */}
-                        {activeSolution.widgets.map((widget, idx) => (
+                        {activeSolution.expandedKnowledge && activeSolution.expandedKnowledge.length > 0 && (
+                            <div className="bg-gray-100 dark:bg-gray-800/50 p-6 rounded-2xl border border-gray-200 dark:border-gray-700">
+                                <h3 className="text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                                    <HelpCircle size={14}/> Expanded Knowledge (Tap to learn)
+                                </h3>
+                                <div className="flex flex-wrap gap-2">
+                                    {activeSolution.expandedKnowledge.map((point, i) => {
+                                        const pointText = typeof point === 'string' ? point : (point as any).content || JSON.stringify(point);
+                                        return (
+                                            <button 
+                                                key={i} 
+                                                onClick={() => handleExpandKnowledge(pointText)}
+                                                className="px-3 py-1.5 bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-600 rounded-lg text-sm text-gray-700 dark:text-gray-200 hover:border-brand hover:text-brand transition-all shadow-sm text-left"
+                                            >
+                                                <MarkdownText content={point} />
+                                            </button>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                        
+                        {(activeSolution.codeWidgets || []).map((widget, idx) => (
                             <div key={idx}>
                                 {widget.type === 'callout' && <CalloutWidget widget={widget}/>}
                                 {widget.type === 'interactive-code' && <InteractiveCodeWidget widget={widget} language={preferences.spokenLanguage}/>}
@@ -592,8 +738,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
     };
 
     const renderEditor = () => {
-        // ... existing editor logic ...
-        // Safe access to Prism logic
         const getLangKey = (lang: string) => {
             const lower = lang.toLowerCase();
             if (lower === 'c++') return 'cpp';
@@ -609,35 +753,63 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
 
         return (
             <div className="flex flex-col h-full bg-[#1e1e1e] relative">
+                <div className="h-10 bg-[#252526] border-b border-gray-700 flex items-center px-4 justify-between shrink-0 relative z-20">
+                    <div className="flex items-center gap-2">
+                        <Terminal size={14} className="text-gray-400"/>
+                        <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Editor</span>
+                    </div>
+                    <div className="relative group">
+                        <button className="flex items-center gap-2 text-xs font-bold bg-[#333] hover:bg-[#444] px-3 py-1 rounded text-white transition-colors">
+                            {currentLanguage} <ChevronDown size={12}/>
+                        </button>
+                        <div className="absolute top-full right-0 mt-1 w-32 bg-[#252526] border border-gray-700 rounded-lg shadow-xl overflow-hidden hidden group-hover:block z-50">
+                             {SUPPORTED_LANGUAGES.map(lang => (
+                                 <button 
+                                    key={lang} 
+                                    onClick={() => setCurrentLanguage(lang as any)} 
+                                    className={`w-full text-left px-4 py-2 text-xs font-bold hover:bg-[#37373d] text-gray-300 ${lang === currentLanguage ? 'text-brand' : ''}`}
+                                 >
+                                     {lang}
+                                 </button>
+                             ))}
+                        </div>
+                    </div>
+                </div>
+
                 <div className="flex-1 flex relative overflow-hidden">
-                    {/* Line Numbers */}
                     <div className="w-10 bg-[#1e1e1e] border-r border-gray-700 text-right pr-2 pt-4 text-gray-600 font-mono text-[14px] leading-[1.5] select-none shrink-0 z-10">
                         {code.split('\n').map((_, i) => ( <div key={i} style={{height: '21px'}}>{i + 1}</div> ))}
                     </div>
 
                     <div className="relative flex-1 overflow-hidden">
-                        {/* Highlights Layer (Bottom) */}
-                        <pre ref={preRef} className={`absolute inset-0 m-0 p-4 font-mono text-[14px] leading-[1.5] bg-transparent pointer-events-none z-0 overflow-auto whitespace-pre tab-4 text-gray-300 language-${langKey}`} style={{ fontFamily: '"JetBrains Mono", monospace' }}>
+                        {/* 
+                           STRICT ALIGNMENT FIX: 
+                           Force exact font stack, size, line-height, and padding 
+                           on both PRE and TEXTAREA to ensure cursor matches perfectly.
+                        */}
+                        <pre 
+                            ref={preRef} 
+                            className={`absolute inset-0 m-0 p-4 bg-transparent pointer-events-none z-0 overflow-auto whitespace-pre text-gray-300 language-${langKey}`} 
+                            style={EDITOR_FONT_STYLE}
+                        >
                             <code className={`language-${langKey}`} dangerouslySetInnerHTML={{ __html: highlighted }} />
                             <br />
                         </pre>
 
-                        {/* Input Layer (Top) - Transparent text, Visible Caret */}
                         <textarea 
                             ref={textareaRef}
                             value={code}
                             onChange={handleCodeChange}
                             onKeyDown={handleKeyDown}
                             onScroll={handleScroll}
-                            className="absolute inset-0 w-full h-full m-0 p-4 font-mono text-[14px] leading-[1.5] bg-transparent text-transparent caret-white resize-none outline-none z-10 whitespace-pre overflow-auto tab-4"
-                            style={{ color: 'transparent', fontFamily: '"JetBrains Mono", monospace' }}
+                            className="absolute inset-0 w-full h-full m-0 p-4 bg-transparent text-transparent caret-white resize-none outline-none z-10 whitespace-pre overflow-auto"
+                            style={{ ...EDITOR_FONT_STYLE, color: 'transparent' }}
                             spellCheck={false}
                             autoCapitalize="off"
                             autoComplete="off"
                             autoCorrect="off"
                         />
 
-                        {/* Autocomplete Popup */}
                         {suggestions.length > 0 && (
                             <div className="absolute z-50 w-64 bg-[#252526] border border-[#454545] shadow-2xl rounded-md overflow-hidden flex flex-col" style={{ top: Math.min(suggestionPosition.top + 24, 300), left: Math.min(suggestionPosition.left, 400) }}>
                                 {suggestions.map((s, idx) => (
@@ -654,57 +826,11 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
         );
     };
 
-    // ... Layout rendering (Standard, Tri-Pane, Zen) ...
-    // Standard: 2 columns (Left is tabs, Right is editor)
-    // Tri-Pane: 3 columns (Desc, Sol, Editor)
-    // Zen: 1 column (Editor)
-
-    return (
-        <div className="flex flex-col h-full w-full bg-white dark:bg-[#0c0c0c] overflow-hidden">
-            {renderHeader()}
-            
-            <div className="flex-1 flex min-h-0 relative">
-                
-                {/* --- STANDARD MODE --- */}
-                {layoutMode === 'standard' && (
-                    <>
-                        <div className="w-1/2 h-full overflow-hidden border-r border-gray-200 dark:border-gray-800">
-                            {activeLeftTab === 'description' ? renderDescription() : renderSolution()}
-                        </div>
-                        <div className="w-1/2 h-full flex flex-col relative">
-                            {renderEditor()}
-                        </div>
-                    </>
-                )}
-
-                {/* --- TRI-PANE MODE --- */}
-                {layoutMode === 'tri-pane' && (
-                    <>
-                        <div className="w-1/3 h-full overflow-hidden border-r border-gray-200 dark:border-gray-800 hidden md:block">
-                            {renderDescription()}
-                        </div>
-                        <div className="w-1/3 h-full overflow-hidden border-r border-gray-200 dark:border-gray-800 hidden md:block">
-                            {renderSolution()}
-                        </div>
-                        {/* Fallback for Mobile: Editor takes full width if space is tight */}
-                        <div className="w-full md:w-1/3 h-full flex flex-col relative">
-                            {renderEditor()}
-                        </div>
-                    </>
-                )}
-
-                {/* --- ZEN MODE --- */}
-                {layoutMode === 'zen' && (
-                    <div className="w-full h-full flex flex-col relative">
-                        {renderEditor()}
-                    </div>
-                )}
-
-            </div>
-
-            {/* Bottom Panel (Console) */}
-            <div className="h-1/3 min-h-[150px] max-h-[250px] border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-[#111] relative shrink-0 flex flex-col">
-                <div className="flex border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#161b22]">
+    // Render Bottom Console (Now placed inside the Right Pane in the layout)
+    const renderConsole = () => {
+        return (
+            <div className="flex flex-col h-full bg-white dark:bg-[#111]">
+                <div className="flex border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#161b22] shrink-0">
                     <button onClick={() => setActiveConsoleTab('console')} className={`px-4 py-1.5 text-xs font-bold border-b-2 transition-all ${activeConsoleTab === 'console' ? 'border-brand text-brand bg-white dark:bg-[#111]' : 'border-transparent text-gray-500'}`}>Console</button>
                     <button onClick={() => setActiveConsoleTab('analysis')} className={`px-4 py-1.5 text-xs font-bold border-b-2 transition-all ${activeConsoleTab === 'analysis' ? 'border-brand text-brand bg-white dark:bg-[#111]' : 'border-transparent text-gray-500'}`}>Analysis</button>
                 </div>
@@ -743,7 +869,7 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
                     )}
                 </div>
 
-                <div className="p-2 border-t border-gray-200 dark:border-gray-800 flex justify-end gap-2 bg-gray-50 dark:bg-[#161b22]">
+                <div className="p-2 border-t border-gray-200 dark:border-gray-800 flex justify-end gap-2 bg-gray-50 dark:bg-[#161b22] shrink-0">
                     <button onClick={() => setCode(safeContext.starterCode)} className="px-3 py-1.5 text-xs font-bold text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-800 rounded">Reset</button>
                     <button onClick={handleRun} disabled={isRunning} className="px-4 py-1.5 bg-brand text-white rounded-lg text-xs font-bold hover:bg-brand-dark flex items-center gap-2 disabled:opacity-50 shadow-sm">
                         {isRunning ? <Loader2 size={14} className="animate-spin"/> : <Play size={14} fill="currentColor"/>} Run
@@ -754,6 +880,91 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({ context, pre
                         </button>
                     )}
                 </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex flex-col h-full w-full bg-white dark:bg-[#0c0c0c] overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between bg-gray-50 dark:bg-[#111] border-b border-gray-200 dark:border-gray-800 px-4 py-2 shrink-0 z-20 h-12">
+                <div className="flex items-center gap-4">
+                    <span className="text-xs font-bold text-gray-500">IDE V3</span>
+                </div>
+            </div>
+            
+            {/* Layout Container */}
+            <div className="flex-1 flex min-h-0 relative select-none" ref={containerRef}>
+                
+                {/* Drag Overlay (Prevents iframe/input stealing mouse events) */}
+                {isDragging && <div className="absolute inset-0 z-50 cursor-col-resize" style={{ cursor: isDragging === 'horizontal' ? 'col-resize' : 'row-resize' }}></div>}
+
+                {/* LEFT PANE (Tabs: Description / Solution) */}
+                <div style={{ width: `${leftPanelWidth}%` }} className="h-full flex flex-col border-r border-gray-200 dark:border-gray-800 overflow-hidden relative bg-gray-50/50 dark:bg-black/10">
+                    
+                    {/* Top Tab Bar */}
+                    <div className="flex border-b border-gray-200 dark:border-gray-800 bg-gray-100 dark:bg-[#151515] p-1 gap-1 shrink-0">
+                        <button 
+                            onClick={() => setActiveLeftTab('description')}
+                            className={`flex-1 py-1.5 rounded-md text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                                activeLeftTab === 'description' 
+                                ? 'bg-white dark:bg-dark-card text-brand shadow-sm' 
+                                : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                            }`}
+                        >
+                            <FileText size={14}/> 
+                            {preferences.spokenLanguage === 'Chinese' ? "题目描述" : "Description"}
+                        </button>
+                        <button 
+                            onClick={() => setActiveLeftTab('solution')}
+                            className={`flex-1 py-1.5 rounded-md text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                                activeLeftTab === 'solution' 
+                                ? 'bg-white dark:bg-dark-card text-purple-500 shadow-sm' 
+                                : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                            }`}
+                        >
+                            <Lightbulb size={14}/> 
+                            {preferences.spokenLanguage === 'Chinese' ? "解题策略" : "Solution"}
+                        </button>
+                    </div>
+
+                    {/* Content Area */}
+                    <div className="flex-1 overflow-hidden relative">
+                        {activeLeftTab === 'description' && renderDescriptionPanel()}
+                        {activeLeftTab === 'solution' && renderSolutionPanel()}
+                    </div>
+                </div>
+
+                {/* HORIZONTAL RESIZER */}
+                <div 
+                    className="w-1 bg-gray-200 dark:bg-gray-800 hover:bg-brand cursor-col-resize z-40 transition-colors flex items-center justify-center group"
+                    onMouseDown={handleMouseDown('horizontal')}
+                >
+                    <GripVertical size={12} className="text-gray-400 opacity-0 group-hover:opacity-100"/>
+                </div>
+
+                {/* RIGHT PANE (Editor + Console) */}
+                <div className="flex-1 flex flex-col min-w-0 h-full" ref={rightPaneRef}>
+                    
+                    {/* Top: Editor */}
+                    <div className="flex-1 min-h-0 relative">
+                        {renderEditor()}
+                    </div>
+
+                    {/* VERTICAL RESIZER */}
+                    <div 
+                        className="h-1 bg-gray-200 dark:bg-gray-800 hover:bg-brand cursor-row-resize z-40 transition-colors flex items-center justify-center group shrink-0"
+                        onMouseDown={handleMouseDown('vertical')}
+                    >
+                        <GripHorizontal size={12} className="text-gray-400 opacity-0 group-hover:opacity-100"/>
+                    </div>
+
+                    {/* Bottom: Console */}
+                    <div style={{ height: `${consoleHeight}%` }} className="min-h-[50px] relative">
+                        {renderConsole()}
+                    </div>
+                </div>
+
             </div>
         </div>
     );

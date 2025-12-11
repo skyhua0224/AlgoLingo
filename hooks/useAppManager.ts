@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from 'react';
 import {
-    UserStats, ProgressMap, LessonPlan, SavedLesson, MistakeRecord, UserPreferences, AppView, SolutionStrategy, Problem
+    UserStats, ProgressMap, LessonPlan, SavedLesson, MistakeRecord, UserPreferences, AppView, SolutionStrategy, Problem, LeetCodeContext
 } from '../types';
 import { ForgeRoadmap } from '../types/forge';
 import { CareerSession } from '../types/career';
@@ -10,7 +10,7 @@ import {
     INITIAL_STATS, DEFAULT_API_CONFIG
 } from '../constants';
 import {
-    generateLessonPlan, generateDailyWorkoutPlan, generateSyntaxClinicPlan, generateVariantLesson
+    generateLessonPlan, generateDailyWorkoutPlan, generateSyntaxClinicPlan, generateVariantLesson, generateLeetCodeContext
 } from '../services/geminiService';
 import { generateRapidExam } from '../services/ai/career/generator';
 
@@ -67,6 +67,7 @@ export const useAppManager = () => {
 
     // Session / Navigation Context
     const [activeProblem, setActiveProblem] = useState<Problem | null>(null);
+    const [activeProblemContext, setActiveProblemContext] = useState<LeetCodeContext | null>(null); // NEW: Global Problem Context
     const [activeNodeIndex, setActiveNodeIndex] = useState(0);
     const [currentLessonPlan, setCurrentLessonPlan] = useState<LessonPlan | null>(null);
     const [activeForgeItem, setActiveForgeItem] = useState<ForgeRoadmap | null>(null);
@@ -104,11 +105,41 @@ export const useAppManager = () => {
 
     const handleSelectProblem = (id: string, name: string, currentLevel: number) => {
         setActiveProblem({ id, name });
+        // Reset active context so UnitMap triggers loading/generation
+        setActiveProblemContext(null); 
+        
         // Ensure progress entry exists
         if (!progressMap[preferences.targetLanguage]) {
             setProgressMap(prev => ({ ...prev, [preferences.targetLanguage]: {} }));
         }
         setView('unit-map');
+    };
+
+    // New: Action to explicitly generate/fetch problem context
+    const handleEnsureProblemContext = async (problemName: string) => {
+        // 1. Try Load from Cache
+        const cacheKey = `algolingo_ctx_v3_${problemName}_${preferences.targetLanguage}`;
+        const cached = localStorage.getItem(cacheKey);
+        
+        if (cached) {
+            try {
+                const parsed = JSON.parse(cached);
+                setActiveProblemContext(parsed);
+                return;
+            } catch(e) {
+                console.error("Context cache invalid");
+            }
+        }
+
+        // 2. Generate New
+        try {
+            const context = await generateLeetCodeContext(problemName, preferences);
+            setActiveProblemContext(context);
+            localStorage.setItem(cacheKey, JSON.stringify(context));
+        } catch (e) {
+            console.error("Failed to generate problem context", e);
+            throw e;
+        }
     };
 
     const handleStartNode = async (nodeIndex: number, isSkip: boolean = false, targetSolution?: SolutionStrategy) => {
@@ -121,11 +152,16 @@ export const useAppManager = () => {
 
         if (nodeIndex === 6) {
             // Simulator Mode
+            // For LeetCode mode, we assume context is already generated in UnitMap
             setCurrentLessonPlan({
                 title: activeProblem.name,
                 description: "LeetCode Simulator",
                 screens: [], 
-                suggestedQuestions: []
+                suggestedQuestions: [],
+                context: {
+                    type: 'algo',
+                    targetSolution // Pass the strategy so LeetCodeRunner can use it
+                }
             });
             setView('runner');
             return;
@@ -354,7 +390,7 @@ export const useAppManager = () => {
             if (data.savedLessons) localStorage.setItem('algolingo_saved_lessons', JSON.stringify(data.savedLessons));
             if (data.careerSessions) localStorage.setItem('algolingo_career_sessions', JSON.stringify(data.careerSessions));
             
-            // Restore Engineering Data (Crucial for V3 features)
+            // Restore Engineering Data, Solutions and Contexts (Crucial fix for V3 persistence)
             if (data.engineeringData) {
                 Object.entries(data.engineeringData).forEach(([key, value]) => {
                     localStorage.setItem(key, JSON.stringify(value));
@@ -390,7 +426,7 @@ export const useAppManager = () => {
             view, activeTab, preferences, stats, progressMap, mistakes, savedLessons,
             activeProblem, activeNodeIndex, currentLessonPlan, activeForgeItem, activeCareerSession,
             loadingContext, pendingExamConfig, generationError, generationRawError,
-            isSkipAttempt, engineeringNav, careerSessions
+            isSkipAttempt, engineeringNav, careerSessions, activeProblemContext
         },
         actions: { 
             updatePreferences, handleSelectProblem, handleStartNode, handleStartReview, 
@@ -398,7 +434,7 @@ export const useAppManager = () => {
             handleImportData, handleDataLoaded, handleExportData, onResetData,
             handleStartCustomLesson, handleRetryLoading, handleLessonComplete,
             handleStartCareerSession, handleStartCareerExam, handleViewForgeItem, 
-            handleUpdateCurrentPlan, setEngineeringNav
+            handleUpdateCurrentPlan, setEngineeringNav, handleEnsureProblemContext
         }
     };
 };

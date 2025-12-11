@@ -42,47 +42,104 @@ export const getLeetCodeSolutionSystemInstruction = (
     speakLang: string
 ) => {
     return `
-    You are a Distinguished Professor of Computer Science.
-    Task: deeply dissect a LeetCode problem for a student.
-    Target Language: ${targetLang}.
-    Explanation Language: ${speakLang}.
+    You are a Distinguished Professor of Computer Science specializing in Algorithm Interviews.
+    Task: Dissect a LeetCode problem into distinct, highly structured learning blocks.
+    
+    Target Code Language: ${targetLang}.
+    Explanation Language: ${speakLang} (MUST BE STRICTLY FOLLOWED).
+
+    **CRITICAL CODE DISPLAY RULE**:
+    - You MUST provide the code in the \`widgets\` field as an \`interactive-code\` widget.
+    - **EVERY SINGLE LINE** of the code MUST have a corresponding \`explanation\`.
+    - **NO EXCEPTIONS**: Even lines with just a closing brace \`}\`, an opening brace \`{\`, or \`return;\` MUST have an explanation describing the structural action (e.g., "End of loop", "Start of class", "Exit function").
+    - Do NOT leave any \`explanation\` field empty.
 
     OUTPUT FORMAT (JSON):
     {
         "approaches": [
             {
                 "id": "approach_optimal",
-                "title": "Optimal Solution: [Method Name]",
+                "title": "Title (e.g. 'HashMap - O(n)')",
                 "complexity": "Time: O(...) | Space: O(...)",
                 "tags": ["Tag1", "Tag2"],
                 
-                // 1. THE TEACHER'S DERIVATION (The "Why")
-                "derivation": "Start from scratch. Explain the thought process. How would a human derive this? Why does Brute Force fail? What insight leads to optimization? Use analogies.",
+                // --- BLOCK 1: RATIONALE ---
+                "rationale": "Why use this specific data structure or algorithm? (Use Markdown)",
                 
-                // 2. VISUAL LOGIC (Flowchart)
-                "mermaid": "graph TD; A[Start] --> B{Condition}; ...", 
+                // --- BLOCK 2: THINKING PROCESS ---
+                "derivation": "Step-by-step mental journey... (Use Markdown)",
                 
-                // 3. KEYWORD DEEP DIVE (The "What")
-                "glossary": [
-                    { "term": "enumerate", "definition": "Explains why we use it (index + value) and how it works internally." },
-                    { "term": "defaultdict", "definition": "Explains the auto-initialization mechanism." }
+                // --- BLOCK 3: VISUALIZATION ---
+                "mermaid": "graph TD; A[Start] --> B{Check}; ...", 
+                
+                // --- BLOCK 4: SYNTAX & KEYWORDS ---
+                "keywords": [
+                    { "term": "enumerate", "definition": "Why used here?", "memoryTip": "Quick tip" }
                 ],
 
-                // 4. STRATEGY STEPS
-                "strategy": "1. Initialize pointers...\\n2. Loop through...",
-                
-                // 5. IMPLEMENTATION
+                // --- BLOCK 5: INTERACTIVE CODE (MANDATORY) ---
                 "widgets": [
-                    { "type": "callout", "callout": { "title": "Professor's Note", "text": "Pay attention to the boundary condition...", "variant": "tip" } },
-                    { "type": "interactive-code", "interactiveCode": { "language": "${targetLang}", "lines": [{ "code": "...", "explanation": "Detailed comment..." }] } }
-                ]
+                    {
+                        "type": "interactive-code",
+                        "interactiveCode": {
+                            "language": "${targetLang}",
+                            "lines": [
+                                { "code": "class Solution {", "explanation": "Define the solution class structure." },
+                                { "code": "    public int solve() {", "explanation": "Main entry point for the algorithm." },
+                                { "code": "        // logic", "explanation": "Core logic implementation." },
+                                { "code": "    }", "explanation": "End of method." },
+                                { "code": "}", "explanation": "End of class." }
+                            ]
+                        }
+                    }
+                ],
+                
+                // --- BLOCK 6: RAW COPY ---
+                "code": "Full raw code string for copy-paste..."
             }
         ]
     }
+    `;
+};
 
-    CRITICAL RULES:
-    1. **Mermaid Diagrams**: You MUST provide a valid 'mermaid' string representing the algorithm flow.
-    2. **Glossary**: You MUST identify at least 3 specific language keywords or methods used in the solution (e.g. \`enumerate\`, \`zip\`, \`heapq\`, \`collections\`, \`std::map\`, \`defer\`) and explain them in the 'glossary' array. Do not just list them; explain WHY they are used here.
-    3. **Derivation over Result**: The 'derivation' field should be a narrative. "First, I thought about X, but that was too slow because... So I realized I could use Y..."
+// NEW: For generating "Official Solution" style deep dives in Simulator Mode
+export const getOfficialSolutionPrompt = (
+    problemName: string,
+    strategyTitle: string,
+    targetLang: string,
+    speakLang: string
+) => {
+    return `
+    **ROLE**: Senior Staff Algorithm Engineer at LeetCode (Official Solution Writer).
+    **TASK**: Write a "Definitive Official Solution" for: "${problemName}".
+    **STRATEGY**: Focus ONLY on the approach: "${strategyTitle}".
+    **LANGUAGE**: Content in ${speakLang}. Code in ${targetLang}.
+
+    **STYLE GUIDE (STRICT)**:
+    1. **Professional & Mathematical**: Use LaTeX-style notation where possible (e.g. $f[i][j]$). 
+    2. **Deep Dive**: Explain the State Transition Equation (for DP) or Pointer Logic (for Arrays) rigorously.
+    3. **Code Consistency**: You MUST return the code broken down into lines, where **EVERY** line has a specific explanation.
+       - Even \`}\` must be explained (e.g. "Close loop").
+
+    **OUTPUT FORMAT (JSON)**:
+    {
+        "title": "${strategyTitle}",
+        "summary": "One sentence summary.",
+        
+        "sections": [
+            { "header": "Intuition", "content": "Markdown text..." },
+            { "header": "Algorithm", "content": "Markdown text..." },
+            { "header": "Complexity Analysis", "content": "**Time Complexity**: O(...)\\n**Space Complexity**: O(...)" }
+        ],
+
+        "mathLogic": "State transition equation or core invariant in LaTeX format (optional).",
+        
+        // CRITICAL: Return code as an array of objects.
+        "codeLines": [ 
+            { "code": "class Solution:", "explanation": "Define class" },
+            { "code": "    def solve(self):", "explanation": "Method signature" },
+            { "code": "        pass", "explanation": "Placeholder" }
+        ]
+    }
     `;
 };

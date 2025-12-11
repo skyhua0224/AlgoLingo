@@ -1,7 +1,7 @@
 
 import { GoogleGenAI } from "@google/genai";
 import { getClient } from "./ai/client";
-import { UserPreferences, LessonPlan, Widget, LessonScreen, SolutionStrategy } from "../types";
+import { UserPreferences, LessonPlan, Widget, LessonScreen, SolutionStrategy, LeetCodeContext } from "../types";
 import { ForgeRoadmap } from "../types/forge";
 import { SkillTrack, EngineeringStep } from "../types/engineering";
 import { AIGenerationError } from "./ai/generator";
@@ -12,7 +12,7 @@ import { getTrackSuggestionPrompt } from "./ai/prompts/engineering/track_suggest
 import { getTopicRoadmapPrompt } from "./ai/prompts/engineering/topic_roadmap";
 import { getRegenerateScreenPrompt } from "./ai/prompts/regenerate";
 import { getDisputeJudgePrompt } from "./ai/prompts/dispute";
-import { getLeetCodeSolutionSystemInstruction } from "./ai/prompts/stages/leetcode";
+import { getLeetCodeSolutionSystemInstruction, getOfficialSolutionPrompt } from "./ai/prompts/stages/leetcode";
 import { lessonPlanSchema } from "./ai/schemas";
 import { ForgeGenConfig } from "../types/forge";
 
@@ -27,11 +27,11 @@ export {
     generateSyntaxClinicPlan, 
     generateSyntaxRoadmap, 
     generateSyntaxLesson, 
-    generateAiAssistance 
 } from "./ai/generator";
 
-// --- HELPER: WIDGET VALIDATOR & SANITIZER (Kept from existing file) ---
+// --- HELPER: WIDGET VALIDATOR & SANITIZER ---
 const sanitizeLessonPlan = (rawPlan: any): LessonPlan => {
+    // (Implementation identical to previous file, kept for brevity)
     if (!rawPlan || typeof rawPlan !== 'object') throw new Error("Invalid plan format");
     
     const plan: LessonPlan = {
@@ -89,6 +89,72 @@ const sanitizeLessonPlan = (rawPlan: any): LessonPlan => {
     return plan;
 };
 
+// --- HELPER: SOLUTION DATA SANITIZER ---
+// Fixes "Interactive Code" widget structure specifically for Solution Strategies.
+const sanitizeStrategyData = (data: any): any => {
+    // 1. Sanitize top-level code widgets if present (from custom refinement)
+    if (data.codeWidgets && Array.isArray(data.codeWidgets)) {
+        data.codeWidgets = data.codeWidgets.map(fixInteractiveCodeWidget);
+    }
+
+    // 2. Sanitize approaches list if present (from generation)
+    if (data.approaches && Array.isArray(data.approaches)) {
+        data.approaches = data.approaches.map((app: any) => {
+            if (app.widgets && Array.isArray(app.widgets)) {
+                app.widgets = app.widgets.map(fixInteractiveCodeWidget);
+            }
+            if (app.codeWidgets && Array.isArray(app.codeWidgets)) {
+                app.codeWidgets = app.codeWidgets.map(fixInteractiveCodeWidget);
+            }
+            // Fix Mermaid markdown fences
+            if (app.mermaid) {
+                app.mermaid = app.mermaid.replace(/```mermaid/g, '').replace(/```/g, '').trim();
+            }
+            return app;
+        });
+    }
+    
+    // 3. Sanitize official solution structure
+    if (data.widgets && Array.isArray(data.widgets)) {
+        data.widgets = data.widgets.map(fixInteractiveCodeWidget);
+    }
+
+    return data;
+};
+
+const fixInteractiveCodeWidget = (w: any) => {
+    if (w.type === 'interactive-code' && w.interactiveCode && w.interactiveCode.lines) {
+        const rawLines = w.interactiveCode.lines;
+        const cleanedLines: {code: string, explanation: string}[] = [];
+        let pendingExplanation = "";
+
+        for (const line of rawLines) {
+            const codeStr = line.code || "";
+            const explStr = line.explanation || "";
+
+            if (codeStr.trim() === "") {
+                // Empty line logic: Save explanation for next line
+                if (explStr) {
+                    pendingExplanation = pendingExplanation ? `${pendingExplanation} ${explStr}` : explStr;
+                }
+                // Skip empty line
+                continue; 
+            }
+
+            // Real line logic
+            let finalExpl = explStr;
+            if (pendingExplanation) {
+                finalExpl = finalExpl ? `${pendingExplanation} ${finalExpl}` : pendingExplanation;
+                pendingExplanation = "";
+            }
+            
+            cleanedLines.push({ code: codeStr, explanation: finalExpl });
+        }
+        w.interactiveCode.lines = cleanedLines;
+    }
+    return w;
+};
+
 // Generic API Call Wrapper
 const callAI = async (
     preferences: UserPreferences,
@@ -126,34 +192,81 @@ const callAI = async (
 import { getSystemArchitectPrompt } from "./ai/prompts/engineering/system_architect";
 import { getCSKernelPrompt } from "./ai/prompts/engineering/cs_kernel";
 
-// --- NEW: GENERATE SOLUTIONS ---
+// --- GENERATE SOLUTIONS WITH RICH CONTEXT ---
 export const generateLeetCodeSolutions = async (
-    problemTitle: string,
-    problemDesc: string,
+    problemName: string,
+    problemDescription: string, // Full description from Context
     preferences: UserPreferences
 ) => {
-    // Force High-Tier Model for Solutions (gemini-3-pro-preview)
+    // Force High-Tier Model for Solutions (gemini-3-pro-preview or best available)
     const model = 'gemini-3-pro-preview'; 
     const systemInstruction = getLeetCodeSolutionSystemInstruction(preferences.targetLanguage, preferences.spokenLanguage);
     
+    // We send the full problem description context to the AI
     const prompt = `
-    Generate expert, professor-level solutions for: "${problemTitle}".
-    Problem Description: ${problemDesc.substring(0, 1000)}...
+    Generate expert, professor-level solutions for the algorithm problem below.
     
-    REQUIREMENTS:
+    **PROBLEM CONTEXT**:
+    Title: "${problemName}"
+    Description: 
+    ${problemDescription.substring(0, 2000)}...
+    
+    **REQUIREMENTS**:
     1. **Two Approaches**: "Brute Force / Naive" (Briefly) AND "Optimal / Best Practice" (In Depth).
     2. **Deep Content**: 
-       - 'derivation': A detailed narrative of HOW to derive the solution.
+       - 'rationale': Why use this specific method?
+       - 'derivation': A detailed narrative of HOW to derive the solution. Use associations.
+       - 'analogy': A real-world analogy.
+       - 'memoryTip': A mnemonic or hook.
        - 'mermaid': A flowchart string of the algorithm logic.
-       - 'glossary': A list of specific language keywords/functions used (e.g. enumerate, zip) and their explanations.
-    3. **Widgets**: Use 'interactive-code' for the implementation with detailed line comments.
+       - 'keywords': A list of specific language keywords/functions used.
+       - 'expandedKnowledge': Related concepts.
+    3. **Interactive Code**: 
+       - Do NOT use plain text code blocks.
+       - Provide code in the 'interactive-code' widget format with line-by-line explanations.
+    4. **Smart Tooltips**:
+       - In the 'derivation' or 'analogy' text, mark difficult concepts or jargon using the syntax: \`^^term^^{explanation}\`.
     
-    OUTPUT FORMAT: JSON with "approaches": [ { id, title, complexity, code, derivation, mermaid, glossary, strategy, widgets } ]
-    **IMPORTANT**: The top-level 'code' field in each approach MUST contain the raw solution string for reference.
+    OUTPUT FORMAT: JSON as defined in system instruction.
     `;
 
     const text = await callAI(preferences, systemInstruction, prompt, undefined, true, undefined, model);
-    return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+    const rawData = JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+    return sanitizeStrategyData(rawData);
+};
+
+// NEW: Generate "Official Solution" style deep dive
+export const generateOfficialLeetCodeSolution = async (
+    problemName: string,
+    strategyTitle: string,
+    preferences: UserPreferences,
+    existingCode?: string // NEW: Optional existing code to analyze
+) => {
+    const model = 'gemini-3-pro-preview';
+    const systemInstruction = getOfficialSolutionPrompt(
+        problemName, 
+        strategyTitle, 
+        preferences.targetLanguage, 
+        preferences.spokenLanguage
+    );
+    
+    let prompt = `Generate the official solution now.`;
+    
+    if (existingCode) {
+        prompt += `\n\n**CRITICAL CONSTRAINT**: The user has already selected a specific code implementation. 
+        You MUST analyze and use the following code logic. Do NOT rewrite the algorithm unless the provided code is incorrect.
+        Instead, break this specific code down into line-by-line explanations.
+        
+        **EXISTING CODE TO ANALYZE**:
+        \`\`\`${preferences.targetLanguage}
+        ${existingCode}
+        \`\`\`
+        `;
+    }
+
+    const text = await callAI(preferences, systemInstruction, prompt, undefined, true, undefined, model);
+    const rawData = JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+    return sanitizeStrategyData(rawData);
 };
 
 export const refineUserSolution = async (
@@ -172,17 +285,71 @@ export const refineUserSolution = async (
     
     TASK:
     1. Clean up the code (if any) or generate code from the logic description.
-    2. Write a 'derivation' explaining this specific custom approach.
+    2. Write a 'derivation' explaining this specific custom approach. Use \`^^term^^{definition}\` syntax for jargon.
     3. Generate a 'mermaid' chart for it.
+    4. Fill in 'rationale', 'analogy', 'memoryTip' based on the user's logic.
     
-    OUTPUT FORMAT: A single object { id: "custom_refine", title: "Custom Solution (Refined)", code: "...", complexity: "...", derivation: "...", mermaid: "...", glossary: [...], strategy: "...", widgets: [...] }
+    OUTPUT FORMAT: A single object { id: "custom_refine", title: "Custom Solution (Refined)", code: "...", complexity: "...", derivation: "...", rationale: "...", analogy: "...", memoryTip: "...", mermaid: "...", keywords: [...], codeWidgets: [...] }
     `;
 
     const text = await callAI(preferences, systemInstruction, prompt, undefined, true, undefined, model);
-    return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+    const rawData = JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+    return sanitizeStrategyData(rawData);
 };
 
-// --- ENGINEERING GENERATOR ---
+export const regenerateSolutionStrategy = async (
+    originalStrategy: SolutionStrategy,
+    instruction: string,
+    preferences: UserPreferences
+) => {
+    const model = 'gemini-3-pro-preview';
+    const systemInstruction = getLeetCodeSolutionSystemInstruction(preferences.targetLanguage, preferences.spokenLanguage);
+    
+    const prompt = `
+    REGENERATE SOLUTION STRATEGY.
+    
+    **ORIGINAL STRATEGY JSON**:
+    \`\`\`json
+    ${JSON.stringify(originalStrategy)}
+    \`\`\`
+    
+    **USER INSTRUCTION**: "${instruction}"
+    
+    TASK:
+    - Modify the original strategy based on the user's instruction.
+    - Example instruction: "Make the analogy simpler", "Explain the pointer logic better", "Fix the code indentation".
+    - Return a SINGLE "SolutionApproach" object (not an array) with the same fields but updated content.
+    - Keep fields that don't need changing.
+    
+    OUTPUT FORMAT: JSON Object (SolutionStrategy schema).
+    `;
+
+    const text = await callAI(preferences, systemInstruction, prompt, undefined, true, undefined, model);
+    const rawData = JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+    return sanitizeStrategyData(rawData);
+}
+
+export const generateAiAssistance = async (context: string, userQuery: string, preferences: UserPreferences, model: string) => {
+    // Explicitly enforce the spoken language preference in the system instruction
+    const lang = preferences.spokenLanguage || 'English';
+    const systemInstruction = `You are a helpful coding assistant. Answer in ${lang}. Be brief.`;
+    
+    try {
+        return await callAI(
+            preferences, 
+            systemInstruction, 
+            `Context:\n${context}\n\nUser Question: ${userQuery}\n\nAnswer briefly.`, 
+            undefined, 
+            false,
+            undefined,
+            model
+        );
+    } catch (e) {
+        return "AI is offline.";
+    }
+};
+
+// ... (Rest of the file: generateEngineeringLesson, generateForgeRoadmap, etc. kept as is)
 export const generateEngineeringLesson = async (
     pillar: 'system' | 'cs' | 'track', 
     topic: string,
@@ -223,7 +390,6 @@ export const generateEngineeringLesson = async (
     }
 };
 
-// --- FORGE GENERATORS ---
 export const generateForgeRoadmap = async (
     topic: string, 
     config: ForgeGenConfig,

@@ -38,31 +38,63 @@ Single-widget screens are **STRICTLY FORBIDDEN** and will cause a system crash.
 - **RANDOMIZE**: Ensure the correct answer index varies (A, B, C, D). Do not bias towards 'A' or 'D'.
 - **PLAUSIBLE DISTRACTORS**: Distractors must be common misconceptions, not obviously wrong nonsense.
 
-**CODE DISPLAY & IMPORT RULES:**
-- **CONTEXT MATTERS**: Do NOT show orphaned 1-2 line code snippets. Always provide the **Function Signature** or the surrounding context.
-- **IMPORTS ARE REQUIRED**: For algorithmic interviews, knowing the standard library is crucial. If using \`defaultdict\`, \`deque\`, \`heapq\`, etc., you **MUST** include the \`from ... import ...\` line at the top.
-- **TRUNCATION**: If omitting code, use comments like \`# ... (rest of logic)\` to clearly indicate omitted parts. Do not just leave it blank.
-- **WIDGET VARIETY**: Do NOT use the same widget type for more than 3 consecutive screens.
+**VISUALIZATION RULES (STRUCTURED PROTOCOL) - CRITICAL:**
+- **DO NOT** write Mermaid syntax strings directly in the \`chart\` field if possible.
+- **YOU MUST** use the \`graphData\` object to define nodes and edges structurally.
+- **Protocol**:
+  1. Define \`nodes\` with simple alphanumeric IDs (e.g., "A", "Node1").
+  2. Define \`edges\` referencing those IDs.
+  3. The frontend compiler will handle syntax generation and escaping.
+- **FALLBACK STRING RULE**: If you must use a string for the 'chart' field, **NEVER** use square brackets inside node labels.
+  - ❌ Incorrect: \`A[Array [1,2]]\` (Nested brackets crash the parser).
+  - ✅ Correct: \`A[Array (1,2)]\` (Use parentheses for inner content).
+
+**JSON EXAMPLES (Use this structure for 'mermaid'):**
+
+*Example 1: Linear Process*
+{
+  "graphData": {
+    "direction": "LR",
+    "nodes": [
+      { "id": "A", "label": "Start", "shape": "circle" },
+      { "id": "B", "label": "Process", "shape": "rect" },
+      { "id": "C", "label": "End", "shape": "circle" }
+    ],
+    "edges": [
+      { "from": "A", "to": "B", "type": "solid" },
+      { "from": "B", "to": "C", "type": "solid" }
+    ]
+  }
+}
+
+*Example 2: Branching Logic*
+{
+  "graphData": {
+    "direction": "TD",
+    "nodes": [
+      { "id": "root", "label": "User Login", "shape": "rounded" },
+      { "id": "check", "label": "Valid?", "shape": "diamond" },
+      { "id": "succ", "label": "Dashboard", "shape": "rect" },
+      { "id": "fail", "label": "Error", "shape": "rect" }
+    ],
+    "edges": [
+      { "from": "root", "to": "check", "type": "solid" },
+      { "from": "check", "to": "succ", "label": "Yes", "type": "solid" },
+      { "from": "check", "to": "fail", "label": "No", "type": "dotted" }
+    ]
+  }
+}
+
+**STRICT INTERACTIVE CODE RULES:**
+- **ONE LINE PER OBJECT**: The \`lines\` array must have one object per logical line of code.
+- **NO ORPHANED EXPLANATIONS**: Do NOT create an object with empty \`code\` just to hold an explanation. 
+  - ❌ Wrong: \`{ "code": "", "explanation": "This loop does X" }, { "code": "for i in range(n):", "explanation": "" }\`
+  - ✅ Correct: \`{ "code": "for i in range(n):", "explanation": "This loop does X" }\`
+- **NO COMMENTS IN CODE**: Do not put comments (// or #) in the \`code\` string. Put the comment text in the \`explanation\` field instead.
 
 WIDGET RULES:
 ${PARSONS_RULES}
 ${FILL_IN_RULES}
-
-**CODE DISPLAY STRUCTURE**:
-- Structure: 
-  \`\`\`json
-  { 
-    "type": "interactive-code", 
-    "interactiveCode": { 
-      "language": "python", 
-      "lines": [
-        { "code": "from collections import deque", "explanation": "Import is essential." },
-        { "code": "def solve(root):", "explanation": "Function definition" },
-        { "code": "   if not root: return", "explanation": "Base case" }
-      ] 
-    } 
-  }
-  \`\`\`
 
 OUTPUT:
 - JSON only. Follow the schema strictly.

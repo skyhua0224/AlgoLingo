@@ -58,11 +58,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         const engineeringData: Record<string, any> = {};
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
-            if (key && (key.startsWith('algolingo_syntax_v3_') || key.startsWith('algolingo_eng_v3_'))) {
+            // Collect Engineering V3 keys, Solution Strategy keys, AND Context keys (problem details)
+            if (key && (
+                key.startsWith('algolingo_syntax_v3_') || 
+                key.startsWith('algolingo_eng_v3_') || 
+                key.startsWith('algolingo_sol_v3_') || 
+                key.startsWith('algolingo_ctx_v3_')
+            )) {
                 try { engineeringData[key] = JSON.parse(localStorage.getItem(key)!); } catch (e) {}
             }
         }
-        ['algolingo_my_tracks', 'algolingo_forge_history_v2', 'algolingo_discovered_tracks'].forEach(key => {
+        ['algolingo_my_tracks', 'algolingo_forge_history_v2', 'algolingo_discovered_tracks', 'algolingo_career_sessions'].forEach(key => {
                 const val = localStorage.getItem(key);
                 if (val) try { engineeringData[key] = JSON.parse(val); } catch(e) {}
         });

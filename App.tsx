@@ -23,7 +23,8 @@ export default function App() {
       view, activeTab, 
       preferences, stats, progressMap, mistakes, savedLessons,
       activeProblem, activeNodeIndex, currentLessonPlan, activeForgeItem,
-      generationError, generationRawError, isSkipAttempt, activeCareerSession, careerSessions
+      generationError, generationRawError, isSkipAttempt, activeCareerSession, careerSessions,
+      activeProblemContext
   } = state;
 
   const handleCustomLessonStart = (plan: any, isSkip: boolean = false) => {
@@ -117,6 +118,8 @@ export default function App() {
                 language={preferences.spokenLanguage}
                 failedSkips={preferences.failedSkips}
                 preferences={preferences}
+                problemContext={activeProblemContext}
+                onEnsureContext={actions.handleEnsureProblemContext}
             />
         );
     }
@@ -225,6 +228,7 @@ export default function App() {
                 isReviewMode={state.loadingContext === 'review'}
                 isSkipContext={isSkipAttempt}
                 stats={stats}
+                problemContext={activeProblemContext}
             />
         )}
 

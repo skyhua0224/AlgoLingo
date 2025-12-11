@@ -19,12 +19,40 @@ export interface LessonScreen {
 export interface SolutionStrategy {
     id: string;
     title: string; // e.g. "HashMap Approach"
-    complexity: string;
-    code: string; // The core logic code
+    complexity: string; // Time/Space
+    
+    // Rich Content Blocks
+    tags: string[]; // e.g. ["Two Pointers", "Array"]
+    
+    // The "Thinking Process"
+    derivation: string; // How we arrived here, associations (The "Process")
+    analogy?: string; // Real world analogy
+    rationale?: string; // "Why use this?"
+    memoryTip?: string; // "How to remember/understand"
+    expandedKnowledge?: string[]; // Related concepts
+    
+    // Code & Syntax
+    code: string; // Raw code string for reference
+    codeWidgets: Widget[]; // Interactive code widget for line-by-line
+    
+    // Language specifics
+    keywords: {
+        term: string; // e.g. "enumerate"
+        definition: string; // Why used
+        memoryTip?: string; // How to remember
+    }[];
+
+    // Visuals
+    mermaid?: string; // Flowchart
+    
     language: string;
-    derivation: string; // How to derive it
-    intuition?: string;
     isCustom?: boolean; // Is this user generated?
+
+    // Detailed breakdown sections (from Official Solution deep dive)
+    sections?: {
+        header: string;
+        content: string;
+    }[];
 }
 
 export interface LessonPlan {
@@ -129,6 +157,7 @@ export interface LeetCodeContext {
                 code: string;
                 explanation: string;
             }[];
+            caption?: string;
         };
         assistantSuggestions: string[];
     }

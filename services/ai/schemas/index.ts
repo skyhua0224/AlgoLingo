@@ -118,10 +118,45 @@ export const archCanvasSchema: Schema = {
 export const mermaidSchema: Schema = {
     type: Type.OBJECT,
     properties: {
-        chart: { type: Type.STRING, description: "Valid mermaid.js syntax string" },
+        // Legacy support (optional)
+        chart: { type: Type.STRING, description: "Deprecated. Use graphData if possible." },
+        
+        // New Structured Data
+        graphData: {
+            type: Type.OBJECT,
+            description: "Structured definition of the graph. PREFERRED over 'chart' string.",
+            properties: {
+                direction: { type: Type.STRING, enum: ['TD', 'LR', 'BT', 'RL'], description: "Flow direction. Default TD." },
+                nodes: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            id: { type: Type.STRING, description: "Unique ID (alphanumeric only, no spaces)" },
+                            label: { type: Type.STRING, description: "Text to display in the node" },
+                            shape: { type: Type.STRING, enum: ['rect', 'rounded', 'diamond', 'circle'] }
+                        },
+                        required: ["id", "label"]
+                    }
+                },
+                edges: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            from: { type: Type.STRING, description: "Source Node ID" },
+                            to: { type: Type.STRING, description: "Target Node ID" },
+                            label: { type: Type.STRING, description: "Text on the line (optional)" },
+                            type: { type: Type.STRING, enum: ['solid', 'dotted', 'arrow_open'] }
+                        },
+                        required: ["from", "to"]
+                    }
+                }
+            },
+            required: ["nodes", "edges"]
+        },
         caption: { type: Type.STRING }
-    },
-    required: ["chart"]
+    }
 };
 
 export const visualQuizSchema: Schema = {
