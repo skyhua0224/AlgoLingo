@@ -21,12 +21,13 @@ interface SettingsModalProps {
   onUpdatePreferences: (p: Partial<UserPreferences>) => void;
   onExportData: () => void;
   onImportData: (file: File) => void;
+  onDataLoaded: (data: any) => void;
   t: any;
   isZh: boolean;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ 
-    isOpen, onClose, preferences, onUpdatePreferences, onExportData, onImportData, t, isZh 
+    isOpen, onClose, preferences, onUpdatePreferences, onExportData, onImportData, onDataLoaded, t, isZh 
 }) => {
     const [activeTab, setActiveTab] = useState('general');
     const [tempPrefs, setTempPrefs] = useState<UserPreferences>(preferences);
@@ -154,15 +155,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 setSyncMessage(isZh ? "正在下载数据..." : "Downloading data...");
                 const res = await pullFromGist(token, gistId!);
                 if (res.success && res.data) {
-                    // APPLY DATA
-                    if(res.data.stats) localStorage.setItem('algolingo_stats', JSON.stringify(res.data.stats));
-                    if(res.data.progress) localStorage.setItem('algolingo_progress_v2', JSON.stringify(res.data.progress));
-                    if(res.data.mistakes) localStorage.setItem('algolingo_mistakes', JSON.stringify(res.data.mistakes));
-                    if (res.data.engineeringData) {
-                        Object.entries(res.data.engineeringData).forEach(([key, value]) => {
-                           localStorage.setItem(key, JSON.stringify(value));
-                        });
-                    }
+                    // Update state via AppManager callback (which also writes to localStorage)
+                    onDataLoaded(res.data);
                     
                     const newConfig = { 
                         ...tempPrefs.syncConfig, 
@@ -172,12 +166,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         gistId: gistId 
                     };
                     setTempPrefs(prev => ({ ...prev, syncConfig: newConfig }));
-                    onUpdatePreferences({ syncConfig: newConfig });
-
+                    // onDataLoaded already updates preferences including sync config if it was part of the payload,
+                    // but we ensure the latest local token is preserved here just in case.
+                    
                     setSyncState('success');
                     setSyncMessage(isZh ? "同步成功，正在刷新..." : "Sync Successful. Refreshing...");
                     
-                    setTimeout(() => window.location.reload(), 1000);
+                    // No reload needed, App will remount via key change
                 } else {
                     throw new Error(res.error);
                 }

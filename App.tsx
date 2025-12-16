@@ -24,7 +24,7 @@ export default function App() {
       preferences, stats, progressMap, mistakes, savedLessons,
       activeProblem, activeNodeIndex, currentLessonPlan, activeForgeItem,
       generationError, generationRawError, isSkipAttempt, activeCareerSession, careerSessions,
-      activeProblemContext
+      activeProblemContext, refreshKey
   } = state;
 
   const handleCustomLessonStart = (plan: any, isSkip: boolean = false) => {
@@ -237,12 +237,14 @@ export default function App() {
   return (
     <>
         <Layout 
+            key={refreshKey} // FORCE REMOUNT ON DATA RESTORE
             activeTab={activeTab} 
             onTabChange={(tab) => actions.setActiveTab(tab)}
             preferences={preferences}
             onUpdatePreferences={actions.updatePreferences}
             onExportData={actions.handleExportData}
             onImportData={actions.handleImportData}
+            onDataLoaded={actions.handleDataLoaded}
             onResetData={actions.onResetData}
             hideMobileNav={view === 'loading' || view === 'runner' || view === 'career-runner'} 
             hideSidebar={view === 'loading' || view === 'runner' || view === 'career-runner'} 

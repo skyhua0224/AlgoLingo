@@ -13,6 +13,7 @@ interface LayoutProps {
   onUpdatePreferences: (p: Partial<UserPreferences>) => void;
   onExportData: () => void;
   onImportData: (file: File) => void;
+  onDataLoaded: (data: any) => void;
   onResetData: () => void;
   hideMobileNav?: boolean; 
   hideSidebar?: boolean; 
@@ -95,7 +96,7 @@ const TRANSLATIONS = {
     }
 };
 
-export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, preferences, onUpdatePreferences, onExportData, onImportData, onResetData, hideMobileNav, hideSidebar }) => {
+export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, preferences, onUpdatePreferences, onExportData, onImportData, onDataLoaded, onResetData, hideMobileNav, hideSidebar }) => {
   const [showSettings, setShowSettings] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   
@@ -147,6 +148,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
         onUpdatePreferences={onUpdatePreferences}
         onExportData={onExportData}
         onImportData={onImportData}
+        onDataLoaded={onDataLoaded}
         t={t}
         isZh={isZh}
       />

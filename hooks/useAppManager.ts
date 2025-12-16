@@ -35,6 +35,7 @@ export const useAppManager = () => {
     // --- STATE ---
     const [view, setView] = useState<AppView>('algorithms');
     const [activeTab, setActiveTab] = useState<AppView>('algorithms');
+    const [refreshKey, setRefreshKey] = useState(0); // Used to force UI remount on data load
 
     // Data - Protected by safeParse to prevent white screen on corrupted data
     const [preferences, setPreferences] = useState<UserPreferences>(() => safeParse('algolingo_preferences', {
@@ -410,8 +411,9 @@ export const useAppManager = () => {
             // This triggers the view transition in App.tsx instantly
             setPreferences(newPrefs);
 
-            // 3. Optional Reload (to ensure clean slate for hooks/effects)
-            setTimeout(() => window.location.reload(), 100);
+            // 3. Force UI Remount
+            setRefreshKey(prev => prev + 1);
+            
         } catch (e) {
             console.error("Data restore failed", e);
             alert("Failed to write data to storage. Please check disk space or permissions.");
@@ -430,7 +432,7 @@ export const useAppManager = () => {
             view, activeTab, preferences, stats, progressMap, mistakes, savedLessons,
             activeProblem, activeNodeIndex, currentLessonPlan, activeForgeItem, activeCareerSession,
             loadingContext, pendingExamConfig, generationError, generationRawError,
-            isSkipAttempt, engineeringNav, careerSessions, activeProblemContext
+            isSkipAttempt, engineeringNav, careerSessions, activeProblemContext, refreshKey
         },
         actions: { 
             updatePreferences, handleSelectProblem, handleStartNode, handleStartReview, 
