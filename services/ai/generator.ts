@@ -1,7 +1,9 @@
 
 // ... existing imports ...
 import { getClient } from "./client";
-import { getLessonPlanSystemInstruction, getLeetCodeContextSystemInstruction, getJudgeSystemInstruction, getVariantSystemInstruction, getDailyWorkoutSystemInstruction } from "./prompts";
+import { getLessonPlanSystemInstruction, getVariantSystemInstruction } from "./prompts/algo"; // CHANGED IMPORT
+import { getLeetCodeContextSystemInstruction, getDailyWorkoutSystemInstruction } from "./prompts/stages"; // CHANGED IMPORT: Assuming these are still in stages/index or similar if they weren't moved to algo. Wait, index.ts exported them. I should verify export.
+import { getJudgeSystemInstruction } from "./prompts/judge"; // Direct import
 import { getSystemArchitectPrompt } from "./prompts/engineering/system_architect";
 import { getCSKernelPrompt } from "./prompts/engineering/cs_kernel";
 import { getSyntaxRoadmapPrompt } from "./prompts/engineering/syntax_roadmap";
@@ -25,7 +27,6 @@ const isValidWidget = (w: Widget): boolean => {
     if (!w || !w.type) {
         return false;
     }
-    // ... existing validation logic ...
     const type = w.type.toLowerCase().replace('fillin', 'fill-in').replace('interactivecode', 'interactive-code');
     
     switch (type) {
@@ -70,7 +71,7 @@ const callAI = async (
     prompt: string,
     schema?: any,
     jsonMode: boolean = false,
-    modelOverride?: string // Added model override support
+    modelOverride?: string
 ): Promise<string> => {
     const provider = preferences.apiConfig.provider;
 
@@ -117,7 +118,6 @@ const callAI = async (
     }
 
     const client = getClient(preferences);
-    // Prefer override -> preference -> fallback
     const modelId = modelOverride || preferences.apiConfig.gemini.model || 'gemini-2.5-flash';
     
     const safeSystemInstruction = systemInstruction + `
@@ -146,7 +146,6 @@ const callAI = async (
     }
 };
 
-// ... generateLessonPlan ... (omitted for brevity, assume unchanged)
 export const generateLessonPlan = async (
   problemName: string, 
   phaseIndex: number, 
@@ -155,7 +154,6 @@ export const generateLessonPlan = async (
   savedLessons: SavedLesson[] = [],
   targetSolution?: SolutionStrategy 
 ): Promise<LessonPlan> => {
-  // ... (implementation same as before) ...
   const targetLang = preferences.targetLanguage;
   const speakLang = preferences.spokenLanguage;
   const systemInstruction = getLessonPlanSystemInstruction(problemName, targetLang, speakLang, phaseIndex, targetSolution);
@@ -191,7 +189,6 @@ export const generateLessonPlan = async (
           throw new AIGenerationError("JSON Parse Error", text);
       }
 
-      // ... (Validation logic omitted for brevity, keeping same) ...
       if (!plan.screens) plan.screens = [];
       
       // Inject solution context
@@ -209,7 +206,6 @@ export const generateLessonPlan = async (
   }
 };
 
-// ... generateDailyWorkoutPlan ...
 export const generateDailyWorkoutPlan = async (
     mistakes: MistakeRecord[],
     learnedProblemIds: string[],
@@ -238,7 +234,6 @@ export const generateDailyWorkoutPlan = async (
     return plan;
 };
 
-// ... generateVariantLesson ...
 export const generateVariantLesson = async (mistake: MistakeRecord, preferences: UserPreferences): Promise<LessonPlan> => {
     const systemInstruction = getVariantSystemInstruction(preferences.targetLanguage, preferences.spokenLanguage);
     const prompt = `Create VARIANT of: ${mistake.problemName}. Widget Data: ${JSON.stringify(mistake.widget)}`;
@@ -261,7 +256,6 @@ export const validateUserCode = async (code: string, problemDesc: string, prefer
     const systemInstruction = getJudgeSystemInstruction(targetLang, preferences.spokenLanguage);
     const prompt = `Problem: ${problemDesc}\nUser Code:\n\`\`\`${targetLang}\n${code}\n\`\`\``;
     try {
-        // FORCE GEMINI 3 PRO PREVIEW for judging to avoid false positives on logic errors
         const modelId = 'gemini-3-pro-preview'; 
         const text = await callAI(preferences, systemInstruction, prompt, judgeResultSchema, true, modelId);
         return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
@@ -271,8 +265,6 @@ export const validateUserCode = async (code: string, problemDesc: string, prefer
     }
 };
 
-// ... generateEngineeringLesson, generateReviewLesson, generateSyntaxClinicPlan, generateSyntaxRoadmap, generateSyntaxLesson, generateAiAssistance ...
-// (Keeping existing implementations)
 export const generateEngineeringLesson = async (
     pillar: 'system' | 'cs' | 'track', 
     topic: string,

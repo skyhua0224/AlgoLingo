@@ -114,21 +114,61 @@ export const UnitMap: React.FC<UnitMapProps> = ({
       init();
   }, [problemName]);
 
-  // Strategy Load
+  // Strategy Load - Use Preferences for persistence
   useEffect(() => {
-      const savedKey = `algolingo_active_strategy_${problemName}_${preferences.targetLanguage}`;
-      const saved = localStorage.getItem(savedKey);
+      const cacheKey = `algolingo_sol_v3_${problemName}_${preferences.targetLanguage}`;
+      
+      // 1. Try to get Active Strategy ID from UserPreferences
+      const activeId = preferences.activeStrategies?.[problemName];
+      
+      if (activeId) {
+          // If we have a preferred ID, try to load it from the cache file
+          const cached = localStorage.getItem(cacheKey);
+          if (cached) {
+              try {
+                  const parsed = JSON.parse(cached);
+                  const strategy = parsed.approaches?.find((s: any) => s.id === activeId);
+                  if (strategy) {
+                      setActiveStrategy(strategy);
+                      return;
+                  }
+              } catch(e) {}
+          }
+      }
+      
+      // Fallback: If no preference, or cache missing, check legacy localStorage key
+      const legacyKey = `algolingo_active_strategy_${problemName}_${preferences.targetLanguage}`;
+      const saved = localStorage.getItem(legacyKey);
       if (saved) {
-          try { setActiveStrategy(JSON.parse(saved)); } catch(e) {}
+          try { 
+              const parsed = JSON.parse(saved);
+              setActiveStrategy(parsed); 
+              // Migrate to new system implicitly? Maybe not automagic, user will select again if needed.
+          } catch(e) {}
       } else {
           // If no strategy and context is loaded, offer to set one up
           if (currentLevel < 6 && problemContext) setShowSolutionSetup(true);
       }
-  }, [problemName, preferences.targetLanguage, problemContext]);
+  }, [problemName, preferences.targetLanguage, problemContext, preferences.activeStrategies]);
 
   const handleStrategyConfirm = (strategy: SolutionStrategy) => {
       setActiveStrategy(strategy);
+      
+      // Update Preferences (This persists via AppManager)
+      // Note: We can't update global preferences directly from here easily without a callback prop.
+      // BUT, we can use the legacy local key as a backup OR emit an event.
+      // Since we don't have 'onUpdatePreferences' passed to UnitMap, we'll maintain local storage 
+      // AND try to update the cache file. Ideally, UnitMap should receive onUpdatePreferences.
+      // FOR NOW: We use localStorage to persist the active ID manually so it reloads correctly next time.
+      
+      // 1. Save FULL object to legacy key for immediate offline use
       localStorage.setItem(`algolingo_active_strategy_${problemName}_${preferences.targetLanguage}`, JSON.stringify(strategy));
+      
+      // 2. We should ideally update the UserPreferences.activeStrategies. 
+      // Since we can't easily bubble up without changing props deeply, we rely on the `useEffect` above 
+      // prioritizing `preferences` BUT falling back to `legacyKey`. 
+      // This ensures functionality works now without refactoring the whole app prop drilling.
+      
       setShowSolutionSetup(false);
   };
 
@@ -227,8 +267,7 @@ export const UnitMap: React.FC<UnitMapProps> = ({
                       </span>
                       {/* Fake Tags for Visual Completeness */}
                       <div className="flex gap-2">
-                          <span className="bg-gray-100 dark:bg-gray-800 text-gray-500 px-2 py-1 rounded flex items-center gap-1"><Tag size={10}/> Array</span>
-                          <span className="bg-gray-100 dark:bg-gray-800 text-gray-500 px-2 py-1 rounded flex items-center gap-1"><Tag size={10}/> HashTable</span>
+                          <span className="bg-gray-100 dark:bg-gray-800 text-gray-500 px-2 py-1 rounded flex items-center gap-1"><Tag size={10}/> Algorithm</span>
                       </div>
                   </div>
               </div>

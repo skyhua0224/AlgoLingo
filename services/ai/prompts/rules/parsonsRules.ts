@@ -1,15 +1,23 @@
 
 export const PARSONS_RULES = `
-- **PARSONS PUZZLE CONSTRAINTS**:
-    - **LENGTH**: You MUST generate between **5 and 9 lines** of code. 
-    - **STRICT PROHIBITION**: 
-      - **NO** puzzles with fewer than 5 lines.
-      - **NO** trivial lines like just \`pass\`, \`return\`, or \`}\`.
-      - **NO** lines that are effectively identical (e.g. swapping \`x=1\` and \`y=2\` where order doesn't matter). Every line must have a logical dependency on the previous one.
-    - **IMPORTS**: Include necessary standard library imports (e.g., \`import heapq\`) as separate lines to sort. This tests if the user knows where imports belong (at the top).
-    - **FORBIDDEN SYNTAX**:
-        - Do **NOT** use curly braces '{' or '}' (Assume Pythonic pseudo-code if teaching algorithms).
-        - Do **NOT** use semicolons ';'.
-    - **LOGIC**: The puzzle must test *control flow* or *logic* (loops, conditionals, recursion), not just variable definition.
-    - **SYNTAX CLEANING**: The UI will strip whitespace. Focus on the core logic statements.
+- **PARSONS PUZZLE CONSTRAINTS (CRITICAL)**:
+    - **MINIMUM LINES**: You MUST generate **AT LEAST 5 LINES** of code items.
+      - **STRICT PROHIBITION**: NEVER generate a puzzle with fewer than 5 lines. It is too easy.
+      - **NO FILLER**: Do NOT use comments (lines starting with # or //) as standalone draggable items to pad the count.
+      - **NO TRIVIAL LINES**: Do NOT use lines like "pass", "return;", or "..." in isolation unless strictly necessary for control flow logic.
+      - **STRATEGY**: If the core logic is short, you MUST include the surrounding context (function signature, return statement, variable initialization) to reach the 5-line minimum.
+    
+    - **NO "ORPHAN" BRACES (C++/Java/Go)**:
+      - **FORBIDDEN**: A line containing ONLY \`}\` or \`};\` or \`{\`.
+      - **FIX**: Append the closing brace to the previous logic line, or include it in the next block.
+      - ❌ BAD: \`["if (x) {", "doWork();", "}"]\` (3 lines, one is just a brace)
+      - ✅ GOOD: \`["if (x) {", "    doWork();", "    return true;", "}"]\` (More content is better)
+
+    - **LOGIC INTEGRITY**:
+      - Every line must be a meaningful logical step.
+      - **Imports**: Include imports/includes as separate lines if needed to increase difficulty.
+
+    - **INDENTATION**: 
+      - Set \`indentation: true\` for Python.
+      - For C++/Java, indentation is visual but the sorting logic relies on the order.
 `;

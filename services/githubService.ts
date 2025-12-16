@@ -1,5 +1,6 @@
 
-import { UserStats, ProgressMap, UserPreferences, MistakeRecord } from "../types";
+import { UserStats, ProgressMap, UserPreferences, MistakeRecord, SavedLesson } from "../types";
+import { CareerSession } from "../types/career";
 import { INITIAL_STATS } from "../constants";
 
 const GIST_FILENAME = "algolingo-data.json";
@@ -11,16 +12,15 @@ export interface SyncPayload {
     stats: UserStats;
     progress: ProgressMap;
     mistakes: MistakeRecord[];
+    savedLessons: SavedLesson[]; // Added
+    careerSessions: CareerSession[]; // Added
     preferences: Partial<UserPreferences>;
     engineeringData?: Record<string, any>;
 }
 
 // Helper: Sanitize Input (Remove non-ASCII characters and whitespace)
-// This prevents "String contains non ISO-8859-1 code point" errors in fetch headers.
 const sanitize = (str: string | undefined): string => {
     if (!str) return "";
-    // 1. Trim whitespace
-    // 2. Remove any character that is NOT printable ASCII (0x20-0x7E)
     return str.trim().replace(/[^\x20-\x7E]/g, '');
 };
 
@@ -35,7 +35,7 @@ const getHeaders = (token: string) => {
     };
 };
 
-// 1. Check Status (Does cloud data exist? What is the metadata?)
+// 1. Check Status
 export const checkCloudStatus = async (token: string, gistId?: string): Promise<{ 
     exists: boolean; 
     gistId?: string; 
@@ -71,7 +71,6 @@ export const checkCloudStatus = async (token: string, gistId?: string): Promise<
         }
 
         if (foundGist && foundGist.files[GIST_FILENAME]) {
-            // Fetch content
             const fileRes = await fetch(foundGist.files[GIST_FILENAME].raw_url);
             if (fileRes.ok) {
                 const content = await fileRes.json();
@@ -98,11 +97,13 @@ export const pushToGist = async (token: string, data: any, gistId?: string): Pro
     try {
         // Construct clean payload
         const payload: SyncPayload = {
-            version: "3.1",
+            version: "3.2", // Bump version
             updatedAt: now,
             stats: data.stats || INITIAL_STATS,
             progress: data.progress || {},
             mistakes: data.mistakes || [],
+            savedLessons: data.savedLessons || [], // Include History
+            careerSessions: data.careerSessions || [], // Include Career
             engineeringData: data.engineeringData || {},
             preferences: {
                 userName: data.preferences?.userName,
@@ -111,7 +112,8 @@ export const pushToGist = async (token: string, data: any, gistId?: string): Pro
                 theme: data.preferences?.theme,
             }
         };
-        // Safe stringify
+        
+        // Safe stringify with duplicate detection
         const cache: any[] = [];
         payloadString = JSON.stringify(payload, (key, value) => {
             if (typeof value === 'object' && value !== null) {
@@ -159,9 +161,4 @@ export const pullFromGist = async (token: string, gistId: string): Promise<{ suc
         return { success: true, data: status.cloudData };
     }
     return { success: false, error: status.error || "No data found" };
-};
-
-// --- Legacy Wrapper for Backward Compatibility (Optional) ---
-export const syncWithGist = async (token: string, gistId: string | undefined, currentData: any) => {
-    return { success: false, error: "Please use the new sync flow." };
 };

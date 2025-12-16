@@ -74,4 +74,7 @@ export interface UserPreferences {
   failedSkips?: Record<string, boolean>;
   notificationConfig: NotificationConfig;
   syncConfig: SyncConfig;
+  
+  // NEW: Persist active strategy per problem (ProblemID -> StrategyID)
+  activeStrategies?: Record<string, string>;
 }

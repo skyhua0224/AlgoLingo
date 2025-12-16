@@ -59,17 +59,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         const engineeringData: Record<string, any> = {};
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
-            // Collect Engineering V3 keys, Solution Strategy keys, AND Context keys (problem details)
+            // Collect Engineering V3 keys, Solution Strategy keys, Context keys, AND Active Strategy Selection
             if (key && (
                 key.startsWith('algolingo_syntax_v3_') || 
                 key.startsWith('algolingo_eng_v3_') || 
                 key.startsWith('algolingo_sol_v3_') || 
-                key.startsWith('algolingo_ctx_v3_')
+                key.startsWith('algolingo_ctx_v3_') ||
+                key.startsWith('algolingo_active_strategy_') // Capture selections
             )) {
                 try { engineeringData[key] = JSON.parse(localStorage.getItem(key)!); } catch (e) {}
             }
         }
-        ['algolingo_my_tracks', 'algolingo_forge_history_v2', 'algolingo_discovered_tracks', 'algolingo_career_sessions'].forEach(key => {
+        ['algolingo_my_tracks', 'algolingo_forge_history_v2', 'algolingo_discovered_tracks'].forEach(key => {
                 const val = localStorage.getItem(key);
                 if (val) try { engineeringData[key] = JSON.parse(val); } catch(e) {}
         });
@@ -78,6 +79,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             stats: JSON.parse(localStorage.getItem('algolingo_stats') || '{}'),
             progress: JSON.parse(localStorage.getItem('algolingo_progress_v2') || '{}'),
             mistakes: JSON.parse(localStorage.getItem('algolingo_mistakes') || '[]'),
+            savedLessons: JSON.parse(localStorage.getItem('algolingo_saved_lessons') || '[]'),
+            careerSessions: JSON.parse(localStorage.getItem('algolingo_career_sessions') || '[]'),
             preferences: tempPrefs, // Use current temp prefs
             engineeringData
         };
@@ -166,8 +169,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         gistId: gistId 
                     };
                     setTempPrefs(prev => ({ ...prev, syncConfig: newConfig }));
-                    // onDataLoaded already updates preferences including sync config if it was part of the payload,
-                    // but we ensure the latest local token is preserved here just in case.
                     
                     setSyncState('success');
                     setSyncMessage(isZh ? "同步成功，正在刷新..." : "Sync Successful. Refreshing...");
@@ -208,7 +209,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         }
     };
 
-    // Safe translation object to prevent crashes
     const safeT = t || { done: 'Done' };
 
     return (

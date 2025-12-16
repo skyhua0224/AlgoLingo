@@ -31,13 +31,48 @@ const safeParse = <T>(key: string, fallback: T): T => {
     }
 };
 
+// Fingerprint Helper
+const generateFingerprint = (m: MistakeRecord) => {
+    const ctx = (m.context || '').trim().toLowerCase();
+    const name = (m.problemName || '').trim().toLowerCase();
+    const type = m.questionType || 'unknown';
+    // Use first 50 chars of context to key, enough to distinguish but not too long
+    return `${name}|${type}|${ctx.substring(0, 50)}`; 
+};
+
+// Helper: Deduplicate Mistakes Array (Merge Strategy)
+const deduplicateMistakes = (rawMistakes: MistakeRecord[]): MistakeRecord[] => {
+    const map = new Map<string, MistakeRecord>();
+    
+    rawMistakes.forEach(m => {
+        const fp = generateFingerprint(m);
+        const existing = map.get(fp);
+        
+        if (existing) {
+            // Merge strategy: Keep most recent timestamp, sum failures, take best status
+            map.set(fp, {
+                ...existing,
+                timestamp: Math.max(existing.timestamp, m.timestamp),
+                failureCount: (existing.failureCount || 1) + (m.failureCount || 1),
+                reviewCount: (existing.reviewCount || 0) + (m.reviewCount || 0),
+                proficiency: Math.max(existing.proficiency || 0, m.proficiency || 0),
+                isResolved: existing.isResolved || m.isResolved // If solved anywhere, it's solved
+            });
+        } else {
+            map.set(fp, m);
+        }
+    });
+    
+    return Array.from(map.values());
+};
+
 export const useAppManager = () => {
     // --- STATE ---
     const [view, setView] = useState<AppView>('algorithms');
-    const [activeTab, setActiveTab] = useState<AppView>('algorithms');
-    const [refreshKey, setRefreshKey] = useState(0); // Used to force UI remount on data load
+    const [activeTab, setActiveTabState] = useState<AppView>('algorithms');
+    const [refreshKey, setRefreshKey] = useState(0); 
 
-    // Data - Protected by safeParse to prevent white screen on corrupted data
+    // Data 
     const [preferences, setPreferences] = useState<UserPreferences>(() => safeParse('algolingo_preferences', {
         userName: 'Guest',
         hasOnboarded: false,
@@ -46,22 +81,19 @@ export const useAppManager = () => {
         apiConfig: DEFAULT_API_CONFIG,
         theme: 'system',
         notificationConfig: { enabled: false, webhookUrl: '', type: 'custom' },
-        syncConfig: { enabled: false, githubToken: '' }
+        syncConfig: { enabled: false, githubToken: '' },
+        activeStrategies: {} // Default empty map
     }));
 
     const [stats, setStats] = useState<UserStats>(() => safeParse('algolingo_stats', INITIAL_STATS));
-
     const [progressMap, setProgressMap] = useState<ProgressMap>(() => safeParse('algolingo_progress_v2', {}));
-
     const [mistakes, setMistakes] = useState<MistakeRecord[]>(() => safeParse('algolingo_mistakes', []));
-
     const [savedLessons, setSavedLessons] = useState<SavedLesson[]>(() => safeParse('algolingo_saved_lessons', []));
-
     const [careerSessions, setCareerSessions] = useState<CareerSession[]>(() => safeParse('algolingo_career_sessions', []));
 
     // Session / Navigation Context
     const [activeProblem, setActiveProblem] = useState<Problem | null>(null);
-    const [activeProblemContext, setActiveProblemContext] = useState<LeetCodeContext | null>(null); // NEW: Global Problem Context
+    const [activeProblemContext, setActiveProblemContext] = useState<LeetCodeContext | null>(null);
     const [activeNodeIndex, setActiveNodeIndex] = useState(0);
     const [currentLessonPlan, setCurrentLessonPlan] = useState<LessonPlan | null>(null);
     const [activeForgeItem, setActiveForgeItem] = useState<ForgeRoadmap | null>(null);
@@ -72,6 +104,9 @@ export const useAppManager = () => {
     const [generationRawError, setGenerationRawError] = useState<string | null>(null);
     const [isSkipAttempt, setIsSkipAttempt] = useState(false);
     const [engineeringNav, setEngineeringNav] = useState<EngineeringNavState>({ pillarId: null, topic: null, trackData: null });
+    
+    // NEW: Track which mistake is being specifically reviewed to increment proficiency on success
+    const [reviewTargetId, setReviewTargetId] = useState<string | null>(null);
 
     // --- PERSISTENCE ---
     useEffect(() => { localStorage.setItem('algolingo_preferences', JSON.stringify(preferences)); }, [preferences]);
@@ -97,21 +132,27 @@ export const useAppManager = () => {
         setPreferences(prev => ({ ...prev, ...p }));
     };
 
+    // Navigation Reset on Tab Change
+    const setActiveTab = (tab: AppView) => {
+        setActiveTabState(tab);
+        // FORCE RESET NAVIGATION STACK
+        setView('dashboard');
+        setActiveProblem(null);
+        setActiveForgeItem(null);
+        setActiveCareerSession(null);
+        setActiveProblemContext(null);
+    };
+
     const handleSelectProblem = (id: string, name: string, currentLevel: number) => {
         setActiveProblem({ id, name });
-        // Reset active context so UnitMap triggers loading/generation
         setActiveProblemContext(null); 
-        
-        // Ensure progress entry exists
         if (!progressMap[preferences.targetLanguage]) {
             setProgressMap(prev => ({ ...prev, [preferences.targetLanguage]: {} }));
         }
         setView('unit-map');
     };
 
-    // New: Action to explicitly generate/fetch problem context
     const handleEnsureProblemContext = async (problemName: string) => {
-        // 1. Try Load from Cache
         const cacheKey = `algolingo_ctx_v3_${problemName}_${preferences.targetLanguage}`;
         const cached = localStorage.getItem(cacheKey);
         
@@ -120,12 +161,9 @@ export const useAppManager = () => {
                 const parsed = JSON.parse(cached);
                 setActiveProblemContext(parsed);
                 return;
-            } catch(e) {
-                console.error("Context cache invalid");
-            }
+            } catch(e) {}
         }
 
-        // 2. Generate New
         try {
             const context = await generateLeetCodeContext(problemName, preferences);
             setActiveProblemContext(context);
@@ -143,10 +181,9 @@ export const useAppManager = () => {
         setLoadingContext('lesson');
         setGenerationError(null);
         setGenerationRawError(null);
+        setReviewTargetId(null); // Clear review target for new lessons
 
         if (nodeIndex === 6) {
-            // Simulator Mode
-            // For LeetCode mode, we assume context is already generated in UnitMap
             setCurrentLessonPlan({
                 title: activeProblem.name,
                 description: "LeetCode Simulator",
@@ -154,7 +191,7 @@ export const useAppManager = () => {
                 suggestedQuestions: [],
                 context: {
                     type: 'algo',
-                    targetSolution // Pass the strategy so LeetCodeRunner can use it
+                    targetSolution
                 }
             });
             setView('runner');
@@ -164,7 +201,15 @@ export const useAppManager = () => {
         setView('loading');
         try {
             const problemMistakes = mistakes.filter(m => m.problemName === activeProblem.name);
-            const plan = await generateLessonPlan(activeProblem.name, nodeIndex, preferences, problemMistakes, savedLessons, targetSolution);
+            const plan = await generateLessonPlan(
+                activeProblem.name, 
+                nodeIndex, 
+                preferences, 
+                problemMistakes, 
+                savedLessons, 
+                targetSolution
+            );
+            
             setCurrentLessonPlan(plan);
             setView('runner');
         } catch (e: any) {
@@ -179,6 +224,13 @@ export const useAppManager = () => {
         setView('loading');
         setGenerationError(null);
         
+        // If specific review, set the target ID so we can increment proficiency on success
+        if (strategy === 'specific' && targetId) {
+            setReviewTargetId(targetId);
+        } else {
+            setReviewTargetId(null);
+        }
+        
         try {
             let plan: LessonPlan;
             let targetMistakes = mistakes.filter(m => !m.isResolved);
@@ -187,7 +239,6 @@ export const useAppManager = () => {
                 targetMistakes = mistakes.filter(m => m.id === targetId);
                 const mistake = targetMistakes[0];
                 if (mistake) {
-                    // Retry specific logic
                     plan = {
                         title: `Review: ${mistake.problemName}`,
                         description: "Single mistake retry",
@@ -198,13 +249,12 @@ export const useAppManager = () => {
                     throw new Error("Mistake not found");
                 }
             } else {
-                // Bulk review
                 const learnedIds = Object.keys(progressMap[preferences.targetLanguage] || {});
                 plan = await generateDailyWorkoutPlan(targetMistakes, learnedIds, preferences);
             }
             
             setCurrentLessonPlan(plan);
-            setActiveNodeIndex(-1); // Special index for review
+            setActiveNodeIndex(-1);
             setView('runner');
         } catch (e: any) {
             setGenerationError(e.message);
@@ -213,6 +263,7 @@ export const useAppManager = () => {
 
     const handleStartClinic = async () => {
         setLoadingContext('review');
+        setReviewTargetId(null);
         setView('loading');
         try {
             const plan = await generateSyntaxClinicPlan(preferences);
@@ -226,6 +277,7 @@ export const useAppManager = () => {
 
     const handleGenerateVariant = async (mistakeId: string) => {
         setLoadingContext('review');
+        setReviewTargetId(null); // Variant is a new problem effectively
         setView('loading');
         try {
             const mistake = mistakes.find(m => m.id === mistakeId);
@@ -241,19 +293,17 @@ export const useAppManager = () => {
 
     const handleStartCustomLesson = (plan: LessonPlan, isSkip: boolean = false) => {
         setCurrentLessonPlan(plan);
-        // Try to infer node index from plan context if available, else default to 0
         const idx = plan.context?.phaseIndex !== undefined ? plan.context.phaseIndex : (plan.context?.type === 'career_exam' ? 0 : 0);
         setActiveNodeIndex(idx);
         setIsSkipAttempt(isSkip);
         setLoadingContext(plan.context?.type === 'career_exam' ? 'career_exam' : 'lesson');
+        setReviewTargetId(null);
         setView('runner');
     };
 
     const handleStartCareerSession = (session: CareerSession) => {
-        // If simulation/interview mode, go to dedicated runner
         if (session.mode === 'simulation') {
             setActiveCareerSession(session);
-            // Save to history if new
             setCareerSessions(prev => {
                 const idx = prev.findIndex(s => s.id === session.id);
                 if (idx >= 0) {
@@ -270,6 +320,7 @@ export const useAppManager = () => {
     const handleStartCareerExam = async (company: string, role: string, jdContext: string) => {
         setPendingExamConfig({ company, role, jd: jdContext });
         setLoadingContext('career_exam');
+        setReviewTargetId(null);
         setView('loading');
         setGenerationError(null);
 
@@ -289,39 +340,92 @@ export const useAppManager = () => {
     };
 
     const handleLessonComplete = (resultStats: { xp: number; streak: number }, shouldSave: boolean, sessionMistakes: MistakeRecord[]) => {
-        // Update Stats
         const newStats = { ...stats };
         newStats.xp += resultStats.xp;
         newStats.streak = resultStats.streak > 0 ? resultStats.streak : newStats.streak; 
         
-        // Update History
         const today = new Date().toISOString().split('T')[0];
         newStats.history = { ...newStats.history, [today]: (newStats.history[today] || 0) + resultStats.xp };
         setStats(newStats);
 
-        // Save Mistakes
-        if (sessionMistakes.length > 0) {
-            setMistakes(prev => [...prev, ...sessionMistakes]);
-        }
+        // --- MISTAKE MANAGEMENT ---
+        setMistakes(prev => {
+            const updated = [...prev];
 
-        // Save Lesson if needed
+            // 1. PROFICIENCY INCREMENT (Success Logic)
+            if (loadingContext === 'review' && reviewTargetId && sessionMistakes.length === 0) {
+                const targetIdx = updated.findIndex(m => m.id === reviewTargetId);
+                if (targetIdx !== -1) {
+                    const target = updated[targetIdx];
+                    const newProf = (target.proficiency || 0) + 1;
+                    
+                    updated[targetIdx] = {
+                        ...target,
+                        proficiency: newProf,
+                        reviewCount: (target.reviewCount || 0) + 1,
+                        isResolved: newProf >= 2 ? true : target.isResolved 
+                    };
+                }
+            }
+
+            // 2. MISTAKE UPSERT (Failure Logic)
+            if (sessionMistakes.length > 0) {
+                sessionMistakes.forEach(newMistake => {
+                    const fp = generateFingerprint(newMistake);
+                    const existingIndex = updated.findIndex(m => generateFingerprint(m) === fp);
+
+                    if (existingIndex !== -1) {
+                        const existing = updated[existingIndex];
+                        updated[existingIndex] = {
+                            ...existing,
+                            timestamp: Date.now(), 
+                            failureCount: (existing.failureCount || 1) + 1,
+                            isResolved: false,
+                            proficiency: 0 
+                        };
+                    } else {
+                        updated.push({
+                            ...newMistake,
+                            proficiency: 0,
+                            failureCount: 1,
+                            isResolved: false
+                        });
+                    }
+                });
+            }
+            return updated;
+        });
+        
+        setReviewTargetId(null);
+
         if (shouldSave && currentLessonPlan) {
-            const newSave: SavedLesson = {
-                id: Date.now().toString(),
-                problemId: activeProblem?.id || 'custom',
-                nodeIndex: activeNodeIndex,
-                timestamp: Date.now(),
-                plan: currentLessonPlan,
-                language: preferences.targetLanguage,
-                xpEarned: resultStats.xp,
-                mistakeCount: sessionMistakes.length
-            };
-            setSavedLessons(prev => [newSave, ...prev].slice(0, 50)); // Keep last 50
+            const problemId = activeProblem?.id || 'custom';
             
-            // Update Progress if it was a standard lesson
+            setSavedLessons(prev => {
+                const recentDuplicate = prev.find(l => 
+                    l.problemId === problemId && 
+                    l.nodeIndex === activeNodeIndex && 
+                    (Date.now() - l.timestamp) < 60000
+                );
+
+                if (recentDuplicate) return prev;
+
+                const newSave: SavedLesson = {
+                    id: Date.now().toString(),
+                    problemId: problemId,
+                    nodeIndex: activeNodeIndex,
+                    timestamp: Date.now(),
+                    plan: currentLessonPlan,
+                    language: preferences.targetLanguage,
+                    xpEarned: resultStats.xp,
+                    mistakeCount: sessionMistakes.length
+                };
+                
+                return [newSave, ...prev].slice(0, 50); 
+            });
+            
             if (activeProblem && activeNodeIndex !== -1) {
                 const currentLevel = progressMap[preferences.targetLanguage]?.[activeProblem.id] || 0;
-                // Only advance if we completed the current level or skipped ahead
                 const nextLevel = activeNodeIndex + 1;
                 if (nextLevel > currentLevel) {
                     const newMap = { ...progressMap };
@@ -347,11 +451,10 @@ export const useAppManager = () => {
         setCurrentLessonPlan(newPlan);
     };
 
-    // Data Import/Export
     const handleExportData = () => {
         const data = {
             stats, progress: progressMap, mistakes, preferences, savedLessons, careerSessions,
-            version: "3.1",
+            version: "3.2",
             timestamp: Date.now()
         };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -376,30 +479,28 @@ export const useAppManager = () => {
     };
 
     const handleDataLoaded = (data: any) => {
-        // DIRECT LOCALSTORAGE WRITE to avoid React state race conditions during full restore
         try {
-            // 1. Persistence
             if (data.stats) localStorage.setItem('algolingo_stats', JSON.stringify(data.stats));
             if (data.progress) localStorage.setItem('algolingo_progress_v2', JSON.stringify(data.progress));
-            if (data.mistakes) localStorage.setItem('algolingo_mistakes', JSON.stringify(data.mistakes));
+            if (data.mistakes) {
+                const cleanMistakes = deduplicateMistakes(data.mistakes);
+                localStorage.setItem('algolingo_mistakes', JSON.stringify(cleanMistakes));
+                setMistakes(cleanMistakes);
+            }
             if (data.savedLessons) localStorage.setItem('algolingo_saved_lessons', JSON.stringify(data.savedLessons));
             if (data.careerSessions) localStorage.setItem('algolingo_career_sessions', JSON.stringify(data.careerSessions));
             
-            // Restore Engineering Data, Solutions and Contexts (Crucial fix for V3 persistence)
             if (data.engineeringData) {
                 Object.entries(data.engineeringData).forEach(([key, value]) => {
                     localStorage.setItem(key, JSON.stringify(value));
                 });
             }
 
-            // 2. React State Update (Immediate UI Feedback without reload dependency)
             if (data.stats) setStats(data.stats);
             if (data.progress) setProgressMap(data.progress);
-            if (data.mistakes) setMistakes(data.mistakes);
             if (data.savedLessons) setSavedLessons(data.savedLessons);
             if (data.careerSessions) setCareerSessions(data.careerSessions);
 
-            // Merge Preferences safely
             const currentPrefs = safeParse('algolingo_preferences', {});
             const newPrefs = { 
                 ...currentPrefs, 
@@ -407,16 +508,12 @@ export const useAppManager = () => {
                 hasOnboarded: true 
             };
             localStorage.setItem('algolingo_preferences', JSON.stringify(newPrefs));
-            
-            // This triggers the view transition in App.tsx instantly
             setPreferences(newPrefs);
-
-            // 3. Force UI Remount
             setRefreshKey(prev => prev + 1);
             
         } catch (e) {
             console.error("Data restore failed", e);
-            alert("Failed to write data to storage. Please check disk space or permissions.");
+            alert("Failed to write data to storage.");
         }
     };
 

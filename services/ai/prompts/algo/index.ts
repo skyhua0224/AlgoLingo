@@ -1,12 +1,12 @@
 
-import { BASE_SYSTEM_INSTRUCTION } from "./system";
-import { INTRO_STAGE_PROMPT } from "./stages/intro";
-import { BASIC_STAGE_PROMPT } from "./stages/basic";
-import { REVIEW_STAGE_PROMPT } from "./stages/review";
-import { CODING_STAGE_PROMPT } from "./stages/coding";
-import { MASTERY_STAGE_PROMPT } from "./stages/mastery";
-import { LEETCODE_STAGE_PROMPT } from "./stages/leetcode";
-import { SolutionStrategy } from "../../../types";
+import { BASE_SYSTEM_INSTRUCTION } from "../system";
+import { INTRO_STAGE_PROMPT } from "../stages/intro";
+import { BASIC_STAGE_PROMPT } from "../stages/basic";
+import { REVIEW_STAGE_PROMPT } from "../stages/review";
+import { CODING_STAGE_PROMPT } from "../stages/coding";
+import { MASTERY_STAGE_PROMPT } from "../stages/mastery";
+import { LEETCODE_STAGE_PROMPT } from "../stages/leetcode";
+import { SolutionStrategy } from "../../../../types";
 
 const langRules: Record<string, string> = {
     Python: "Use Pythonic syntax (list comprehensions, snake_case). Standard library only.",
@@ -64,7 +64,7 @@ export const getLessonPlanSystemInstruction = (
         `;
     }
 
-    // New: Mistake Injection Protocol for Review Phases
+    // Mistake Injection Protocol for Review Phases
     let mistakeInjectionProtocol = "";
     if (phaseIndex === 2 || phaseIndex === 4 || phaseIndex === 5) {
         mistakeInjectionProtocol = `
@@ -146,7 +146,3 @@ export const getVariantSystemInstruction = (
     - You may add a short 'callout' before the interactive widget to explain the variation context.
     `;
 };
-
-export { getLeetCodeContextSystemInstruction } from "./stages/leetcode";
-export { getJudgeSystemInstruction } from "./judge";
-export { getDailyWorkoutSystemInstruction } from "./stages/workout";

@@ -112,19 +112,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
             {/* Smart Suggestion & History Area */}
             {(activeMistakes > 0 || recentLessons.length > 0) && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
                     {/* AI Mistake Fixer */}
                     {activeMistakes > 0 ? (
-                        <div className="bg-gradient-to-br from-red-50 to-white dark:from-red-900/20 dark:to-dark-card border border-red-100 dark:border-red-900/30 rounded-2xl p-5 relative overflow-hidden group">
+                        <div className="bg-gradient-to-br from-red-50 to-white dark:from-red-900/20 dark:to-dark-card border border-red-100 dark:border-red-900/30 rounded-2xl p-5 relative overflow-hidden group min-h-[160px] flex flex-col">
                             <div className="absolute top-0 right-0 p-4 opacity-10 text-red-500 transform rotate-12 group-hover:scale-110 transition-transform">
                                 <AlertTriangle size={80} />
                             </div>
-                            <div className="relative z-10">
+                            <div className="relative z-10 flex flex-col h-full items-start">
                                 <div className="flex items-center gap-2 text-red-600 dark:text-red-400 font-bold text-xs uppercase tracking-wider mb-2">
                                     <Sparkles size={14} /> {t.aiSuggest}
                                 </div>
                                 <h3 className="text-xl font-black text-gray-900 dark:text-white mb-1">{t.fixMistakes}</h3>
-                                <p className="text-xs text-gray-500 dark:text-gray-400 mb-4 pr-8 leading-relaxed">
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mb-4 pr-8 leading-relaxed flex-1">
                                     {t.fixMistakesDesc} <span className="font-bold text-red-500">({activeMistakes} issues)</span>
                                 </p>
                                 <button 
@@ -137,7 +137,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         </div>
                     ) : (
                         // Placeholder if no mistakes (encouragement)
-                        <div className="bg-gradient-to-br from-green-50 to-white dark:from-green-900/20 dark:to-dark-card border border-green-100 dark:border-green-900/30 rounded-2xl p-5 flex flex-col justify-center">
+                        <div className="bg-gradient-to-br from-green-50 to-white dark:from-green-900/20 dark:to-dark-card border border-green-100 dark:border-green-900/30 rounded-2xl p-5 flex flex-col justify-center min-h-[160px]">
                             <div className="flex items-center gap-3">
                                 <div className="p-2 bg-green-100 dark:bg-green-800 rounded-full text-green-600 dark:text-green-300">
                                     <CheckCircle2 size={24} />
@@ -151,7 +151,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     )}
 
                     {/* Recent History List (Mini) */}
-                    <div className="bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-700 rounded-2xl p-5 flex flex-col">
+                    <div className="bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-700 rounded-2xl p-5 flex flex-col min-h-[160px]">
                         <div className="flex items-center justify-between mb-3">
                             <h3 className="font-bold text-gray-800 dark:text-white text-sm flex items-center gap-2">
                                 <History size={16} className="text-gray-400"/> {t.recent}

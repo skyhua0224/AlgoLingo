@@ -117,7 +117,8 @@ export interface MistakeRecord {
   timestamp: number;
   reviewCount?: number; 
   failureCount?: number; 
-  isResolved?: boolean;  
+  isResolved?: boolean;
+  proficiency?: number; // 0-5 scale. 0 = new/failed, 1 = reviewed once, 2 = mastered/resolved.
 }
 
 export interface GameContent {

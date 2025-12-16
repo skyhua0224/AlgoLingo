@@ -8,8 +8,8 @@ interface UseLessonEngineProps {
     plan: LessonPlan;
     nodeIndex: number;
     onComplete: (stats: { xp: number; streak: number }, shouldSave: boolean, mistakes: MistakeRecord[]) => void;
-    isReviewMode?: boolean; // If true, typically disables the loop unless overridden
-    allowMistakeLoop?: boolean; // Force enable loop even in review mode (for Drills)
+    isReviewMode?: boolean; 
+    allowMistakeLoop?: boolean; 
     maxMistakes?: number; 
 }
 
@@ -22,7 +22,6 @@ export interface ExamResult {
 }
 
 export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = false, allowMistakeLoop = false, maxMistakes }: UseLessonEngineProps) => {
-    // Core State
     const [screens, setScreens] = useState<LessonScreen[]>(plan.screens || []);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [status, setStatus] = useState<EngineStatus>('idle');
@@ -86,10 +85,9 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
             setStreak(0);
             
             if (mistakeManager.isInMistakeLoop) {
-                // In repair loop: Push copy to end to ensure mastery
+                // In repair loop: Push copy to end to ensure mastery (Endless until fixed)
                 setScreens(prev => [...prev, { ...currentScreen, id: currentScreen.id + '_retry_' + Date.now() }]);
             } else {
-                // Normal mode
                 mistakeManager.recordMistake(currentScreen, plan.title, nodeIndex);
             }
         }
@@ -114,8 +112,6 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
             setCurrentIndex(prev => prev + 1);
         } else {
             setIsFinished(true);
-            // In Exam Mode, we usually want to show a specific Exam Summary, 
-            // handled by LessonRunner checking (currentIndex >= totalScreens)
             setCurrentIndex(prev => prev + 1); 
         }
     }, [currentIndex, currentScreen, isLastScreen, mistakeManager, nodeIndex, plan.title, xpGained, streak]);
@@ -135,17 +131,31 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
             setStatus('idle');
             setCurrentIndex(prev => prev + 1);
         } else {
-            // --- LOOP LOGIC FIXED ---
+            // --- LOOP LOGIC UPGRADED ---
             const shouldEnterLoop = mistakeManager.hasPendingMistakes && !mistakeManager.isInMistakeLoop && (!isReviewMode || allowMistakeLoop);
 
             if (shouldEnterLoop) {
                 mistakeManager.startReviewLoop();
-                setScreens(prev => [...prev, ...mistakeManager.retryQueue]);
+                
+                // 1. Create a special "Transition" screen
+                const transitionScreen: LessonScreen = {
+                    id: 'mistake_transition_screen',
+                    header: 'DEBUG MODE',
+                    widgets: [{ id: 'trans', type: 'callout', callout: { title: 'DEBUG', text: 'transition', variant: 'info' } }]
+                };
+
+                // 2. Get shuffled mistakes
+                const mistakeScreens = mistakeManager.getMistakeScreens();
+
+                // 3. Append Transition + Mistakes
+                setScreens(prev => [...prev, transitionScreen, ...mistakeScreens]);
                 mistakeManager.clearQueue();
+                
+                // 4. Move to Transition Screen
                 setCurrentIndex(prev => prev + 1);
                 setStatus('idle');
             } else {
-                // CRITICAL FIX: Increment index to trigger LessonSummary in parent component
+                // If ending a loop or normal finish
                 setIsFinished(true);
                 setCurrentIndex(prev => prev + 1);
             }

@@ -2,6 +2,16 @@
 import { useState, useCallback } from 'react';
 import { LessonScreen, MistakeRecord, Widget } from '../types';
 
+// Helper: Fisher-Yates Shuffle
+const shuffleArray = <T>(array: T[]): T[] => {
+    const arr = [...array];
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+};
+
 export const useMistakeManager = () => {
     const [sessionMistakes, setSessionMistakes] = useState<MistakeRecord[]>([]);
     const [retryQueue, setRetryQueue] = useState<LessonScreen[]>([]);
@@ -9,7 +19,6 @@ export const useMistakeManager = () => {
 
     const recordMistake = useCallback((screen: LessonScreen, problemName: string, nodeIndex: number) => {
         // STRICT FILTER: Only record truly interactive widgets.
-        // Updated to include Engineering/Forge widgets (terminal, mini-editor, visual-quiz)
         const interactiveTypes = [
             'quiz', 'parsons', 'fill-in', 'interactive-code', 'leetcode', 'steps-list',
             'terminal', 'mini-editor', 'visual-quiz', 'code-walkthrough'
@@ -20,8 +29,6 @@ export const useMistakeManager = () => {
             (w.type === 'flipcard' && w.flipcard?.mode === 'assessment')
         );
 
-        // If the screen contains NO interactive widget (e.g., purely instructional dialogue), 
-        // DO NOT record a mistake. You cannot "fail" a conversation.
         if (!targetWidget) {
             return;
         }
@@ -38,19 +45,15 @@ export const useMistakeManager = () => {
         };
 
         setSessionMistakes(prev => {
-            // Deduplicate: Don't add if we just added this exact widget ID
             const last = prev[prev.length - 1];
             if (last && last.widget?.id === targetWidget?.id) return prev;
             return [...prev, newRecord];
         });
 
-        // Add to immediate retry queue (if not already in loop)
+        // Add to retry queue (Logic remains same, but we will shuffle when accessing)
         setRetryQueue(prev => {
-            // Avoid duplicate screens in queue by ID
             if (prev.find(s => s.id === screen.id || s.id === `retry_${screen.id}`)) return prev;
             
-            // Create a dedicated retry screen containing ONLY the failed widget to focus attention
-            // This ensures in review mode, the user sees the problem, not the surrounding fluff.
             const retryScreen: LessonScreen = { 
                 id: `retry_${screen.id}_${Date.now()}`,
                 header: `Retry: ${screen.header || 'Concept'}`,
@@ -62,7 +65,6 @@ export const useMistakeManager = () => {
         });
     }, []);
 
-    // NEW: Undo the last mistake (used for Appeals)
     const removeLastMistake = useCallback(() => {
         setSessionMistakes(prev => prev.slice(0, -1));
         setRetryQueue(prev => prev.slice(0, -1));
@@ -76,9 +78,15 @@ export const useMistakeManager = () => {
         setRetryQueue([]);
     }, []);
 
+    // New Helper: Get Shuffled Queue
+    const getMistakeScreens = useCallback(() => {
+        return shuffleArray(retryQueue);
+    }, [retryQueue]);
+
     return {
         sessionMistakes,
         retryQueue,
+        getMistakeScreens, // Export this
         isInMistakeLoop,
         hasPendingMistakes: retryQueue.length > 0,
         recordMistake,

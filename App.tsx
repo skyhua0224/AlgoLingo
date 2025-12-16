@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Dashboard } from './components/Dashboard';
 import { UnitMap } from './components/UnitMap';
 import { LessonRunner } from './components/lesson/LessonRunner';
@@ -16,6 +16,7 @@ import { InterviewRunner } from './components/Career/InterviewRunner';
 import { useAppManager } from './hooks/useAppManager';
 import { AppView } from './types';
 import { ForgeRoadmap } from './types/forge';
+import { DailyStandupModal } from './components/DailyStandupModal'; // New Import
 
 export default function App() {
   const { state, actions } = useAppManager();
@@ -26,6 +27,30 @@ export default function App() {
       generationError, generationRawError, isSkipAttempt, activeCareerSession, careerSessions,
       activeProblemContext, refreshKey
   } = state;
+
+  const [showDailyStandup, setShowDailyStandup] = useState(false);
+
+  // --- DAILY CHECK LOGIC ---
+  useEffect(() => {
+      if (!preferences.hasOnboarded) return;
+      
+      const today = new Date().toISOString().split('T')[0];
+      const lastCheckIn = localStorage.getItem('algolingo_last_standup_date');
+      
+      if (lastCheckIn !== today) {
+          setShowDailyStandup(true);
+      }
+  }, [preferences.hasOnboarded]);
+
+  const handleStandupComplete = (startWarmup: boolean) => {
+      const today = new Date().toISOString().split('T')[0];
+      localStorage.setItem('algolingo_last_standup_date', today);
+      setShowDailyStandup(false);
+      
+      if (startWarmup) {
+          actions.handleStartReview('ai');
+      }
+  };
 
   const handleCustomLessonStart = (plan: any, isSkip: boolean = false) => {
       actions.handleStartCustomLesson(plan, isSkip);
@@ -45,17 +70,12 @@ export default function App() {
 
   // --- CAREER RUNNER / REDIRECTS ---
   if (view === 'career-runner' && activeCareerSession) {
-      // SPECIAL HANDLING: If JD Prep, we redirect to Forge Detail instead of running an interview
       if (activeCareerSession.mode === 'jd_prep' && activeCareerSession.syllabusId) {
-          // Try to find the roadmap in history
           const history = JSON.parse(localStorage.getItem('algolingo_forge_history_v2') || '[]');
           const roadmap = history.find((r: ForgeRoadmap) => r.id === activeCareerSession.syllabusId);
           
           if (roadmap) {
-              // Redirect to Forge Detail
               actions.handleViewForgeItem(roadmap); 
-              // We manually set view here because `handleViewForgeItem` inside AppManager sets view to `forge-detail`
-              // This block effectively intercepts the `career-runner` view state if needed.
               return (
                 <ForgeDetailView 
                     roadmap={roadmap}
@@ -83,7 +103,6 @@ export default function App() {
 
   const renderContent = () => {
     if (view === 'loading') {
-        // Logic to determine loading title
         let loadingTitle = activeProblem?.name;
         if (state.loadingContext === 'career_exam' && state.pendingExamConfig) {
             loadingTitle = `${state.pendingExamConfig.company} Exam`;
@@ -102,7 +121,6 @@ export default function App() {
         );
     }
     
-    // LESSON RUNNER (FULL SCREEN MODAL)
     if (view === 'runner' && currentLessonPlan) {
         return (
             <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur flex items-center justify-center p-0 md:p-4">
@@ -198,7 +216,7 @@ export default function App() {
                     language={preferences.spokenLanguage} 
                     onStartSession={actions.handleStartCareerSession}
                     onStartLesson={handleCustomLessonStart}
-                    onStartExam={actions.handleStartCareerExam} // Pass global exam handler
+                    onStartExam={actions.handleStartCareerExam} 
                     onViewRoadmap={actions.handleViewForgeItem}
                     preferences={preferences}
                     savedLessons={savedLessons} 
@@ -236,8 +254,17 @@ export default function App() {
 
   return (
     <>
+        {showDailyStandup && (
+            <DailyStandupModal 
+                streak={stats.streak}
+                onClose={() => handleStandupComplete(false)}
+                onStartWarmup={() => handleStandupComplete(true)}
+                isZh={preferences.spokenLanguage === 'Chinese'}
+            />
+        )}
+
         <Layout 
-            key={refreshKey} // FORCE REMOUNT ON DATA RESTORE
+            key={refreshKey} 
             activeTab={activeTab} 
             onTabChange={(tab) => actions.setActiveTab(tab)}
             preferences={preferences}

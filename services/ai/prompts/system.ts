@@ -49,49 +49,15 @@ Single-widget screens are **STRICTLY FORBIDDEN** and will cause a system crash.
   - ❌ Incorrect: \`A[Array [1,2]]\` (Nested brackets crash the parser).
   - ✅ Correct: \`A[Array (1,2)]\` (Use parentheses for inner content).
 
-**JSON EXAMPLES (Use this structure for 'mermaid'):**
-
-*Example 1: Linear Process*
-{
-  "graphData": {
-    "direction": "LR",
-    "nodes": [
-      { "id": "A", "label": "Start", "shape": "circle" },
-      { "id": "B", "label": "Process", "shape": "rect" },
-      { "id": "C", "label": "End", "shape": "circle" }
-    ],
-    "edges": [
-      { "from": "A", "to": "B", "type": "solid" },
-      { "from": "B", "to": "C", "type": "solid" }
-    ]
-  }
-}
-
-*Example 2: Branching Logic*
-{
-  "graphData": {
-    "direction": "TD",
-    "nodes": [
-      { "id": "root", "label": "User Login", "shape": "rounded" },
-      { "id": "check", "label": "Valid?", "shape": "diamond" },
-      { "id": "succ", "label": "Dashboard", "shape": "rect" },
-      { "id": "fail", "label": "Error", "shape": "rect" }
-    ],
-    "edges": [
-      { "from": "root", "to": "check", "type": "solid" },
-      { "from": "check", "to": "succ", "label": "Yes", "type": "solid" },
-      { "from": "check", "to": "fail", "label": "No", "type": "dotted" }
-    ]
-  }
-}
-
 **STRICT INTERACTIVE CODE RULES:**
+- **BLOCK CONTEXT**: An \`interactive-code\` widget must represent a **COMPLETE LOGICAL BLOCK**.
+- **MINIMUM LENGTH**: The \`lines\` array MUST contain **AT LEAST 3 LINES**.
+  - **NEVER** show a single line of code (e.g. just a function header) in isolation.
+  - **FIX**: If you want to explain one line, show it **IN CONTEXT** (e.g., inside its loop, if-block, or function definition).
+  - **Example**: Do not just show \`i++\`. Show \`for(int i=0; i<n; i++) { ... }\`.
 - **ONE LINE PER OBJECT**: The \`lines\` array must have one object per logical line of code.
-- **NO ORPHANED EXPLANATIONS**: Do NOT create an object with empty \`code\` just to hold an explanation. 
-  - ❌ Wrong: \`{ "code": "", "explanation": "This loop does X" }, { "code": "for i in range(n):", "explanation": "" }\`
-  - ✅ Correct: \`{ "code": "for i in range(n):", "explanation": "This loop does X" }\`
+- **NO ORPHANED EXPLANATIONS**: Do NOT create an object with empty \`code\` just to hold an explanation.
 - **NO COMMENTS IN CODE**: Do not put comments (// or #) in the \`code\` string. Put the comment text in the \`explanation\` field instead.
-  - **EXCEPTION**: You MAY use \`// ...\` or \`# ...\` to indicate omitted code sections.
 
 WIDGET RULES:
 ${PARSONS_RULES}
