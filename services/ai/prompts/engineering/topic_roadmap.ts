@@ -35,7 +35,7 @@ export const getTopicRoadmapPrompt = (topic: string, pillar: string, keywords: s
     3. **Steps 6-8 (Senior)**: Focus on "Internals", "Edge Cases", "Debugging". 
        - **TAGS MUST INCLUDE**: "Terminal", "Code Walkthrough", "Debug".
     4. **Steps 9+ (Expert)**: Focus on "Real-world Scenarios", "Complex Architecture". 
-       - **TAGS MUST INCLUDE**: "Mini-Editor", "Arch Canvas", "Mastery".
+       - **TAGS MUST INCLUDE**: "Mini-Editor", "Mastery".
 
     **CONSTRAINTS**:
     - Generate between 8 and 12 steps.

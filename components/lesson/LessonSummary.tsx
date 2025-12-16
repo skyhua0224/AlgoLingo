@@ -1,6 +1,13 @@
 
 import React from 'react';
-import { Clock, Target, Zap, RotateCcw, ThumbsUp, ThumbsDown, CheckCircle2, ArrowRight } from 'lucide-react';
+import { Clock, Target, Zap, RotateCcw, ThumbsUp, ThumbsDown, CheckCircle2, ArrowRight, Home, Layout } from 'lucide-react';
+
+export interface SummaryAction {
+    label: string;
+    icon?: React.ElementType;
+    onClick: () => void;
+    variant?: 'primary' | 'secondary';
+}
 
 interface LessonSummaryProps {
     stats: {
@@ -12,9 +19,10 @@ interface LessonSummaryProps {
     };
     language: 'Chinese' | 'English';
     onContinue: (satisfaction: boolean) => void;
+    customActions?: SummaryAction[]; // NEW: Allow overriding the default buttons
 }
 
-export const LessonSummary: React.FC<LessonSummaryProps> = ({ stats, language, onContinue }) => {
+export const LessonSummary: React.FC<LessonSummaryProps> = ({ stats, language, onContinue, customActions }) => {
     const isZh = language === 'Chinese';
 
     const accuracy = Math.round((stats.correctCount / Math.max(1, stats.totalQuestions)) * 100);
@@ -67,36 +75,55 @@ export const LessonSummary: React.FC<LessonSummaryProps> = ({ stats, language, o
 
             {/* Satisfaction / Action Section */}
             <div className="flex-1 flex flex-col items-center justify-center p-6 border-t border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-dark-card/30">
-                <h3 className="text-gray-500 dark:text-gray-400 font-bold uppercase tracking-wider text-sm mb-6">
-                    {isZh ? "你对本次生成的课程满意吗？" : "How was this AI-generated lesson?"}
-                </h3>
                 
-                <div className="flex flex-col md:flex-row gap-4 w-full max-w-md">
-                    {/* Dissatisfied / Redo Button */}
-                    <button 
-                        onClick={() => onContinue(false)}
-                        className="flex-1 flex items-center justify-center gap-3 p-4 rounded-xl border-2 border-gray-200 dark:border-gray-700 text-gray-500 hover:border-red-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 transition-all group active:scale-95"
-                    >
-                        <ThumbsDown size={24} className="group-hover:-translate-y-1 transition-transform" />
-                        <div className="text-left">
-                            <div className="font-bold text-sm">{isZh ? "不满意" : "Not Good"}</div>
-                            <div className="text-[10px] uppercase font-bold opacity-70">{isZh ? "重新生成" : "Regenerate"}</div>
-                        </div>
-                    </button>
+                {customActions ? (
+                    <div className="flex flex-col md:flex-row gap-4 w-full max-w-md">
+                        {customActions.map((action, idx) => (
+                            <button 
+                                key={idx}
+                                onClick={action.onClick}
+                                className={`flex-1 flex items-center justify-center gap-2 p-4 rounded-xl font-bold transition-all shadow-lg active:scale-95 ${
+                                    action.variant === 'secondary' 
+                                    ? 'bg-white dark:bg-dark-card border-2 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50' 
+                                    : 'bg-brand border-b-4 border-brand-dark text-white hover:bg-brand-light active:border-b-0 active:translate-y-1'
+                                }`}
+                            >
+                                {action.icon && <action.icon size={20} />}
+                                {action.label}
+                            </button>
+                        ))}
+                    </div>
+                ) : (
+                    <>
+                        <h3 className="text-gray-500 dark:text-gray-400 font-bold uppercase tracking-wider text-sm mb-6">
+                            {isZh ? "你对本次生成的课程满意吗？" : "How was this AI-generated lesson?"}
+                        </h3>
+                        <div className="flex flex-col md:flex-row gap-4 w-full max-w-md">
+                            <button 
+                                onClick={() => onContinue(false)}
+                                className="flex-1 flex items-center justify-center gap-3 p-4 rounded-xl border-2 border-gray-200 dark:border-gray-700 text-gray-500 hover:border-red-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 transition-all group active:scale-95"
+                            >
+                                <ThumbsDown size={24} className="group-hover:-translate-y-1 transition-transform" />
+                                <div className="text-left">
+                                    <div className="font-bold text-sm">{isZh ? "不满意" : "Not Good"}</div>
+                                    <div className="text-[10px] uppercase font-bold opacity-70">{isZh ? "重新生成" : "Regenerate"}</div>
+                                </div>
+                            </button>
 
-                    {/* Satisfied / Continue Button (Primary) */}
-                    <button 
-                        onClick={() => onContinue(true)}
-                        className="flex-[2] flex items-center justify-center gap-3 p-4 rounded-xl bg-brand border-b-4 border-brand-dark text-white shadow-xl hover:bg-brand-light active:border-b-0 active:translate-y-1 transition-all"
-                    >
-                        <ThumbsUp size={24} className="animate-bounce" />
-                        <div className="text-left">
-                            <div className="font-bold text-lg leading-none">{isZh ? "很棒，继续！" : "Great! Continue"}</div>
-                            <div className="text-[10px] uppercase font-bold opacity-80">{isZh ? "完成并保存" : "Finish & Save"}</div>
+                            <button 
+                                onClick={() => onContinue(true)}
+                                className="flex-[2] flex items-center justify-center gap-3 p-4 rounded-xl bg-brand border-b-4 border-brand-dark text-white shadow-xl hover:bg-brand-light active:border-b-0 active:translate-y-1 transition-all"
+                            >
+                                <ThumbsUp size={24} className="animate-bounce" />
+                                <div className="text-left">
+                                    <div className="font-bold text-lg leading-none">{isZh ? "很棒，继续！" : "Great! Continue"}</div>
+                                    <div className="text-[10px] uppercase font-bold opacity-80">{isZh ? "完成并保存" : "Finish & Save"}</div>
+                                </div>
+                                <ArrowRight size={24} className="ml-2 opacity-80" />
+                            </button>
                         </div>
-                        <ArrowRight size={24} className="ml-2 opacity-80" />
-                    </button>
-                </div>
+                    </>
+                )}
             </div>
         </div>
     );

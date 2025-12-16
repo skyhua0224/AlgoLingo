@@ -1,12 +1,13 @@
 
-import React, { useState, useEffect } from 'react';
-import { Sparkles, Code2, CheckCircle, Edit3, ArrowRight, BookOpen, Loader2, Lightbulb, Brain, Key, Share2, Plus, Trash2, RefreshCw, X, MessageSquarePlus, Send, HelpCircle, User, Bot, AlertTriangle, FileJson, Copy, Check } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Sparkles, Code2, CheckCircle, Edit3, ArrowRight, BookOpen, Loader2, Lightbulb, Brain, Key, Share2, Plus, Trash2, RefreshCw, X, MessageSquarePlus, Send, HelpCircle, User, Bot, AlertTriangle, FileJson, Copy, Check, Camera, Image as ImageIcon } from 'lucide-react';
 import { SolutionStrategy, UserPreferences } from '../types';
-import { generateLeetCodeSolutions, refineUserSolution, regenerateSolutionStrategy, generateAiAssistance } from '../services/geminiService';
+import { generateLeetCodeSolutions, refineUserSolution, regenerateSolutionStrategy, generateAiAssistance, analyzeImageSolution, fixMermaidCode } from '../services/geminiService';
 import { MarkdownText } from './common/MarkdownText';
 import { Button } from './Button';
 import { InteractiveCodeWidget } from './widgets/InteractiveCode';
 import { MermaidVisualWidget } from './widgets/MermaidVisual';
+import { LogicFlowWidget } from './widgets/LogicFlow'; // NEW IMPORT
 import { GlobalAiAssistant } from './GlobalAiAssistant';
 
 interface SolutionSetupProps {
@@ -23,10 +24,16 @@ export const SolutionSetup: React.FC<SolutionSetupProps> = ({ problemName, probl
     const [isLoading, setIsLoading] = useState(false);
     const [solutions, setSolutions] = useState<SolutionStrategy[]>([]);
     const [selectedId, setSelectedId] = useState<string | null>(null);
+    
+    // Custom Input State
     const [customInput, setCustomInput] = useState('');
     const [refining, setRefining] = useState(false);
     const [viewMode, setViewMode] = useState<'standard' | 'custom'>('standard');
     
+    // Whiteboard Image State
+    const [imagePreview, setImagePreview] = useState<string | null>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
     // Modals State
     const [showRegenModal, setShowRegenModal] = useState(false); // Single strategy regen
     const [showRegenAllModal, setShowRegenAllModal] = useState(false); // All strategies regen
@@ -44,6 +51,19 @@ export const SolutionSetup: React.FC<SolutionSetupProps> = ({ problemName, probl
 
     // Adapter for backward compatibility or different JSON shapes
     const adaptStrategy = (app: any, lang: string): SolutionStrategy => {
+        // Defensive coding: Ensure arrays are actually arrays
+        let safeExpandedKnowledge = [];
+        if (Array.isArray(app.expandedKnowledge)) {
+            safeExpandedKnowledge = app.expandedKnowledge;
+        } else if (typeof app.expandedKnowledge === 'string') {
+            safeExpandedKnowledge = [app.expandedKnowledge];
+        }
+
+        let safeKeywords = [];
+        if (Array.isArray(app.keywords)) {
+            safeKeywords = app.keywords;
+        }
+
         return {
             id: app.id,
             title: app.title,
@@ -51,11 +71,13 @@ export const SolutionSetup: React.FC<SolutionSetupProps> = ({ problemName, probl
             tags: app.tags || [],
             rationale: app.rationale,
             derivation: app.derivation || app.intuition || "No explanation provided.",
-            analogy: app.analogy,
-            memoryTip: app.memoryTip,
-            expandedKnowledge: app.expandedKnowledge || [],
+            analogy: app.analogy || (isZh ? "暂无类比" : "No analogy provided."),
+            // Ensure memoryTip always has content
+            memoryTip: app.memoryTip || (isZh ? "回顾推导过程，构建你的专属记忆宫殿。" : "Review the derivation logic to build your own mnemonic."),
+            expandedKnowledge: safeExpandedKnowledge,
             mermaid: app.mermaid,
-            keywords: app.keywords || [], // [{term, definition, memoryTip}]
+            logicSteps: app.logicSteps, // New field for native UI flow
+            keywords: safeKeywords, // [{term, definition, memoryTip}]
             code: app.code || "// Code logic missing", // Raw string
             codeWidgets: app.widgets || app.codeWidgets || [], // Interactive Widgets
             language: lang,
@@ -107,26 +129,51 @@ export const SolutionSetup: React.FC<SolutionSetupProps> = ({ problemName, probl
         loadSolutions();
     }, [problemName, preferences.targetLanguage]); 
 
+    // Handle File Selection
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            const file = e.target.files[0];
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const base64String = reader.result as string;
+                setImagePreview(base64String);
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
     const handleRefineCustom = async () => {
-        if (!customInput.trim()) return;
+        if (!customInput.trim() && !imagePreview) return;
         setRefining(true);
         try {
-            const data = await refineUserSolution(customInput, problemName, preferences);
+            let data;
+            
+            if (imagePreview) {
+                // Multimodal Analysis
+                const base64Data = imagePreview.split(',')[1];
+                data = await analyzeImageSolution(base64Data, problemName, preferences);
+            } else {
+                // Text Analysis
+                data = await refineUserSolution(customInput, problemName, preferences);
+            }
+
             const customStrategy: SolutionStrategy = {
                 id: `custom_${Date.now()}`,
                 title: isZh ? "我的自定义解法" : "My Custom Solution",
                 complexity: data.complexity || "Analysis Pending",
-                tags: ["Custom"],
+                tags: ["Custom", imagePreview ? "Whiteboard" : "Text"],
                 derivation: data.derivation || "Custom logic provided by user.",
                 rationale: data.rationale,
                 analogy: data.analogy,
-                memoryTip: data.memoryTip,
+                memoryTip: data.memoryTip || (isZh ? "自定义解法" : "Custom Solution"),
                 mermaid: data.mermaid,
-                code: data.code || customInput,
+                logicSteps: data.logicSteps, // Support new format for custom too
+                code: data.code || customInput || "// Code extracted from image",
                 codeWidgets: data.codeWidgets || [],
                 keywords: data.keywords || [],
                 language: preferences.targetLanguage,
-                isCustom: true
+                isCustom: true,
+                expandedKnowledge: [] // Default empty
             };
             
             setSolutions(prev => {
@@ -137,7 +184,8 @@ export const SolutionSetup: React.FC<SolutionSetupProps> = ({ problemName, probl
             
             setSelectedId(customStrategy.id);
             setViewMode('standard');
-            setCustomInput(''); // Clear input after success
+            setCustomInput('');
+            setImagePreview(null);
         } catch (e) {
             alert("Refinement Failed");
         } finally {
@@ -203,13 +251,12 @@ export const SolutionSetup: React.FC<SolutionSetupProps> = ({ problemName, probl
         } catch (e) {
             console.error(e);
             alert(isZh ? "生成失败，请检查网络" : "AI Generation Failed");
-            // Restore previous state if failed (optional, but good UX)
         } finally {
             setIsLoading(false);
         }
     };
 
-    // Shared regeneration logic
+    // Shared regeneration logic for FULL STRATEGY regeneration
     const executeRegenerateStrategy = async (strategyId: string, prompt: string) => {
         const activeSol = solutions.find(s => s.id === strategyId);
         if (!activeSol) return;
@@ -241,11 +288,32 @@ export const SolutionSetup: React.FC<SolutionSetupProps> = ({ problemName, probl
         setRegenPrompt('');
     };
 
-    // Handler for Widgets (e.g. Mermaid Repair)
-    const handleWidgetRegenerate = async (instruction: string) => {
+    // Keep this for legacy Mermaid fallback, though we prefer LogicFlow
+    const handleWidgetRegenerate = async (errorMsgAndContext: string) => {
         if (!selectedId) return;
-        // Silent update (or we could show a loader toast)
-        await executeRegenerateStrategy(selectedId, instruction);
+        // This is legacy support. If we are using LogicFlow, we don't trigger this.
+        // If a strategy ONLY has mermaid and no logicSteps, we might still need this.
+        try {
+            const codeMatch = errorMsgAndContext.match(/Current Data: (.*)/s);
+            let brokenCode = "";
+            try {
+                if (codeMatch) brokenCode = JSON.parse(codeMatch[1]);
+            } catch(e) { brokenCode = "graph TD; A[Error]"; }
+
+            const fixedCode = await fixMermaidCode(brokenCode || "graph TD; A[Empty]", errorMsgAndContext, preferences);
+            
+            const newSolutions = solutions.map(s => {
+                if (s.id === selectedId) {
+                    return { ...s, mermaid: fixedCode };
+                }
+                return s;
+            });
+            
+            setSolutions(newSolutions);
+            updateCache(newSolutions);
+        } catch (e) {
+            alert("Failed to auto-repair visual.");
+        }
     };
 
     const handleExpandKnowledge = async (point: string) => {
@@ -300,21 +368,23 @@ export const SolutionSetup: React.FC<SolutionSetupProps> = ({ problemName, probl
                 
                 // Determine if it's a visual spacer line
                 if (trimmedLine === "") {
-                    // Push a spacer line. It carries no logic, just layout.
-                    // IMPORTANT: Keep pendingExpl! It should jump OVER the empty line to the next code block.
                     lines.push({ code: "", explanation: "", isSpacer: true });
                     continue;
                 }
 
-                // Detect comment (allowing indentation)
+                if (/^(\/\/|#)?\s*\.{3,}$/.test(trimmedLine)) {
+                    lines.push({ 
+                        code: trimmedLine, 
+                        explanation: isZh ? "省略部分代码..." : "Code section omitted..." 
+                    });
+                    continue;
+                }
+
                 const commentMatch = line.match(/^\s*(\/\/|#)\s*(.+)$/);
                 
                 if (commentMatch) {
-                    // It is a comment line. Accumulate explanation for the next real code line.
                     pendingExpl = pendingExpl ? `${pendingExpl}\n${commentMatch[2]}` : commentMatch[2];
                 } else {
-                    // It is code.
-                    // Also check for inline comment
                     const inlineMatch = line.match(/^(.*?)(\/\/|#)\s*(.+)$/);
                     let codePart = line;
                     let inlineExpl = "";
@@ -324,10 +394,8 @@ export const SolutionSetup: React.FC<SolutionSetupProps> = ({ problemName, probl
                         inlineExpl = inlineMatch[3].trim();
                     }
 
-                    // Combine pending explanation with inline explanation
                     let finalExpl = [pendingExpl, inlineExpl].filter(Boolean).join("\n");
                     
-                    // --- FALLBACK EXPLANATION LOGIC ---
                     if (!finalExpl) {
                         if (trimmedLine === '}' || trimmedLine === '};' || trimmedLine === '});') {
                             finalExpl = isZh ? "结束当前代码块 / 作用域。" : "End of current block/scope.";
@@ -349,7 +417,6 @@ export const SolutionSetup: React.FC<SolutionSetupProps> = ({ problemName, probl
                         explanation: finalExpl
                     });
                     
-                    // Clear pending
                     pendingExpl = "";
                 }
             }
@@ -420,24 +487,26 @@ export const SolutionSetup: React.FC<SolutionSetupProps> = ({ problemName, probl
                         <div className="w-12 h-12 bg-red-100 dark:bg-red-900/20 rounded-full flex items-center justify-center mb-4 text-red-500">
                             <AlertTriangle size={24} />
                         </div>
-                        <h3 className="text-lg font-black text-gray-900 dark:text-white mb-2">
-                            {isZh ? "确定要重新生成所有 AI 策略吗？" : "Regenerate all AI strategies?"}
+                        <h3 className="font-extrabold text-gray-800 dark:text-white mb-2 text-lg">
+                            {isZh ? "重新生成所有策略？" : "Regenerate All Strategies?"}
                         </h3>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 leading-relaxed">
+                        <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">
                             {isZh 
-                                ? "您的【自定义策略】将会被保留，但其他所有 AI 生成的策略将被清空并重新生成。" 
-                                : "Your CUSTOM strategies will be preserved, but all standard AI strategies will be cleared and regenerated."}
+                             ? "此操作将保留您的自定义解法，但会完全替换 AI 生成的所有其他策略。" 
+                             : "This will preserve your custom solutions but completely replace all AI-generated strategies."}
                         </p>
-                        <div className="flex gap-3 justify-end">
-                            <button onClick={() => setShowRegenAllModal(false)} className="px-4 py-2 text-gray-500 font-bold text-sm hover:text-gray-700 dark:hover:text-gray-300">
+                        <div className="flex gap-3">
+                            <button 
+                                onClick={() => setShowRegenAllModal(false)} 
+                                className="flex-1 py-3 text-gray-500 font-bold text-sm bg-gray-100 dark:bg-gray-800 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700"
+                            >
                                 {isZh ? "取消" : "Cancel"}
                             </button>
                             <button 
                                 onClick={confirmRegenerateAll}
-                                className="px-6 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg"
+                                className="flex-1 py-3 bg-red-500 text-white rounded-xl font-bold text-sm hover:bg-red-600 shadow-lg"
                             >
-                                <RefreshCw size={16}/>
-                                {isZh ? "清空并重新生成" : "Clear & Regenerate"}
+                                {isZh ? "确认重置" : "Confirm Reset"}
                             </button>
                         </div>
                     </div>
@@ -446,22 +515,13 @@ export const SolutionSetup: React.FC<SolutionSetupProps> = ({ problemName, probl
 
             {/* Modal: Delete Confirmation */}
             {deleteTargetId && (
-                <div className="absolute inset-0 z-[110] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
-                    <div className="bg-white dark:bg-dark-card w-full max-w-sm p-6 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 animate-scale-in">
-                        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
-                            {isZh ? "删除此策略？" : "Delete Strategy?"}
-                        </h3>
-                        <div className="flex gap-3 justify-end">
-                            <button onClick={() => setDeleteTargetId(null)} className="px-4 py-2 text-gray-500 font-bold text-sm hover:text-gray-700 dark:hover:text-gray-300">
-                                {isZh ? "取消" : "Cancel"}
-                            </button>
-                            <button 
-                                onClick={confirmDelete}
-                                className="px-6 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold text-sm flex items-center gap-2 shadow-sm"
-                            >
-                                <Trash2 size={16}/>
-                                {isZh ? "删除" : "Delete"}
-                            </button>
+                <div className="absolute inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
+                    <div className="bg-white dark:bg-dark-card w-full max-w-sm p-6 rounded-3xl shadow-xl border-2 border-gray-200 dark:border-gray-800 animate-scale-in text-center">
+                        <Trash2 size={40} className="mx-auto text-gray-300 mb-4"/>
+                        <h3 className="font-bold text-lg mb-2 text-gray-900 dark:text-white">{isZh ? "删除此解法？" : "Delete Strategy?"}</h3>
+                        <div className="flex gap-3 justify-center mt-6">
+                            <button onClick={() => setDeleteTargetId(null)} className="px-6 py-2 text-gray-500 font-bold">{isZh ? "取消" : "Cancel"}</button>
+                            <button onClick={confirmDelete} className="px-6 py-2 bg-red-500 text-white rounded-xl font-bold hover:bg-red-600">{isZh ? "删除" : "Delete"}</button>
                         </div>
                     </div>
                 </div>
@@ -469,7 +529,7 @@ export const SolutionSetup: React.FC<SolutionSetupProps> = ({ problemName, probl
 
             {/* Knowledge Popup */}
             {knowledgePopup && (
-                <div className="absolute inset-0 z-[120] flex items-center justify-center pointer-events-none">
+                <div className="absolute inset-0 z-[130] flex items-center justify-center pointer-events-none">
                     <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-2xl border border-brand/20 max-w-sm w-full pointer-events-auto animate-scale-in mx-4">
                         <div className="flex justify-between items-start mb-3">
                             <h3 className="text-sm font-black text-brand uppercase tracking-wider flex items-center gap-2">
@@ -478,7 +538,7 @@ export const SolutionSetup: React.FC<SolutionSetupProps> = ({ problemName, probl
                             <button onClick={() => setKnowledgePopup(null)} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
                         </div>
                         {knowledgePopup.content ? (
-                            <div className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-medium">
+                            <div className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-medium max-h-60 overflow-y-auto custom-scrollbar">
                                 <MarkdownText content={knowledgePopup.content} />
                             </div>
                         ) : (
@@ -488,310 +548,331 @@ export const SolutionSetup: React.FC<SolutionSetupProps> = ({ problemName, probl
                 </div>
             )}
 
-            {/* Debug JSON Modal */}
+            {/* Debug View */}
             {showDebug && activeSolution && (
-                <div className="absolute inset-0 z-[150] bg-gray-900/90 backdrop-blur flex items-center justify-center p-6">
-                    <div className="bg-gray-900 w-full max-w-2xl h-[70vh] rounded-xl border border-gray-700 shadow-2xl flex flex-col">
-                        <div className="flex justify-between items-center p-4 border-b border-gray-700">
-                            <div className="flex items-center gap-2 text-green-400 font-mono text-sm font-bold">
-                                <FileJson size={16}/> JSON DEBUGGER
-                            </div>
-                            <div className="flex gap-2">
-                                <button 
-                                    onClick={handleCopyJSON}
-                                    className="p-1.5 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors flex items-center gap-1 text-xs"
-                                >
-                                    {copied ? <Check size={14}/> : <Copy size={14}/>} {copied ? 'Copied' : 'Copy'}
-                                </button>
-                                <button onClick={() => setShowDebug(false)} className="p-1.5 hover:bg-gray-800 rounded text-gray-400 hover:text-white">
-                                    <X size={16}/>
-                                </button>
-                            </div>
-                        </div>
-                        <div className="flex-1 overflow-auto p-4 custom-scrollbar">
-                            <pre className="text-xs font-mono text-green-300/80 whitespace-pre-wrap">
-                                {JSON.stringify(activeSolution, null, 2)}
-                            </pre>
+                <div className="absolute inset-0 z-[140] bg-gray-900 p-8 flex flex-col">
+                    <div className="flex justify-between items-center mb-4">
+                        <span className="text-white font-mono font-bold">DEBUG: Strategy JSON</span>
+                        <div className="flex gap-2">
+                            <button 
+                                onClick={handleCopyJSON} 
+                                className="px-3 py-1 bg-gray-700 text-white rounded text-xs flex items-center gap-2"
+                            >
+                                {copied ? <Check size={14}/> : <Copy size={14}/>} Copy
+                            </button>
+                            <button onClick={() => setShowDebug(false)} className="px-3 py-1 bg-red-500 text-white rounded text-xs">Close</button>
                         </div>
                     </div>
+                    <pre className="flex-1 overflow-auto text-green-400 font-mono text-xs bg-black p-4 rounded-xl border border-gray-700">
+                        {JSON.stringify(activeSolution, null, 2)}
+                    </pre>
                 </div>
             )}
 
-            <div className="w-full max-w-6xl bg-white dark:bg-dark-card rounded-3xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col md:flex-row h-[90vh] relative">
+            {/* MAIN CONTENT CONTAINER */}
+            <div className="bg-white dark:bg-dark-card w-full max-w-6xl h-[90vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col relative z-10 border border-gray-200 dark:border-gray-800">
                 
-                {/* Global Assistant Hook */}
-                <GlobalAiAssistant problemName={problemName} preferences={preferences} language={language} />
-
-                {/* Sidebar: List */}
-                <div className="w-full md:w-1/4 border-r border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-dark-bg/50 p-4 flex flex-col">
-                    <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                            <BookOpen size={14} /> {isZh ? "选择策略" : "Select Strategy"}
-                        </h3>
-                        <button 
-                            onClick={handleRegenerateAllTrigger}
-                            disabled={isLoading}
-                            className={`px-3 py-1.5 rounded-lg shadow-sm border transition-all flex items-center gap-1.5 ${
-                                isLoading 
-                                ? 'bg-gray-100 text-gray-300 cursor-not-allowed border-gray-200' 
-                                : 'text-xs font-bold text-gray-600 dark:text-gray-300 hover:text-brand bg-white dark:bg-dark-card border-gray-200 dark:border-gray-700 hover:border-brand'
-                            }`}
-                            title={isZh ? "完全重新生成所有 AI 策略" : "Regenerate All AI Strategies"}
-                        >
-                            <RefreshCw size={12} className={isLoading ? 'animate-spin' : ''} />
-                            <span>{isZh ? "全部重试" : "Retry All"}</span>
-                        </button>
+                {/* Header */}
+                <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/50 dark:bg-black/20">
+                    <div>
+                        <h2 className="text-xl font-black text-gray-900 dark:text-white">{isZh ? "构建解题策略" : "Solution Strategy"}</h2>
+                        <p className="text-xs text-gray-500 font-medium mt-0.5">{problemName}</p>
                     </div>
-                    
-                    <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-2">
-                        {solutions.map(sol => (
-                            <div
-                                key={sol.id}
-                                onClick={() => { setSelectedId(sol.id); setViewMode('standard'); }}
-                                className={`w-full p-4 rounded-xl border-2 text-left transition-all cursor-pointer relative group ${selectedId === sol.id ? 'border-brand bg-white dark:bg-dark-card shadow-md' : 'border-transparent hover:bg-gray-100 dark:hover:bg-gray-800'}`}
-                            >
-                                <div className="flex justify-between items-center mb-1">
-                                    <span className={`font-bold text-sm truncate pr-4 ${selectedId === sol.id ? 'text-brand' : 'text-gray-700 dark:text-gray-300'}`}>{sol.title}</span>
-                                    {selectedId === sol.id && <CheckCircle size={16} className="text-brand shrink-0"/>}
-                                </div>
-                                <div className="text-[10px] text-gray-500 font-mono mb-2">{sol.complexity}</div>
-                                
-                                <div className="flex flex-wrap gap-1 mt-1">
-                                    {/* Source Tag: AI vs Custom */}
-                                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold border flex items-center gap-1 ${sol.isCustom ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800' : 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-300 border-blue-100 dark:border-blue-800'}`}>
-                                        {sol.isCustom ? <User size={8}/> : <Bot size={8}/>}
-                                        {sol.isCustom ? (isZh ? "自定义" : "Custom") : "AI"}
-                                    </span>
-                                    {/* Other Tags */}
-                                    {sol.tags.slice(0, 2).map(tag => (
-                                        <span key={tag} className="text-[9px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-gray-500">{tag}</span>
-                                    ))}
-                                </div>
-
-                                <button 
-                                    onClick={(e) => handleDeleteTrigger(sol.id, e)}
-                                    className="absolute top-2 right-2 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
-                                    title={isZh ? "删除策略" : "Delete Strategy"}
-                                >
-                                    <Trash2 size={14} />
-                                </button>
-                            </div>
-                        ))}
-
-                        <button 
-                            onClick={() => setViewMode('custom')}
-                            className={`w-full p-4 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700 text-gray-500 hover:text-brand hover:border-brand transition-all flex items-center justify-center gap-2 ${viewMode === 'custom' ? 'bg-brand/5 border-brand text-brand' : ''}`}
-                        >
-                            <Plus size={16} /> {isZh ? "添加自定义" : "Add Custom"}
-                        </button>
-                    </div>
-
-                    <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-800">
-                        <Button 
-                            variant="primary" 
-                            className="w-full py-4 shadow-lg flex items-center justify-center gap-2"
-                            disabled={!selectedId || viewMode === 'custom'}
-                            onClick={() => activeSolution && onConfirm(activeSolution)}
-                        >
-                            {isZh ? "学习此策略" : "Learn Strategy"} <ArrowRight size={18}/>
-                        </Button>
-                        <button onClick={onCancel} className="w-full mt-3 py-2 text-xs font-bold text-gray-400 hover:text-gray-600">
-                            {isZh ? "返回" : "Cancel"}
-                        </button>
-                    </div>
+                    <button onClick={onCancel} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
+                        <X size={24} />
+                    </button>
                 </div>
 
-                {/* Content Area */}
-                <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-white dark:bg-dark-card relative">
-                    {viewMode === 'standard' && activeSolution ? (
-                        <div className="space-y-8 animate-fade-in-up max-w-3xl mx-auto pb-12">
-                            
-                            {/* Header */}
-                            <div className="flex justify-between items-start">
-                                <div>
-                                    <div className="flex items-center gap-3 mb-2">
-                                        <h1 className="text-3xl font-black text-gray-900 dark:text-white">{activeSolution.title}</h1>
-                                        {activeSolution.isCustom ? (
-                                            <span className="text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 px-2 py-1 rounded font-bold border border-purple-200 dark:border-purple-800 flex items-center gap-1">
-                                                <User size={12}/> CUSTOM
-                                            </span>
-                                        ) : (
-                                            <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-1 rounded font-bold border border-blue-200 dark:border-blue-800 flex items-center gap-1">
-                                                <Bot size={12}/> AI GEN
-                                            </span>
+                <div className="flex-1 flex overflow-hidden">
+                    {/* Left: Strategy List */}
+                    <div className="w-1/3 border-r border-gray-100 dark:border-gray-800 flex flex-col bg-gray-50/30 dark:bg-black/10">
+                        <div className="p-4 flex-1 overflow-y-auto custom-scrollbar space-y-3">
+                            {/* Add Custom Button */}
+                            <button 
+                                onClick={() => setViewMode('custom')}
+                                className={`w-full p-4 rounded-2xl border-2 border-dashed flex items-center justify-center gap-2 transition-all ${viewMode === 'custom' ? 'border-brand bg-brand/5 text-brand' : 'border-gray-200 dark:border-gray-700 text-gray-400 hover:border-brand/50 hover:text-brand'}`}
+                            >
+                                <Plus size={18} />
+                                <span className="font-bold text-sm">{isZh ? "添加自定义解法" : "Add Custom Solution"}</span>
+                            </button>
+
+                            {/* Strategy Items */}
+                            {solutions.map((sol) => (
+                                <div 
+                                    key={sol.id}
+                                    onClick={() => { setSelectedId(sol.id); setViewMode('standard'); }}
+                                    className={`relative group p-4 rounded-2xl border-2 text-left cursor-pointer transition-all hover:shadow-md ${selectedId === sol.id && viewMode === 'standard' ? 'border-purple-500 bg-white dark:bg-dark-card shadow-lg ring-1 ring-purple-500/20' : 'border-transparent hover:bg-white dark:hover:bg-dark-card hover:border-gray-200 dark:hover:border-gray-700'}`}
+                                >
+                                    {/* Actions Overlay */}
+                                    <div className={`absolute top-2 right-2 flex gap-1 ${selectedId === sol.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
+                                        {sol.isCustom && (
+                                            <button onClick={(e) => handleDeleteTrigger(sol.id, e)} className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-300 hover:text-red-500 rounded-lg transition-colors" title="Delete">
+                                                <Trash2 size={14} />
+                                            </button>
                                         )}
+                                        {/* Debug Button (Hidden generally) */}
+                                        <button onClick={(e) => { e.stopPropagation(); setSelectedId(sol.id); setShowDebug(true); }} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-300 hover:text-gray-500 rounded-lg transition-colors hidden group-hover:block" title="Debug JSON">
+                                            <FileJson size={14} />
+                                        </button>
                                     </div>
-                                    <div className="flex gap-2">
-                                        <span className="inline-block bg-gray-100 dark:bg-gray-800 px-3 py-1 rounded-lg text-xs font-mono font-bold text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700">
-                                            {activeSolution.complexity}
+
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${sol.isCustom ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'}`}>
+                                            {sol.isCustom ? 'CUSTOM' : 'AI GENERATED'}
                                         </span>
                                     </div>
-                                </div>
-                                <div className="flex gap-2">
-                                    <button 
-                                        onClick={() => setShowDebug(true)}
-                                        className="p-2 text-gray-400 hover:text-gray-600 bg-gray-50 dark:bg-gray-800 rounded-xl hover:bg-gray-100 transition-colors"
-                                        title="Debug JSON"
-                                    >
-                                        <FileJson size={20}/>
-                                    </button>
-                                    <button 
-                                        onClick={() => setShowRegenModal(true)}
-                                        className="p-2 text-gray-400 hover:text-brand bg-gray-50 dark:bg-gray-800 rounded-xl hover:bg-brand/10 transition-colors"
-                                        title={isZh ? "重新生成此策略" : "Regenerate This Strategy"}
-                                    >
-                                        <RefreshCw size={20}/>
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* BLOCK 1: WHY (Rationale) */}
-                            {activeSolution.rationale && (
-                                <div className="bg-orange-50 dark:bg-orange-900/10 p-6 rounded-2xl border border-orange-100 dark:border-orange-900/30">
-                                    <h3 className="text-xs font-black text-orange-600 dark:text-orange-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                                        <Lightbulb size={16}/> {isZh ? "为什么用这个方法？" : "Why this approach?"}
-                                    </h3>
-                                    <div className="text-sm text-gray-800 dark:text-gray-200 leading-relaxed">
-                                        <MarkdownText content={activeSolution.rationale} />
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* BLOCK 2: PROCESS (Derivation) */}
-                            <div className="bg-blue-50 dark:bg-blue-900/10 p-6 rounded-2xl border border-blue-100 dark:border-blue-900/30 relative">
-                                <div className="absolute top-4 right-4 text-blue-200 dark:text-blue-900"><Brain size={48} className="opacity-20"/></div>
-                                <h3 className="text-xs font-black text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-                                    <Share2 size={16}/> {isZh ? "思考过程 (Derivation)" : "Thinking Process"}
-                                </h3>
-                                <div className="text-sm text-gray-800 dark:text-gray-200 leading-relaxed font-sans">
-                                    <MarkdownText content={activeSolution.derivation} />
-                                </div>
-                            </div>
-
-                            {/* BLOCK 3: MEMORY & ANALOGY */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {activeSolution.analogy && (
-                                    <div className="bg-purple-50 dark:bg-purple-900/10 p-5 rounded-2xl border border-purple-100 dark:border-purple-900/30">
-                                        <h3 className="text-xs font-black text-purple-600 dark:text-purple-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                                            <Sparkles size={14}/> {isZh ? "形象比喻" : "Analogy"}
-                                        </h3>
-                                        <div className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-medium">
-                                            <MarkdownText content={activeSolution.analogy} />
-                                        </div>
-                                    </div>
-                                )}
-                                {activeSolution.memoryTip && (
-                                    <div className="bg-green-50 dark:bg-green-900/10 p-5 rounded-2xl border border-green-100 dark:border-green-900/30">
-                                        <h3 className="text-xs font-black text-green-600 dark:text-green-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                                            <Brain size={14}/> {isZh ? "记忆口诀" : "Memory Tip"}
-                                        </h3>
-                                        <div className="text-sm text-gray-700 dark:text-gray-300 font-medium leading-relaxed">
-                                            <MarkdownText content={activeSolution.memoryTip} />
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* BLOCK 4: VISUAL (Mermaid) */}
-                            {activeSolution.mermaid && (
-                                <div>
-                                    <h3 className="text-xs font-black text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                                        <Share2 size={14}/> {isZh ? "逻辑图解" : "Logic Flow"}
-                                    </h3>
-                                    <MermaidVisualWidget 
-                                        widget={{ id: 'flow', type: 'mermaid', mermaid: { chart: activeSolution.mermaid } }} 
-                                        onRegenerate={handleWidgetRegenerate}
-                                    />
-                                </div>
-                            )}
-
-                            {/* BLOCK 5: SYNTAX & KEYWORDS */}
-                            {activeSolution.keywords && activeSolution.keywords.length > 0 && (
-                                <div>
-                                    <h3 className="text-xs font-black text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                                        <Key size={14}/> {isZh ? "关键语法" : "Key Syntax"}
-                                    </h3>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        {activeSolution.keywords.map((kw, i) => (
-                                            <div key={i} className="p-4 bg-yellow-50 dark:bg-yellow-900/10 border border-yellow-100 dark:border-yellow-900/30 rounded-xl hover:shadow-md transition-all">
-                                                <div className="flex items-center gap-2 mb-2">
-                                                    <code className="text-xs font-bold bg-yellow-200 dark:bg-yellow-800 text-yellow-800 dark:text-yellow-200 px-1.5 py-0.5 rounded">
-                                                        {kw.term}
-                                                    </code>
-                                                </div>
-                                                <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed mb-2">
-                                                    {kw.definition}
-                                                </p>
-                                                {kw.memoryTip && (
-                                                    <div className="text-[10px] text-yellow-600/80 dark:text-yellow-400/80 font-medium italic">
-                                                        💡 Tip: {kw.memoryTip}
-                                                    </div>
-                                                )}
-                                            </div>
+                                    <h3 className="font-bold text-gray-800 dark:text-white mb-1 leading-tight">{sol.title}</h3>
+                                    <p className="text-xs text-gray-500 font-mono mb-2">{sol.complexity}</p>
+                                    <div className="flex flex-wrap gap-1">
+                                        {sol.tags.slice(0, 3).map((t, i) => (
+                                            <span key={i} className="text-[9px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-gray-500 font-medium border border-gray-200 dark:border-gray-700">{t}</span>
                                         ))}
                                     </div>
                                 </div>
-                            )}
+                            ))}
+                        </div>
+                        
+                        {/* Bottom Actions */}
+                        <div className="p-4 border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-dark-card">
+                            <button 
+                                onClick={handleRegenerateAllTrigger}
+                                className="w-full py-3 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-brand hover:border-brand transition-all flex items-center justify-center gap-2 text-xs font-bold"
+                            >
+                                <Sparkles size={14} />
+                                {isZh ? "AI 重新生成所有策略" : "Regenerate All with AI"}
+                            </button>
+                        </div>
+                    </div>
 
-                            {/* BLOCK 6: EXPANDED KNOWLEDGE (INTERACTIVE) */}
-                            {activeSolution.expandedKnowledge && activeSolution.expandedKnowledge.length > 0 && (
-                                <div className="bg-gray-100 dark:bg-gray-800/50 p-6 rounded-2xl border border-gray-200 dark:border-gray-700">
-                                    <h3 className="text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                                        <HelpCircle size={14}/> {isZh ? "拓展知识点 (点击查看详情)" : "Expanded Knowledge (Tap to learn)"}
-                                    </h3>
-                                    <div className="flex flex-wrap gap-2">
-                                        {activeSolution.expandedKnowledge.map((point, i) => {
-                                            const pointText = typeof point === 'string' ? point : (point as any).content || JSON.stringify(point);
-                                            return (
+                    {/* Right: Content Area */}
+                    <div className="flex-1 bg-white dark:bg-dark-card overflow-y-auto custom-scrollbar p-6 relative">
+                        {/* CUSTOM EDITOR VIEW */}
+                        {viewMode === 'custom' && (
+                            <div className="max-w-2xl mx-auto animate-fade-in-up">
+                                <h3 className="text-lg font-black text-gray-800 dark:text-white mb-6 flex items-center gap-2">
+                                    <Edit3 size={20} className="text-brand"/>
+                                    {isZh ? "添加自定义解法" : "Add Custom Solution"}
+                                </h3>
+                                
+                                {/* Image Upload */}
+                                <div className="mb-6">
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">{isZh ? "上传白板/手写思路 (可选)" : "Upload Whiteboard/Notes (Optional)"}</label>
+                                    <div 
+                                        className="border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-2xl p-6 text-center hover:border-brand hover:bg-brand/5 transition-all cursor-pointer relative"
+                                        onClick={() => fileInputRef.current?.click()}
+                                    >
+                                        {imagePreview ? (
+                                            <div className="relative">
+                                                <img src={imagePreview} alt="Preview" className="max-h-48 mx-auto rounded-lg shadow-sm" />
                                                 <button 
-                                                    key={i} 
-                                                    onClick={() => handleExpandKnowledge(pointText)}
-                                                    className="px-3 py-1.5 bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-600 rounded-lg text-sm text-gray-700 dark:text-gray-200 hover:border-brand hover:text-brand transition-all shadow-sm text-left"
+                                                    onClick={(e) => { e.stopPropagation(); setImagePreview(null); }}
+                                                    className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full shadow-md hover:bg-red-600"
                                                 >
-                                                    <MarkdownText content={point} />
+                                                    <X size={14}/>
                                                 </button>
-                                            )
-                                        })}
+                                            </div>
+                                        ) : (
+                                            <div className="flex flex-col items-center gap-2 text-gray-400">
+                                                <Camera size={32} />
+                                                <span className="text-xs font-bold">{isZh ? "点击上传图片" : "Click to upload image"}</span>
+                                            </div>
+                                        )}
+                                        <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
                                     </div>
                                 </div>
-                            )}
 
-                            {/* BLOCK 7: CODE IMPLEMENTATION */}
-                            <div>
-                                <h3 className="text-xs font-black text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                                    <Code2 size={14}/> {isZh ? "代码实现" : "Implementation"}
-                                </h3>
-                                {/* Use Interactive Widget for consistent styling */}
-                                {renderCodeSection()}
+                                <div className="mb-6">
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">{isZh ? "代码或思路描述" : "Code or Description"}</label>
+                                    <textarea 
+                                        className="w-full h-48 p-4 bg-gray-50 dark:bg-black/20 border-2 border-gray-200 dark:border-gray-700 rounded-xl focus:border-brand outline-none resize-none font-mono text-sm leading-relaxed"
+                                        placeholder={isZh ? "// 在此粘贴代码，或用文字描述你的解题思路..." : "// Paste code here, or describe your approach..."}
+                                        value={customInput}
+                                        onChange={(e) => setCustomInput(e.target.value)}
+                                    />
+                                </div>
+
+                                <div className="flex justify-end">
+                                    <button 
+                                        onClick={handleRefineCustom}
+                                        disabled={refining || (!customInput.trim() && !imagePreview)}
+                                        className="px-8 py-3 bg-brand text-white rounded-xl font-bold shadow-lg hover:bg-brand-light disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all"
+                                    >
+                                        {refining ? <Loader2 size={18} className="animate-spin"/> : <Sparkles size={18}/>}
+                                        {refining ? (isZh ? "AI 分析中..." : "AI Analyzing...") : (isZh ? "智能分析并添加" : "Analyze & Add")}
+                                    </button>
+                                </div>
                             </div>
+                        )}
 
-                        </div>
-                    ) : (
-                        <div className="h-full flex flex-col animate-fade-in-up">
-                            <h2 className="text-2xl font-black text-gray-900 dark:text-white mb-2">{isZh ? "自定义解法" : "Custom Solution"}</h2>
-                            <p className="text-sm text-gray-500 mb-6">{isZh ? "粘贴你的代码或思路，AI 将为你生成结构化课程。" : "Paste your code or logic. AI will structure a lesson around it."}</p>
-                            
-                            <textarea 
-                                className="flex-1 bg-gray-50 dark:bg-[#1e1e1e] border-2 border-gray-200 dark:border-gray-700 rounded-2xl p-6 font-mono text-sm focus:border-brand outline-none resize-none mb-6 text-gray-800 dark:text-gray-200"
-                                placeholder={isZh ? "// 在此粘贴代码或描述..." : "// Paste code or description here..."}
-                                value={customInput}
-                                onChange={(e) => setCustomInput(e.target.value)}
-                            />
-                            
-                            <div className="flex justify-end">
-                                <button 
-                                    onClick={handleRefineCustom}
-                                    disabled={!customInput.trim() || refining}
-                                    className="px-8 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-xl font-bold hover:scale-105 transition-transform disabled:opacity-50 flex items-center gap-2"
+                        {/* STANDARD DETAIL VIEW */}
+                        {viewMode === 'standard' && activeSolution && (
+                            <div className="max-w-3xl mx-auto space-y-8 animate-fade-in-up pb-20">
+                                {/* Title Header */}
+                                <div>
+                                    <div className="flex items-center justify-between mb-4">
+                                        <div className="flex gap-2">
+                                            {activeSolution.tags.map((tag, i) => (
+                                                <span key={i} className="px-2 py-1 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded text-xs font-bold uppercase tracking-wider">{tag}</span>
+                                            ))}
+                                        </div>
+                                        <button 
+                                            onClick={() => setShowRegenModal(true)}
+                                            className="text-gray-400 hover:text-brand transition-colors p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+                                            title={isZh ? "重新生成内容" : "Regenerate Content"}
+                                        >
+                                            <RefreshCw size={16} />
+                                        </button>
+                                    </div>
+                                    <h1 className="text-3xl font-black text-gray-900 dark:text-white mb-2">{activeSolution.title}</h1>
+                                    <div className="text-sm font-mono text-gray-500 bg-gray-50 dark:bg-gray-800/50 p-2 rounded-lg inline-block border border-gray-200 dark:border-gray-800">
+                                        {activeSolution.complexity}
+                                    </div>
+                                </div>
+
+                                {/* Main Content Blocks */}
+                                <div className="space-y-6">
+                                    {/* Rationale */}
+                                    <div className="bg-blue-50 dark:bg-blue-900/10 p-6 rounded-2xl border border-blue-100 dark:border-blue-900/30">
+                                        <h3 className="text-sm font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                                            <Lightbulb size={16}/> {isZh ? "核心思路" : "Rationale"}
+                                        </h3>
+                                        <div className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-medium">
+                                            <MarkdownText content={activeSolution.rationale} />
+                                        </div>
+                                    </div>
+
+                                    {/* Derivation / Logic */}
+                                    <div>
+                                        <h3 className="text-sm font-black text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                                            <BookOpen size={16} /> {isZh ? "推导过程" : "Derivation"}
+                                        </h3>
+                                        <div className="prose dark:prose-invert prose-sm max-w-none text-gray-600 dark:text-gray-300 leading-loose">
+                                            <MarkdownText content={activeSolution.derivation} />
+                                        </div>
+                                    </div>
+
+                                    {/* Visualization (Logic Flow or Mermaid Fallback) */}
+                                    {activeSolution.logicSteps ? (
+                                        <div>
+                                            <h3 className="text-sm font-black text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                                                <Share2 size={16} /> {isZh ? "逻辑链条" : "Logic Chain"}
+                                            </h3>
+                                            <LogicFlowWidget steps={activeSolution.logicSteps} />
+                                        </div>
+                                    ) : (
+                                        activeSolution.mermaid && (
+                                            <div>
+                                                <h3 className="text-sm font-black text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                                                    <Share2 size={16} /> {isZh ? "逻辑流程图" : "Logic Flow"}
+                                                </h3>
+                                                <MermaidVisualWidget 
+                                                    key={activeSolution.id} // Force re-render on switch
+                                                    widget={{ 
+                                                        id: 'vis', 
+                                                        type: 'mermaid', 
+                                                        mermaid: { chart: activeSolution.mermaid, caption: isZh ? "算法可视化" : "Algorithm Visualization" } 
+                                                    }}
+                                                    onRegenerate={handleWidgetRegenerate}
+                                                />
+                                            </div>
+                                        )
+                                    )}
+
+                                    {/* Memory Tip & Analogy */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="bg-purple-50 dark:bg-purple-900/10 p-5 rounded-2xl border border-purple-100 dark:border-purple-900/30">
+                                            <h3 className="text-xs font-black text-purple-600 dark:text-purple-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                                                <Sparkles size={14}/> {isZh ? "形象类比" : "Analogy"}
+                                            </h3>
+                                            <div className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-medium">
+                                                <MarkdownText content={activeSolution.analogy || (isZh ? "暂无类比" : "No analogy provided.")} />
+                                            </div>
+                                        </div>
+                                        {/* Always Render Memory Tip */}
+                                        <div className="bg-green-50 dark:bg-green-900/10 p-5 rounded-2xl border border-green-100 dark:border-green-900/30">
+                                            <h3 className="text-xs font-black text-green-600 dark:text-green-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                                                <Brain size={14}/> {isZh ? "记忆口诀" : "Memory Tip"}
+                                            </h3>
+                                            <div className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-medium">
+                                                <MarkdownText content={activeSolution.memoryTip || (isZh ? "AI 未生成口诀" : "No tip provided.")} />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Code Block */}
+                                    <div>
+                                        <h3 className="text-sm font-black text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                                            <Code2 size={16} /> {isZh ? "代码实现" : "Implementation"}
+                                        </h3>
+                                        {renderCodeSection()}
+                                    </div>
+
+                                    {/* Keywords */}
+                                    {activeSolution.keywords.length > 0 && (
+                                        <div className="bg-yellow-50 dark:bg-yellow-900/10 p-6 rounded-2xl border border-yellow-100 dark:border-yellow-900/30">
+                                            <h3 className="text-sm font-black text-yellow-700 dark:text-yellow-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                                <Key size={16} /> {isZh ? "关键语法点" : "Key Syntax"}
+                                            </h3>
+                                            <div className="grid grid-cols-1 gap-3">
+                                                {activeSolution.keywords.map((k, i) => (
+                                                    <div key={i} className="flex gap-3 items-start">
+                                                        <code className="text-xs font-bold text-yellow-800 dark:text-yellow-300 bg-yellow-100 dark:bg-yellow-900/40 px-2 py-1 rounded shrink-0">{k.term}</code>
+                                                        <span className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">{k.definition}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Expanded Knowledge Chips */}
+                                    {activeSolution.expandedKnowledge && activeSolution.expandedKnowledge.length > 0 && (
+                                        <div className="bg-gray-100 dark:bg-gray-800/50 p-6 rounded-2xl border border-gray-200 dark:border-gray-700">
+                                            <h3 className="text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                                                <HelpCircle size={14}/> {isZh ? "相关知识 (点击展开)" : "Expanded Knowledge"}
+                                            </h3>
+                                            <div className="flex flex-wrap gap-2">
+                                                {activeSolution.expandedKnowledge.map((point, i) => {
+                                                    const pointText = typeof point === 'string' ? point : (point as any).content || JSON.stringify(point);
+                                                    return (
+                                                        <button 
+                                                            key={i} 
+                                                            onClick={() => handleExpandKnowledge(pointText)}
+                                                            className="px-3 py-1.5 bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-600 rounded-lg text-sm text-gray-700 dark:text-gray-200 hover:border-brand hover:text-brand transition-all shadow-sm text-left"
+                                                        >
+                                                            <MarkdownText content={point} />
+                                                        </button>
+                                                    )
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Floating Action Button (Start Lesson) */}
+                        {viewMode === 'standard' && activeSolution && (
+                            <div className="sticky bottom-6 left-0 right-0 flex justify-center z-20 pointer-events-none">
+                                <Button 
+                                    onClick={() => onConfirm(activeSolution)}
+                                    size="lg"
+                                    className="shadow-2xl pointer-events-auto flex items-center gap-2 px-8 py-4 text-lg bg-brand hover:bg-brand-dark animate-bounce-in"
                                 >
-                                    {refining ? <Loader2 size={18} className="animate-spin"/> : <Sparkles size={18}/>}
-                                    {isZh ? "AI 优化并使用" : "Refine & Use"}
-                                </button>
+                                    {isZh ? "选择此策略并开始" : "Select & Start"} <ArrowRight size={24}/>
+                                </Button>
                             </div>
-                        </div>
-                    )}
+                        )}
+                    </div>
                 </div>
             </div>
+            
+            {/* Global AI Assistant Overlay */}
+            <GlobalAiAssistant 
+                problemName={problemName} 
+                preferences={preferences} 
+                language={language}
+                currentPlan={null}
+            />
         </div>
     );
 };

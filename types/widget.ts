@@ -5,6 +5,7 @@ export type WidgetType =
     | 'quiz' 
     | 'code' 
     | 'interactive-code'
+    | 'comparison-code' // NEW
     | 'parsons'
     | 'fill-in'
     | 'leetcode' 
@@ -58,6 +59,20 @@ export interface Widget {
       caption?: string;
   };
 
+  // NEW: Comparison Code Widget
+  comparisonCode?: {
+      left: {
+          title: string;
+          language: string;
+          lines: { code: string; explanation: string }[];
+      };
+      right: {
+          title: string;
+          language: string;
+          lines: { code: string; explanation: string }[];
+      };
+  };
+
   parsons?: {
       lines: string[]; 
       explanation?: string;
@@ -97,14 +112,12 @@ export interface Widget {
     variant: 'info' | 'warning' | 'success' | 'tip';
   };
 
-  // --- NEW ENGINEERING WIDGETS ---
-
   terminal?: {
       initialOutput?: string; 
       command: string; // Regex or exact string to match
       feedback: string; // Output on success
       hint?: string; 
-      allowedCommands?: string[]; // List of valid commands that might not be THE answer but give valid output
+      allowedCommands?: string[]; 
   };
 
   codeWalkthrough?: {
@@ -127,14 +140,13 @@ export interface Widget {
   archCanvas?: {
       goal: string; 
       initialComponents?: string[]; 
-      requiredComponents: string[]; // IDs of components that must be present
+      requiredComponents: string[]; 
       requiredConnections?: { from: string, to: string }[]; 
   };
-
-  // --- FORGE WIDGETS ---
   
   mermaid?: {
       chart: string; // Raw mermaid syntax
+      graphData?: any; // Structured data
       caption?: string;
   };
 

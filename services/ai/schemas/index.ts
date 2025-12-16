@@ -371,10 +371,18 @@ export const judgeResultSchema: Schema = {
         analysis: {
             type: Type.OBJECT,
             properties: {
-                pros: { type: Type.ARRAY, items: { type: Type.STRING } },
-                cons: { type: Type.ARRAY, items: { type: Type.STRING } },
+                // Success
                 timeComplexity: { type: Type.STRING },
-                spaceComplexity: { type: Type.STRING }
+                spaceComplexity: { type: Type.STRING },
+                
+                // General Analysis (Both Success and Failure)
+                userIntent: { type: Type.STRING, description: "What the user was seemingly trying to do in their code." },
+                strategyDetected: { type: Type.STRING, description: "The algorithmic approach identified (e.g. 'Two Pointers', 'Brute Force')." },
+                explanation: { type: Type.STRING, description: "Brief analysis of the logic." },
+
+                // Failure Only
+                bugDiagnosis: { type: Type.STRING, description: "Markdown. Detailed breakdown of WHY it failed." },
+                correctCode: { type: Type.STRING, description: "Fixed version of the user's code." },
             }
         }
     }

@@ -112,26 +112,29 @@ const getContributionData = (history: Record<string, number> = {}) => {
 };
 
 // --- KANBAN LOGIC ---
-const getKanbanData = (progressMap: Record<string, number>, mistakes: MistakeRecord[]) => {
+const getKanbanData = (progressMap: Record<string, number>, mistakes: MistakeRecord[], langKey: 'en' | 'zh') => {
     const fresh: {id: string, name: string, level: number}[] = [];
     const pending: {id: string, name: string, level: number}[] = [];
     const mastered: {id: string, name: string, level: number}[] = [];
 
     // Helper: Check if problem has recent mistakes
+    // Note: Mistakes store problemName as a string. We try to match loosely.
     const hasMistakes = (name: string) => mistakes.some(m => m.problemName === name);
 
     Object.entries(progressMap).forEach(([id, level]) => {
-        const name = PROBLEM_MAP[id];
-        if (!name) return;
+        const problemData = PROBLEM_MAP[id];
+        const name = problemData ? problemData[langKey] : id;
+        if (!problemData) return;
+
+        // Check if mistakes exist using ANY language name from the map to be robust
+        const hasError = mistakes.some(m => m.problemName === problemData.en || m.problemName === problemData.zh);
 
         if (level > 0 && level < 6) {
             // Level 1-5: In Progress -> Fresh
             fresh.push({ id, name, level });
         } else if (level >= 6) {
             // Level 6: Mastered... but is it retained?
-            // Simple logic: If you have mistakes recorded for this problem, it's Pending.
-            // Otherwise, it's Mastered.
-            if (hasMistakes(name)) {
+            if (hasError) {
                 pending.push({ id, name, level });
             } else {
                 mastered.push({ id, name, level });
@@ -146,13 +149,14 @@ const getKanbanData = (progressMap: Record<string, number>, mistakes: MistakeRec
 
 export const ProfileView: React.FC<ProfileViewProps> = ({ stats, progressMap, mistakes, language, preferences, onUpdateName, onSelectProblem }) => {
     const isZh = language === 'Chinese';
+    const langKey = isZh ? 'zh' : 'en';
     const [isEditing, setIsEditing] = useState(false);
     const [tempName, setTempName] = useState(preferences.userName);
 
     const langProgress = (progressMap && progressMap[preferences.targetLanguage]) || {};
     const radarData = useMemo(() => getRadarData(langProgress, isZh), [langProgress, isZh]);
     const heatmapData = useMemo(() => getContributionData(stats?.history), [stats?.history]);
-    const kanbanData = useMemo(() => getKanbanData(langProgress, mistakes), [langProgress, mistakes]);
+    const kanbanData = useMemo(() => getKanbanData(langProgress, mistakes, langKey), [langProgress, mistakes, langKey]);
 
     // SVG Radar Logic
     const radius = 70;

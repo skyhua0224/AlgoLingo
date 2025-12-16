@@ -8,12 +8,12 @@ import { LessonHeader } from './LessonHeader';
 import { LessonFooter } from './LessonFooter';
 import { LeetCodeRunner } from './LeetCodeRunner';
 import { MistakeIntro } from './MistakeIntro';
-import { LessonSummary } from './LessonSummary';
+import { LessonSummary, SummaryAction } from './LessonSummary';
 import { ExamSummary } from './ExamSummary'; 
 import { StreakCelebration } from './StreakCelebration';
 import { GlobalAiAssistant } from '../GlobalAiAssistant';
 import { Button } from '../Button';
-import { LogOut, X, HeartCrack, AlertTriangle, ArrowRight, RefreshCw, AlertCircle, Wand2, ShieldCheck, HelpCircle, Loader2, CheckCircle2, FileText, ChevronRight } from 'lucide-react';
+import { LogOut, X, HeartCrack, AlertTriangle, ArrowRight, RefreshCw, AlertCircle, Wand2, ShieldCheck, HelpCircle, Loader2, CheckCircle2, FileText, ChevronRight, MessageSquare } from 'lucide-react';
 import { MarkdownText } from '../common/MarkdownText'; 
 
 // Direct Widget Imports
@@ -25,15 +25,13 @@ import { ParsonsWidget } from '../widgets/Parsons';
 import { FillInWidget } from '../widgets/FillIn';
 import { QuizWidget as QuizWidgetPresenter } from '../widgets/Quiz'; 
 import { StepsWidget } from '../widgets/StepsList';
-// New Engineering Widgets
 import { TerminalWidget } from '../widgets/Terminal';
 import { CodeWalkthroughWidget } from '../widgets/CodeWalkthrough';
 import { MiniEditorWidget } from '../widgets/MiniEditor';
-import { ArchCanvasWidget } from '../widgets/ArchCanvas';
-// New Forge Widgets
 import { MermaidVisualWidget } from '../widgets/MermaidVisual';
 import { VisualQuizWidget } from '../widgets/VisualQuiz';
 import { ComparisonTableWidget } from '../widgets/ComparisonTable';
+import { ComparisonCodeWidget } from '../widgets/ComparisonCode'; // NEW
 
 interface LessonRunnerProps {
   plan: LessonPlan;
@@ -47,7 +45,9 @@ interface LessonRunnerProps {
   isReviewMode?: boolean;
   isSkipContext?: boolean;
   stats: UserStats;
-  problemContext?: LeetCodeContext | null; // NEW: Passed context
+  problemContext?: LeetCodeContext | null; 
+  customSummaryActions?: SummaryAction[];
+  allowMistakeLoop?: boolean;
 }
 
 type RunnerPhase = 'lesson' | 'mistake_intro' | 'mistake_loop' | 'summary' | 'streak_celebration' | 'exam_summary';
@@ -59,7 +59,7 @@ interface QualityIssue {
 }
 
 export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
-  const [showDescription, setShowDescription] = useState(false); // Global Sidebar state
+  const [showDescription, setShowDescription] = useState(false); 
 
   const renderDescriptionSidebar = () => {
       if (!props.problemContext) return null;
@@ -144,499 +144,378 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
                         <div className="flex-1 overflow-hidden relative">
                             <LeetCodeRunner 
                                 plan={props.plan} 
-                                preferences={props.preferences} 
-                                language={props.language} 
-                                onSuccess={() => props.onComplete({ xp: 50, streak: 1 }, true, [])}
-                                context={props.problemContext} 
+                                preferences={props.preferences}
+                                language={props.language}
+                                onSuccess={() => props.onComplete({xp: 50, streak: 1}, true, [])}
+                                onSaveDrillResult={(stats, mistakes) => props.onComplete(stats, true, mistakes)}
+                                context={props.problemContext}
                             />
                         </div>
                     </div>
                 </div>
-                
-                {/* Global Sidebar (Push Layout) */}
                 {renderDescriptionSidebar()}
             </div>
         </div>
     );
   }
 
-  // STANDARD LESSON MODE
-  const [phase, setPhase] = useState<RunnerPhase>('lesson');
-  const [sessionMistakes, setSessionMistakes] = useState<MistakeRecord[]>([]);
-  const [hasRepaired, setHasRepaired] = useState(false);
-  const [isRegenerating, setIsRegenerating] = useState(false);
+  const { 
+    currentScreen, currentIndex, totalScreens, status, streak, xpGained, timerSeconds, 
+    checkAnswer, nextScreen, isMistakeLoop, mistakeCount, isFailed, isLimitDisabled, examHistory, submitExamAnswer, replaceCurrentScreen, rectifyMistake, startMistakeRepair
+  } = useLessonEngine({
+      plan: props.plan,
+      nodeIndex: props.nodeIndex,
+      onComplete: props.onComplete,
+      isReviewMode: props.isReviewMode,
+      allowMistakeLoop: props.allowMistakeLoop, // Pass allowance flag
+      maxMistakes: (props.isSkipContext && !props.isReviewMode) ? 2 : undefined
+  });
+
+  const { validate } = useWidgetValidator();
   
+  const [quizSelection, setQuizSelection] = useState<number | null>(null);
+  const [fillInAnswers, setFillInAnswers] = useState<string[]>([]);
+  const [parsonsOrder, setParsonsOrder] = useState<string[]>([]);
+  const [stepsOrder, setStepsOrder] = useState<string[]>([]);
+  const [miniEditorValid, setMiniEditorValid] = useState(false);
+
+  // Appeal State
+  const [showAppealModal, setShowAppealModal] = useState(false);
+  const [userReason, setUserReason] = useState("");
+  const [isAppealing, setIsAppealing] = useState(false);
+  const [appealStatus, setAppealStatus] = useState<'idle' | 'loading' | 'success' | 'rejected'>('idle');
+  const [appealExplanation, setAppealExplanation] = useState('');
+
+  const [isRegenerating, setIsRegenerating] = useState(false);
   const [qualityIssue, setQualityIssue] = useState<QualityIssue | null>(null);
-  const [ignoredIssues, setIgnoredIssues] = useState<string[]>([]); 
 
-  const [showReportModal, setShowReportModal] = useState(false);
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [disputeResult, setDisputeResult] = useState<{verdict: 'correct'|'incorrect', explanation: string} | null>(null);
+  useEffect(() => {
+    setQuizSelection(null);
+    setFillInAnswers([]);
+    setParsonsOrder([]);
+    setStepsOrder([]);
+    setMiniEditorValid(false);
+    setQualityIssue(null);
+    setShowAppealModal(false); // Reset modal on new screen
+    setAppealStatus('idle');
+    setIsAppealing(false);
+    setUserReason("");
+    
+    if (currentScreen && currentScreen.widgets.length === 1 && currentScreen.widgets[0].type === 'dialogue') {
+        setQualityIssue({ 
+            type: 'lonely_dialogue', 
+            reason: "This screen only has text. Add an interactive element.", 
+            defaultPrompt: "Add a 'quiz' or 'interactive-code' widget to follow this dialogue." 
+        });
+    }
+  }, [currentScreen?.id]);
 
-  const isExamMode = props.plan.context?.type === 'career_exam';
-  const examTimeLimit = 600; 
+  const handleCheck = () => {
+    const state: WidgetState = { quizSelection, fillInAnswers, parsonsOrder, stepsOrder, miniEditorValid };
+    const targetWidget = currentScreen.widgets.find(w => 
+        ['quiz', 'parsons', 'fill-in', 'steps-list', 'mini-editor', 'visual-quiz', 'terminal', 'interactive-code'].includes(w.type) ||
+        (w.type === 'flipcard' && w.flipcard?.mode === 'assessment')
+    );
 
-  const hasLifeLimit = props.isSkipContext || props.nodeIndex === 5;
-  const activeMaxMistakes = (hasLifeLimit && phase !== 'mistake_loop') ? 2 : undefined;
+    let isCorrect = true;
+    if (targetWidget) {
+        if (targetWidget.type === 'interactive-code') {
+             isCorrect = true; 
+        } else {
+             isCorrect = validate(targetWidget, state);
+        }
+    }
 
-  const handleEngineComplete = (stats: { xp: number; streak: number }, shouldSave: boolean, mistakes: MistakeRecord[]) => {
-      setSessionMistakes(prev => [...prev, ...mistakes]);
+    if (props.plan.context?.type === 'career_exam') {
+        submitExamAnswer(isCorrect, state);
+    } else {
+        checkAnswer(isCorrect);
+    }
+  };
 
-      if (phase === 'lesson') {
-          if (isExamMode) {
-              setPhase('exam_summary');
-          } else if (mistakes.length > 0) {
-              setPhase('mistake_intro');
+  const openAppealModal = () => {
+      setShowAppealModal(true);
+  }
+
+  const confirmAppeal = async () => {
+      if (!userReason.trim()) return;
+      setShowAppealModal(false);
+      setAppealStatus('loading');
+      setIsAppealing(true);
+      
+      const targetWidget = currentScreen.widgets.find(w => 
+        ['quiz', 'parsons', 'fill-in'].includes(w.type)
+      );
+      
+      if (!targetWidget) return;
+
+      // Construct user's attempted answer for context
+      let attemptedAnswer = "";
+      if (targetWidget.type === 'quiz' && quizSelection !== null && targetWidget.quiz) attemptedAnswer = targetWidget.quiz.options[quizSelection];
+      if (targetWidget.type === 'fill-in') attemptedAnswer = fillInAnswers.join(", ");
+      if (targetWidget.type === 'parsons') attemptedAnswer = parsonsOrder.join("\n");
+
+      // Append reasoning
+      const fullAppealContext = `User Attempt: "${attemptedAnswer}". User Argument: "${userReason}"`;
+
+      try {
+          const result = await verifyAnswerDispute(
+              targetWidget, 
+              fullAppealContext, 
+              `${props.plan.title} - ${currentScreen.header}`, 
+              props.preferences
+          );
+          
+          if (result.verdict === 'correct') {
+              setAppealStatus('success');
+              setAppealExplanation(result.explanation || "Appeal accepted by AI Judge.");
+              rectifyMistake();
           } else {
-              setPhase('summary');
+              setAppealStatus('rejected');
+              setAppealExplanation(result.explanation || "Appeal rejected.");
           }
-      } else if (phase === 'mistake_loop') {
-          setPhase('summary');
+      } catch (e) {
+          setAppealStatus('rejected');
+          setAppealExplanation("Judge disconnected.");
       }
   };
 
-  const engine = useLessonEngine({
-    plan: props.plan,
-    nodeIndex: props.nodeIndex,
-    onComplete: handleEngineComplete,
-    isReviewMode: props.isReviewMode,
-    maxMistakes: activeMaxMistakes 
-  });
-
-  const [widgetState, setWidgetState] = useState<WidgetState>({});
-  const validator = useWidgetValidator();
-  const [showExitConfirm, setShowExitConfirm] = useState(false);
-
-  useEffect(() => {
-    setWidgetState({});
-    
-    if (engine.currentScreen && !ignoredIssues.includes(engine.currentScreen.id)) {
-        const screen = engine.currentScreen;
-        const isZh = props.language === 'Chinese';
-        
-        if (screen.widgets.length === 1 && screen.widgets[0].type === 'dialogue') {
-            setQualityIssue({
-                type: 'lonely_dialogue',
-                reason: isZh ? "此页面仅包含单一对话气泡，缺乏互动。" : "This screen has only text, missing visual interactivity.",
-                defaultPrompt: "Add an 'interactive-code' widget or a 'quiz' to visualize the concept mentioned in the dialogue."
-            });
-            return;
-        }
-
-        const fillIn = screen.widgets.find(w => w.type === 'fill-in');
-        if (fillIn && fillIn.fillIn) {
-             const { inputMode, options } = fillIn.fillIn;
-             if ((!inputMode || inputMode === 'select') && (!options || options.length === 0)) {
-                 setQualityIssue({
-                     type: 'broken_fillin',
-                     reason: isZh ? "填空题缺少选项数据。" : "Fill-in question is missing options.",
-                     defaultPrompt: "Regenerate the fill-in widget. It MUST include an 'options' array with the correct answer and distractors."
-                 });
-                 return;
-             }
-        }
-
-        const parsons = screen.widgets.find(w => w.type === 'parsons');
-        if (parsons && parsons.parsons && (!parsons.parsons.lines || parsons.parsons.lines.length < 3)) {
-            setQualityIssue({
-                type: 'bad_parsons',
-                reason: isZh ? "代码拼图行数过少，缺乏挑战性。" : "The Parsons puzzle is too short.",
-                defaultPrompt: "Regenerate the Parsons puzzle with at least 5 lines of logical code. Do not use trivial lines."
-            });
-            return;
-        }
-
-        setQualityIssue(null);
-    } else {
-        setQualityIssue(null);
-    }
-
-  }, [engine.currentScreen?.id, ignoredIssues, props.language]);
-
-  const activeWidget = engine.currentScreen.widgets.find(w => 
-    ['quiz', 'parsons', 'fill-in', 'steps-list', 'mini-editor', 'terminal', 'arch-canvas'].includes(w.type) || 
-    (w.type === 'flipcard' && w.flipcard?.mode === 'assessment')
-  );
-  
-  const isInteractiveScreen = !!activeWidget;
-
-  const handleCheck = () => {
-    if (!isInteractiveScreen) {
-        engine.nextScreen();
-        return;
-    }
-
-    const isCorrect = validator.validate(activeWidget as Widget, widgetState);
-    const isAutoPass = ['terminal', 'code-walkthrough', 'arch-canvas', 'mermaid', 'visual-quiz', 'comparison-table'].includes(activeWidget?.type || '');
-    const finalResult = isAutoPass ? true : isCorrect;
-
-    if (isExamMode) {
-        engine.submitExamAnswer(finalResult, widgetState);
-    } else {
-        engine.checkAnswer(finalResult);
-    }
-  };
-
   const handleRegenerateScreen = async (instruction: string) => {
-      if (!engine.currentScreen) return;
+      if (!currentScreen || isRegenerating) return;
       setIsRegenerating(true);
-      setQualityIssue(null);
-
+      
       try {
+          const planContext = props.plan.context || {};
+          if (!planContext.topic) planContext.topic = props.plan.title;
+
           const newScreen = await regenerateLessonScreen(
-              engine.currentScreen,
-              props.plan.context,
-              instruction,
+              currentScreen,
+              planContext,
+              instruction, 
               props.preferences
           );
-          engine.replaceCurrentScreen(newScreen);
-          if (props.onUpdatePlan) {
-              const updatedScreens = [...props.plan.screens];
-              updatedScreens[engine.currentIndex] = newScreen;
-              const updatedPlan = { ...props.plan, screens: updatedScreens };
-              props.onUpdatePlan(updatedPlan);
-          }
+          
+          replaceCurrentScreen(newScreen);
+          setQualityIssue(null);
       } catch (e) {
-          alert(props.language === 'Chinese' ? "重新生成失败，请重试" : "Regeneration failed, please try again");
+          alert("Regeneration failed. Please try again.");
       } finally {
           setIsRegenerating(false);
       }
   };
 
-  const handleStartRepair = () => {
-      let mistakesToRepair = sessionMistakes.filter(m => m.widget && m.widget.type !== 'dialogue' && m.widget.type !== 'callout');
-      if (mistakesToRepair.length === 0 && sessionMistakes.length > 0) mistakesToRepair = sessionMistakes;
-      if (mistakesToRepair.length === 0) { setPhase('summary'); return; }
-      
-      const mistakeScreens: LessonScreen[] = mistakesToRepair.map((m) => ({
-          id: `repair_${m.id}`,
-          header: 'Mistake Repair',
-          widgets: [m.widget!], 
-          isRetry: true
-      }));
-
-      engine.startMistakeRepair(mistakeScreens);
-      setHasRepaired(true);
-      setPhase('mistake_loop');
-  };
-
-  const finishLesson = (satisfaction: boolean) => {
-      if (!satisfaction && props.onRegenerate) { props.onRegenerate(); return; }
-      const today = new Date().toISOString().split('T')[0];
-      const lastPlayedLocal = localStorage.getItem('algolingo_last_played_date');
-      const isFirstTimeToday = lastPlayedLocal !== today;
-
-      if (satisfaction && isFirstTimeToday) { 
-          localStorage.setItem('algolingo_last_played_date', today);
-          setPhase('streak_celebration');
-      } else {
-          props.onComplete({ xp: engine.xpGained, streak: engine.streak }, true, sessionMistakes);
-      }
-  };
-
-  const handleDispute = async () => {
-      if (!activeWidget) return;
-      setIsVerifying(true);
-      
-      let userAnswer: any = "No Answer";
-      if (activeWidget.type === 'quiz' && widgetState.quizSelection !== undefined) {
-          userAnswer = activeWidget.quiz?.options[widgetState.quizSelection] || "Index " + widgetState.quizSelection;
-      } else if (activeWidget.type === 'fill-in' && widgetState.fillInAnswers) {
-          userAnswer = widgetState.fillInAnswers;
-      } else if (activeWidget.type === 'parsons' && widgetState.parsonsOrder) {
-          userAnswer = "User Ordered Code:\n" + widgetState.parsonsOrder.join('\n');
-      } else if (activeWidget.type === 'steps-list' && widgetState.stepsOrder) {
-          userAnswer = "User Ordered Steps:\n" + widgetState.stepsOrder.join('\n');
-      }
-
-      try {
-          const result = await verifyAnswerDispute(
-              activeWidget,
-              userAnswer,
-              engine.currentScreen.header || props.plan.title,
-              props.preferences
-          );
-          setDisputeResult(result);
-          if (result.verdict === 'correct') {
-              engine.rectifyMistake();
-              setSessionMistakes(prev => prev.slice(0, -1)); 
-          }
-      } catch (e) {
-          alert("AI Judge Offline.");
-          setShowReportModal(false);
-      } finally {
-          setIsVerifying(false);
-      }
-  };
-
-  if (engine.isFailed) {
+  if (isFailed) {
       return (
-          <div className="fixed inset-0 z-[120] bg-black/80 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in-up">
-              <div className="bg-white dark:bg-dark-card rounded-3xl p-8 w-full max-w-md text-center shadow-2xl border-4 border-red-500 relative overflow-hidden">
-                  <div className="absolute top-0 left-0 w-full h-2 bg-red-500"></div>
-                  <div className="w-20 h-20 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-6 animate-pulse">
-                      <HeartCrack size={40} className="text-red-500 fill-current" />
-                  </div>
-                  <h2 className="text-3xl font-black text-gray-900 dark:text-white mb-2 uppercase tracking-tight">
-                      {props.language === 'Chinese' ? "挑战失败" : "Challenge Failed"}
-                  </h2>
-                  <div className="flex flex-col gap-3 mt-6">
-                      <Button variant="primary" onClick={engine.continueAsPractice} className="w-full py-4 shadow-xl bg-brand hover:bg-brand-dark border-brand-dark flex items-center justify-center gap-2">
-                          {props.language === 'Chinese' ? "继续练习 (降级)" : "Continue as Practice"} <ArrowRight size={18}/>
-                      </Button>
-                      <button onClick={props.onExit} className="w-full py-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 font-bold text-sm">
-                          {props.language === 'Chinese' ? "退出" : "Exit"}
-                      </button>
-                  </div>
+          <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-red-50 dark:bg-dark-bg animate-scale-in">
+              <div className="w-24 h-24 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mb-6 text-red-500 shadow-xl">
+                  <HeartCrack size={48} />
+              </div>
+              <h2 className="text-3xl font-extrabold text-gray-800 dark:text-white mb-2">
+                  {props.language === 'Chinese' ? "挑战失败" : "Challenge Failed"}
+              </h2>
+              <p className="text-gray-500 dark:text-gray-400 mb-8 max-w-sm">
+                  {props.language === 'Chinese' 
+                   ? "错误次数过多。建议先从基础课程开始复习。" 
+                   : "Too many mistakes. We recommend reviewing the basics first."}
+              </p>
+              
+              <div className="flex flex-col gap-3 w-full max-w-xs">
+                  <Button onClick={() => startMistakeRepair(props.plan.screens)} variant="primary" className="w-full">
+                      {props.language === 'Chinese' ? "进入复习模式" : "Start Review Mode"}
+                  </Button>
+                  <button onClick={props.onExit} className="text-gray-400 font-bold text-sm hover:text-gray-600 p-2">
+                      {props.language === 'Chinese' ? "退出" : "Exit"}
+                  </button>
               </div>
           </div>
       );
   }
 
-  if (phase === 'exam_summary') {
+  if (props.plan.context?.type === 'career_exam' && (currentIndex >= totalScreens)) {
       return (
           <ExamSummary 
-              screens={props.plan.screens}
-              results={engine.examHistory}
-              score={engine.xpGained}
-              onClose={() => props.onComplete({ xp: engine.xpGained, streak: engine.streak }, true, sessionMistakes)}
+              screens={props.plan.screens} 
+              results={examHistory} 
+              score={xpGained}
+              onClose={props.onExit}
               language={props.language}
           />
       );
   }
 
-  if (phase === 'mistake_intro') {
+  if (currentIndex >= totalScreens) {
       return (
-          <div className="fixed inset-0 z-[100] bg-white dark:bg-dark-bg md:flex md:items-center md:justify-center md:bg-gray-100/90 md:dark:bg-black/90 md:backdrop-blur-sm">
-               <div className="w-full h-full md:max-w-4xl md:h-[80vh] md:rounded-3xl bg-white dark:bg-dark-bg md:shadow-2xl overflow-hidden relative">
-                    <MistakeIntro count={sessionMistakes.length} onStart={handleStartRepair} language={props.language} />
-               </div>
-          </div>
+          <LessonSummary 
+              stats={{ 
+                  timeSeconds: timerSeconds, 
+                  totalQuestions: totalScreens, 
+                  correctCount: streak, 
+                  mistakeCount: mistakeCount,
+                  xpGained: xpGained 
+              }}
+              language={props.language}
+              onContinue={(satisfied) => {
+                  if (satisfied) props.onComplete({ xp: xpGained, streak }, true, []);
+                  else props.onRegenerate && props.onRegenerate();
+              }}
+              customActions={props.customSummaryActions} 
+          />
       );
   }
 
-  if (phase === 'summary') {
-      return (
-        <div className="fixed inset-0 z-[100] bg-white dark:bg-dark-bg md:flex md:items-center md:justify-center md:bg-gray-100/90 md:dark:bg-black/90 md:backdrop-blur-sm">
-             <div className="w-full h-full md:max-w-4xl md:h-[85vh] md:rounded-3xl bg-white dark:bg-dark-bg md:shadow-2xl overflow-hidden relative">
-                <LessonSummary 
-                    stats={{
-                        timeSeconds: engine.timerSeconds,
-                        totalQuestions: hasRepaired ? props.plan.screens.length + sessionMistakes.length : props.plan.screens.length,
-                        correctCount: Math.max(0, (hasRepaired ? props.plan.screens.length + sessionMistakes.length : props.plan.screens.length) - sessionMistakes.length), 
-                        mistakeCount: sessionMistakes.length,
-                        xpGained: engine.xpGained
-                    }}
-                    language={props.language}
-                    onContinue={finishLesson}
-                />
-             </div>
-        </div>
-      );
-  }
-
-  if (phase === 'streak_celebration') {
-      return (
-        <div className="fixed inset-0 z-[100] bg-white dark:bg-dark-bg md:flex md:items-center md:justify-center md:bg-gray-100/90 md:dark:bg-black/90 md:backdrop-blur-sm">
-             <div className="w-full h-full md:max-w-4xl md:h-[85vh] md:rounded-3xl bg-white dark:bg-dark-bg md:shadow-2xl overflow-hidden relative">
-                <StreakCelebration 
-                    streak={(props.stats?.streak || 0) + 1}
-                    history={props.stats.history || {}} 
-                    onContinue={() => props.onComplete({ xp: engine.xpGained, streak: engine.streak }, true, sessionMistakes)}
-                    language={props.language}
-                />
-             </div>
-        </div>
-      );
-  }
-
-  if (showExitConfirm) {
-      return (
-           <div className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
-              <div className="bg-white dark:bg-dark-card rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl">
-                  <div className="mb-4 bg-gray-100 dark:bg-gray-800 w-16 h-16 rounded-full flex items-center justify-center mx-auto"><LogOut/></div>
-                  <h3 className="text-xl font-extrabold mb-2 text-gray-800 dark:text-white">{props.language === 'Chinese' ? "确定要离开吗？" : "Are you sure?"}</h3>
-                  <div className="flex flex-col gap-3 mt-6">
-                      <Button variant="primary" onClick={() => setShowExitConfirm(false)}>{props.language === 'Chinese' ? "继续学习" : "Keep Learning"}</Button>
-                      <button onClick={props.onExit} className="text-gray-400 text-sm font-bold py-2">{props.language === 'Chinese' ? "退出" : "Quit"}</button>
-                  </div>
-              </div>
-           </div>
-      );
-  }
+  const isZh = props.language === 'Chinese';
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-100/80 dark:bg-black/80 backdrop-blur-sm p-0 md:p-4">
-      <div className="flex w-full h-full relative overflow-hidden">
-        {/* Main Lesson Container */}
-        <div className={`h-full flex flex-col transition-all duration-300 ease-in-out ${showDescription ? 'w-[calc(100%-450px)]' : 'w-full'}`}>
-            <div className="w-full h-full bg-white dark:bg-dark-bg md:rounded-3xl md:shadow-2xl flex flex-col overflow-hidden relative border border-gray-200 dark:border-gray-700 transition-all animate-scale-in">
-                
-                <GlobalAiAssistant 
-                    problemName={props.plan.title} 
-                    preferences={props.preferences} 
-                    language={props.language} 
-                    currentPlan={props.plan} 
-                />
-                
-                <div className="relative">
-                    <LessonHeader 
-                        currentScreenIndex={engine.currentIndex}
-                        totalScreens={engine.totalScreens}
-                        streak={engine.streak}
-                        mistakeCount={engine.mistakeCount}
-                        timerSeconds={engine.timerSeconds}
-                        isSkipMode={activeMaxMistakes !== undefined && !engine.isLimitDisabled}
-                        isMistakeMode={phase === 'mistake_loop'}
-                        onExit={() => setShowExitConfirm(true)}
-                        headerTitle={engine.currentScreen.header}
-                        language={props.language}
-                        totalTime={isExamMode ? examTimeLimit : undefined}
+    <div className="flex flex-col h-full bg-white dark:bg-dark-bg relative overflow-hidden">
+        <LessonHeader 
+            currentScreenIndex={currentIndex} 
+            totalScreens={totalScreens} 
+            streak={streak} 
+            mistakeCount={mistakeCount} 
+            timerSeconds={timerSeconds}
+            isSkipMode={props.isSkipContext && !props.isReviewMode}
+            isMistakeMode={isMistakeLoop} 
+            isReviewContext={props.isReviewMode} 
+            onExit={props.onExit}
+            headerTitle={currentScreen.header}
+            language={props.language}
+            totalTime={props.plan.context?.timeLimit}
+            onShowDescription={props.problemContext ? () => setShowDescription(true) : undefined}
+        />
+
+        <GlobalAiAssistant 
+            problemName={props.plan.title} 
+            preferences={props.preferences} 
+            language={props.language} 
+            currentPlan={props.plan} 
+        />
+
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-4 pb-32 md:pb-32 relative">
+            <div className="max-w-2xl mx-auto w-full">
+                {qualityIssue && (
+                    <div className="mb-6 bg-yellow-50 dark:bg-yellow-900/10 border-2 border-yellow-100 dark:border-yellow-900/30 rounded-2xl p-4 flex items-start gap-3 animate-fade-in-down">
+                        <Wand2 size={20} className="text-yellow-500 shrink-0 mt-0.5"/>
+                        <div className="flex-1">
+                            <h4 className="text-sm font-bold text-yellow-800 dark:text-yellow-400 mb-1">
+                                {isZh ? "AI 建议优化此页面" : "AI Suggestion: Optimize Screen"}
+                            </h4>
+                            <p className="text-xs text-yellow-700 dark:text-yellow-500 mb-3 leading-relaxed">
+                                {qualityIssue.reason}
+                            </p>
+                            <button 
+                                onClick={() => handleRegenerateScreen(qualityIssue.defaultPrompt)}
+                                disabled={isRegenerating}
+                                className="px-3 py-1.5 bg-yellow-100 dark:bg-yellow-900/30 hover:bg-yellow-200 text-yellow-700 dark:text-yellow-300 rounded-lg text-xs font-bold transition-colors flex items-center gap-2"
+                            >
+                                {isRegenerating ? <Loader2 size={12} className="animate-spin"/> : <RefreshCw size={12}/>}
+                                {isZh ? "自动修复" : "Auto-Fix"}
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {currentScreen.widgets.map((widget, idx) => (
+                    <React.Fragment key={widget.id}>
+                        {widget.type === 'dialogue' && <DialogueWidget widget={widget} />}
+                        {widget.type === 'flipcard' && <FlipCardWidget widget={widget} language={props.language} />}
+                        {widget.type === 'callout' && <CalloutWidget widget={widget} />}
+                        {widget.type === 'interactive-code' && <InteractiveCodeWidget widget={widget} language={props.language} />}
+                        {widget.type === 'comparison-code' && <ComparisonCodeWidget widget={widget} language={props.language} />}
+                        {widget.type === 'parsons' && <ParsonsWidget widget={widget} onUpdateOrder={setParsonsOrder} status={status} language={props.language} />}
+                        {widget.type === 'fill-in' && <FillInWidget widget={widget} onUpdateAnswers={setFillInAnswers} language={props.language} status={status} />}
+                        {widget.type === 'quiz' && <QuizWidgetPresenter widget={widget} selectedIdx={quizSelection} onSelect={setQuizSelection} status={status} language={props.language} />}
+                        {widget.type === 'steps-list' && <StepsWidget widget={widget} onUpdateOrder={setStepsOrder} />}
+                        {widget.type === 'terminal' && <TerminalWidget widget={widget} status={status} />}
+                        {widget.type === 'code-walkthrough' && <CodeWalkthroughWidget widget={widget} />}
+                        {widget.type === 'mini-editor' && <MiniEditorWidget widget={widget} onValidationChange={setMiniEditorValid} />}
+                        {widget.type === 'mermaid' && <MermaidVisualWidget widget={widget} onRegenerate={handleRegenerateScreen} />}
+                        {widget.type === 'visual-quiz' && <VisualQuizWidget widget={widget} />}
+                        {widget.type === 'comparison-table' && <ComparisonTableWidget widget={widget} />}
+                    </React.Fragment>
+                ))}
+            </div>
+        </div>
+
+        {/* Appeal Modal */}
+        {showAppealModal && (
+            <div className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6 animate-fade-in-up">
+                <div className="bg-white dark:bg-dark-card rounded-3xl p-6 w-full max-w-md shadow-2xl border-2 border-orange-100 dark:border-orange-900/50">
+                    <div className="mb-4 bg-orange-100 dark:bg-orange-900/30 w-12 h-12 rounded-full flex items-center justify-center text-orange-500">
+                        <MessageSquare size={24} />
+                    </div>
+                    <h3 className="text-xl font-extrabold text-gray-800 dark:text-white mb-2">{isZh ? "申诉理由" : "Appeal Reason"}</h3>
+                    <p className="text-gray-500 dark:text-gray-400 mb-4 text-sm">
+                        {isZh ? "请简述为什么您的答案是正确的。AI 法官将根据理由重新裁定。" : "Why is your answer correct? AI Judge will review your case."}
+                    </p>
+                    
+                    <textarea 
+                        className="w-full h-32 p-3 bg-gray-50 dark:bg-black/20 border-2 border-gray-200 dark:border-gray-700 rounded-xl focus:border-brand outline-none resize-none mb-6 text-sm"
+                        placeholder={isZh ? "例如：使用了不同的变量名..." : "e.g. Used synonym variable..."}
+                        value={userReason}
+                        onChange={(e) => setUserReason(e.target.value)}
+                        autoFocus
                     />
-                    {/* Toggle button for Description Sidebar */}
-                    {props.problemContext && (
+
+                    <div className="flex gap-3">
+                        <button onClick={() => setShowAppealModal(false)} className="flex-1 py-3 text-gray-500 font-bold text-sm hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl">
+                            {isZh ? "取消" : "Cancel"}
+                        </button>
                         <button 
-                            onClick={() => setShowDescription(!showDescription)}
-                            className={`absolute top-3 right-16 p-2 text-gray-400 hover:text-brand transition-colors z-20 ${showDescription ? 'text-brand' : ''}`}
-                            title="View Problem Description"
+                            onClick={confirmAppeal}
+                            disabled={!userReason.trim()}
+                            className="flex-1 py-3 bg-orange-500 text-white rounded-xl font-bold text-sm shadow-lg hover:bg-orange-600 disabled:opacity-50"
                         >
-                            <FileText size={20}/>
+                            {isZh ? "提交申诉" : "Submit Appeal"}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {isAppealing && (
+            <div className="absolute bottom-24 left-0 right-0 px-6 z-[60] animate-slide-in-bottom">
+                <div className={`max-w-xl mx-auto rounded-2xl shadow-2xl p-4 border-2 flex items-start gap-3 ${
+                    appealStatus === 'loading' ? 'bg-white dark:bg-gray-800 border-gray-200' :
+                    appealStatus === 'success' ? 'bg-green-50 dark:bg-green-900/30 border-green-200' :
+                    'bg-red-50 dark:bg-red-900/30 border-red-200'
+                }`}>
+                    <div className="mt-0.5">
+                        {appealStatus === 'loading' && <Loader2 size={20} className="animate-spin text-brand"/>}
+                        {appealStatus === 'success' && <ShieldCheck size={20} className="text-green-500"/>}
+                        {appealStatus === 'rejected' && <AlertCircle size={20} className="text-red-500"/>}
+                    </div>
+                    <div className="flex-1">
+                        <h4 className="font-bold text-sm mb-1">
+                            {appealStatus === 'loading' && (isZh ? "AI 法官正在审理..." : "AI Judge Reviewing...")}
+                            {appealStatus === 'success' && (isZh ? "申诉成功！" : "Appeal Accepted!")}
+                            {appealStatus === 'rejected' && (isZh ? "申诉被驳回" : "Appeal Rejected")}
+                        </h4>
+                        {appealStatus !== 'loading' && (
+                            <p className="text-xs opacity-90 leading-relaxed">{appealExplanation}</p>
+                        )}
+                    </div>
+                    {appealStatus !== 'loading' && (
+                        <button onClick={() => setIsAppealing(false)} className="p-1 hover:bg-black/5 rounded">
+                            <X size={16}/>
                         </button>
                     )}
                 </div>
-
-                {/* MODALS */}
-                {qualityIssue && (
-                    <div className="absolute top-20 left-1/2 -translate-x-1/2 z-[60] w-full max-w-lg px-4 animate-slide-in-bottom">
-                        <div className="bg-white dark:bg-[#151515] border-2 border-red-500/50 dark:border-red-500/30 shadow-2xl rounded-2xl p-4 flex flex-col gap-3">
-                            <div className="flex items-start gap-3">
-                                <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-full text-red-500 shrink-0">
-                                    <AlertCircle size={20} />
-                                </div>
-                                <div>
-                                    <h4 className="font-bold text-gray-800 dark:text-white text-sm">
-                                        {props.language === 'Chinese' ? "检测到内容质量问题" : "Content Quality Issue Detected"}
-                                    </h4>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
-                                        {qualityIssue.reason}
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="flex gap-2 justify-end">
-                                <button 
-                                    onClick={() => { setQualityIssue(null); setIgnoredIssues(prev => [...prev, engine.currentScreen.id]); }}
-                                    className="px-4 py-2 text-xs font-bold text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
-                                >
-                                    {props.language === 'Chinese' ? "忽略 (Ignore)" : "Ignore"}
-                                </button>
-                                <button 
-                                    onClick={() => handleRegenerateScreen(qualityIssue.defaultPrompt)}
-                                    className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-xs font-bold flex items-center gap-2 shadow-sm transition-all"
-                                >
-                                    <Wand2 size={12} />
-                                    {props.language === 'Chinese' ? "AI 自动修复" : "Auto-Fix"}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {showReportModal && (
-                    <div className="absolute inset-0 z-[70] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-                        <div className="bg-white dark:bg-dark-card w-full max-w-sm rounded-3xl p-6 shadow-2xl border-2 border-red-100 dark:border-red-900/50">
-                            {!disputeResult ? (
-                                <>
-                                    <div className="flex justify-between items-center mb-6">
-                                        <h3 className="font-extrabold text-lg text-gray-800 dark:text-white">
-                                            {props.language === 'Chinese' ? "反馈与申诉" : "Feedback & Appeal"}
-                                        </h3>
-                                        <button onClick={() => setShowReportModal(false)} className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
-                                            <X size={20} className="text-gray-400" />
-                                        </button>
-                                    </div>
-                                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-                                        {props.language === 'Chinese' ? "你认为你的答案是正确的吗？还是题目有问题？" : "Do you believe your answer is correct, or is the question flawed?"}
-                                    </p>
-                                    <div className="space-y-3">
-                                        <button 
-                                            onClick={handleDispute}
-                                            disabled={isVerifying}
-                                            className="w-full py-4 bg-brand text-white rounded-2xl font-bold shadow-lg hover:bg-brand-light transition-all flex items-center justify-center gap-3"
-                                        >
-                                            {isVerifying ? <Loader2 size={18} className="animate-spin"/> : <ShieldCheck size={18} />}
-                                            {isVerifying ? (props.language === 'Chinese' ? "AI 正在裁决..." : "AI Judging...") : (props.language === 'Chinese' ? "我的答案是正确的" : "My Answer is Correct")}
-                                        </button>
-                                        <button 
-                                            onClick={() => handleRegenerateScreen("The previous question was confusing or broken. Make it better.")}
-                                            className="w-full py-4 bg-red-50 dark:bg-red-900/10 border-2 border-red-100 dark:border-red-900/50 text-red-600 dark:text-red-400 rounded-2xl font-bold hover:bg-red-100 dark:hover:bg-red-900/30 transition-all flex items-center justify-center gap-3"
-                                        >
-                                            <AlertTriangle size={18} />
-                                            {props.language === 'Chinese' ? "题目质量差 (重生成)" : "Bad Question (Regenerate)"}
-                                        </button>
-                                    </div>
-                                </>
-                            ) : (
-                                <div className="text-center animate-fade-in-up">
-                                    <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${disputeResult.verdict === 'correct' ? 'bg-green-100 text-green-500' : 'bg-red-100 text-red-500'}`}>
-                                        {disputeResult.verdict === 'correct' ? <CheckCircle2 size={32} /> : <HeartCrack size={32} />}
-                                    </div>
-                                    <h3 className={`text-xl font-black mb-2 uppercase ${disputeResult.verdict === 'correct' ? 'text-green-600' : 'text-red-600'}`}>
-                                        {disputeResult.verdict === 'correct' ? (props.language === 'Chinese' ? "申诉成功！" : "Appeal Accepted!") : (props.language === 'Chinese' ? "申诉驳回" : "Appeal Rejected")}
-                                    </h3>
-                                    <div className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed mb-6 bg-gray-50 dark:bg-gray-800 p-4 rounded-xl text-left border border-gray-100 dark:border-gray-700 max-h-48 overflow-y-auto custom-scrollbar">
-                                        <MarkdownText content={disputeResult.explanation} />
-                                    </div>
-                                    <Button onClick={() => { setShowReportModal(false); setDisputeResult(null); }} variant={disputeResult.verdict === 'correct' ? 'primary' : 'secondary'} className="w-full">
-                                        {props.language === 'Chinese' ? "我知道了" : "Got it"}
-                                    </Button>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )}
-
-                <div className="flex-1 overflow-y-auto custom-scrollbar p-0 md:p-8 pb-32 md:pb-32 w-full bg-gray-50/30 dark:bg-dark-bg/30">
-                    <div className="mx-auto max-w-2xl transition-all duration-300 px-4 pt-4 md:px-0 md:pt-0">
-                        {engine.currentScreen.widgets.map((widget, idx) => (
-                            <div key={widget.id + idx} className={`animate-fade-in-up delay-${Math.min(idx * 100, 400)} mb-6`}>
-                                {widget.type === 'dialogue' && <DialogueWidget widget={widget} />}
-                                {widget.type === 'callout' && <CalloutWidget widget={widget} />}
-                                {(widget.type === 'interactive-code' || widget.type === 'code') && (
-                                    <InteractiveCodeWidget widget={widget.type === 'code' ? { ...widget, type: 'interactive-code', interactiveCode: { language: widget.code?.language || 'python', lines: (widget.code?.content || '').split('\n').map(l => ({code: l, explanation: ''})), caption: widget.code?.caption } } : widget} language={props.language} />
-                                )}
-                                {widget.type === 'flipcard' && <FlipCardWidget widget={widget} language={props.language} onAssessment={(res) => engine.checkAnswer(res === 'remembered')} />}
-                                {widget.type === 'quiz' && <QuizWidgetPresenter widget={widget} selectedIdx={widgetState.quizSelection ?? null} onSelect={(i) => setWidgetState(s => ({ ...s, quizSelection: i }))} status={engine.status} language={props.language} />}
-                                {widget.type === 'parsons' && <ParsonsWidget widget={widget} onUpdateOrder={(order) => setWidgetState(s => ({ ...s, parsonsOrder: order }))} status={engine.status} language={props.language} />}
-                                {widget.type === 'fill-in' && <FillInWidget widget={widget} onUpdateAnswers={(ans) => setWidgetState(s => ({ ...s, fillInAnswers: ans }))} language={props.language} status={engine.status} />}
-                                {widget.type === 'steps-list' && <StepsWidget widget={widget} onUpdateOrder={(order) => setWidgetState(s => ({ ...s, stepsOrder: order }))} />}
-                                {widget.type === 'terminal' && <TerminalWidget widget={widget} status={engine.status} />}
-                                {widget.type === 'code-walkthrough' && <CodeWalkthroughWidget widget={widget} />}
-                                {widget.type === 'mini-editor' && <MiniEditorWidget widget={widget} onValidationChange={(isValid) => setWidgetState(prev => ({ ...prev, miniEditorValid: isValid }))} />}
-                                {widget.type === 'arch-canvas' && <ArchCanvasWidget widget={widget} />}
-                                {widget.type === 'mermaid' && <MermaidVisualWidget widget={widget} onRegenerate={handleRegenerateScreen} />}
-                                {widget.type === 'visual-quiz' && <VisualQuizWidget widget={widget} />}
-                                {widget.type === 'comparison-table' && <ComparisonTableWidget widget={widget} />}
-                            </div>
-                        ))}
-                    </div>
-                </div>
-                <LessonFooter 
-                    status={isInteractiveScreen ? engine.status : 'idle'}
-                    onCheck={handleCheck}
-                    onNext={engine.nextScreen}
-                    language={props.language}
-                    isExamMode={isExamMode}
-                    isLastQuestion={engine.currentIndex === engine.totalScreens - 1}
-                    onRegenerate={handleRegenerateScreen}
-                    onReport={() => setShowReportModal(true)}
-                    isRegenerating={isRegenerating}
-                />
             </div>
-        </div>
-        
-        {/* Sidebar (Push Layout) */}
+        )}
+
+        <LessonFooter 
+            status={status} 
+            onCheck={handleCheck} 
+            onNext={nextScreen} 
+            language={props.language} 
+            isExamMode={props.plan.context?.type === 'career_exam'}
+            isLastQuestion={currentIndex === totalScreens - 1}
+            onRegenerate={handleRegenerateScreen}
+            isRegenerating={isRegenerating}
+            onReport={status === 'wrong' ? openAppealModal : undefined}
+        />
+
         {renderDescriptionSidebar()}
-      </div>
     </div>
   );
 };

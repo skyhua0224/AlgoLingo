@@ -8,8 +8,9 @@ interface UseLessonEngineProps {
     plan: LessonPlan;
     nodeIndex: number;
     onComplete: (stats: { xp: number; streak: number }, shouldSave: boolean, mistakes: MistakeRecord[]) => void;
-    isReviewMode?: boolean;
-    maxMistakes?: number; // Optional limit for Skip/Exam modes
+    isReviewMode?: boolean; // If true, typically disables the loop unless overridden
+    allowMistakeLoop?: boolean; // Force enable loop even in review mode (for Drills)
+    maxMistakes?: number; 
 }
 
 export type EngineStatus = 'idle' | 'correct' | 'wrong';
@@ -20,7 +21,7 @@ export interface ExamResult {
     userState: any;
 }
 
-export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = false, maxMistakes }: UseLessonEngineProps) => {
+export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = false, allowMistakeLoop = false, maxMistakes }: UseLessonEngineProps) => {
     // Core State
     const [screens, setScreens] = useState<LessonScreen[]>(plan.screens || []);
     const [currentIndex, setCurrentIndex] = useState(0);
@@ -57,9 +58,6 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
     const continueAsPractice = useCallback(() => {
         setIsFailed(false);
         setIsLimitDisabled(true);
-        // Reset status so user can see the feedback or move on
-        // We keep status as 'wrong' so they can see why they failed, 
-        // or they can just click "Continue" in the footer.
     }, []);
 
     const replaceCurrentScreen = useCallback((newScreen: LessonScreen) => {
@@ -71,14 +69,10 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
         setStatus('idle');
     }, [currentIndex]);
 
-    // NEW: Allow overturning a wrong judgment (e.g. AI accepted an appeal)
     const rectifyMistake = useCallback(() => {
         setStatus('correct');
-        // Restore streak if it was reset (simple heuristic: set it to 1 if it was 0, or increment)
         setStreak(s => s === 0 ? 1 : s + 1);
         setXpGained(x => x + 10);
-        
-        // CRITICAL: Remove the mistake from the manager so it doesn't count towards lives or history
         mistakeManager.removeLastMistake();
     }, [mistakeManager]);
 
@@ -91,19 +85,16 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
             setStatus('wrong');
             setStreak(0);
             
-            // Record mistake immediately
             if (mistakeManager.isInMistakeLoop) {
-                // If in review mode and wrong, push copy to end of queue to ensure mastery
+                // In repair loop: Push copy to end to ensure mastery
                 setScreens(prev => [...prev, { ...currentScreen, id: currentScreen.id + '_retry_' + Date.now() }]);
             } else {
-                // Normal mode: Record mistake
+                // Normal mode
                 mistakeManager.recordMistake(currentScreen, plan.title, nodeIndex);
             }
-            // Note: We do NOT set isFailed here anymore. We wait for handleNext.
         }
     }, [currentScreen, plan.title, nodeIndex, mistakeManager, mistakeManager.isInMistakeLoop]);
 
-    // Special handler for Exam Mode - Records result but does NOT change status (silent advance)
     const submitExamAnswer = useCallback((isCorrect: boolean, userState: any) => {
         const result: ExamResult = {
             screenIndex: currentIndex,
@@ -119,51 +110,53 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
             setXpGained(x => x + 10);
         }
 
-        // Auto advance
         if (!isLastScreen) {
             setCurrentIndex(prev => prev + 1);
         } else {
             setIsFinished(true);
-            onComplete(
-                { xp: xpGained, streak },
-                true, 
-                mistakeManager.sessionMistakes
-            );
+            // In Exam Mode, we usually want to show a specific Exam Summary, 
+            // handled by LessonRunner checking (currentIndex >= totalScreens)
+            setCurrentIndex(prev => prev + 1); 
         }
-    }, [currentIndex, currentScreen, isLastScreen, mistakeManager, nodeIndex, onComplete, plan.title, xpGained, streak]);
+    }, [currentIndex, currentScreen, isLastScreen, mistakeManager, nodeIndex, plan.title, xpGained, streak]);
 
     const handleNext = useCallback(() => {
-        // --- FAILURE CHECK (Moved here) ---
-        // Check if current mistakes exceed the limit.
-        // We check mistakeManager.sessionMistakes.length.
+        // Failure Check
         if (maxMistakes !== undefined && !isLimitDisabled) {
             if (mistakeManager.sessionMistakes.length > maxMistakes) {
                 setIsFailed(true);
-                return; // Stop processing, show fail screen
+                return;
             }
         }
 
-        if (isFailed) return; // Block next if already failed (though UI handles this)
+        if (isFailed) return;
 
         if (!isLastScreen) {
             setStatus('idle');
             setCurrentIndex(prev => prev + 1);
         } else {
-            setIsFinished(true); // Stop timer
-            onComplete(
-                { xp: xpGained, streak },
-                true, 
-                mistakeManager.sessionMistakes
-            );
+            // --- LOOP LOGIC FIXED ---
+            const shouldEnterLoop = mistakeManager.hasPendingMistakes && !mistakeManager.isInMistakeLoop && (!isReviewMode || allowMistakeLoop);
+
+            if (shouldEnterLoop) {
+                mistakeManager.startReviewLoop();
+                setScreens(prev => [...prev, ...mistakeManager.retryQueue]);
+                mistakeManager.clearQueue();
+                setCurrentIndex(prev => prev + 1);
+                setStatus('idle');
+            } else {
+                // CRITICAL FIX: Increment index to trigger LessonSummary in parent component
+                setIsFinished(true);
+                setCurrentIndex(prev => prev + 1);
+            }
         }
-    }, [isLastScreen, onComplete, xpGained, streak, mistakeManager.sessionMistakes, isFailed, maxMistakes, isLimitDisabled]);
+    }, [isLastScreen, xpGained, streak, mistakeManager, isFailed, maxMistakes, isLimitDisabled, isReviewMode, allowMistakeLoop]);
 
     const retryCurrent = useCallback(() => {
         setStatus('idle');
     }, []);
 
     return {
-        // State
         currentScreen,
         currentIndex,
         totalScreens: screens.length,
@@ -176,8 +169,6 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
         isFailed,
         isLimitDisabled,
         examHistory,
-        
-        // Actions
         checkAnswer: handleCheck,
         nextScreen: handleNext,
         retryCurrent,

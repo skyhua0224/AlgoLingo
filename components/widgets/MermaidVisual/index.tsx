@@ -46,17 +46,25 @@ export const MermaidVisualWidget: React.FC<MermaidVisualProps> = ({ widget, onRe
         // Heuristic: Replace inner [ ] with ( )
         processed = processed.replace(/\[([^\]\[]*?)\[(.*?)\]([^\]\[]*?)\]/g, '[$1($2)$3]');
         
-        // Fix 2: Force Quotes for labels inside [] that contain special chars like (), but aren't already quoted
+        // Fix 2: Force Quotes for labels inside [], {}, (()) that contain special chars like () or spaces, but aren't already quoted
         // Pattern: ID[Text(With)Parens] -> ID["Text(With)Parens"]
-        // We look for [ followed by non-quote chars, containing potentially dangerous chars, ending with ]
-        processed = processed.replace(/\[\s*([^"\]]*?[\(\)][^"\]]*?)\s*\]/g, '["$1"]');
-
-        // Fix 3: General Quote Safety - If it looks like a label ID[...] and inside isn't quoted, quote it.
-        // This is aggressive but safer for Chinese text mixed with symbols.
-        // Avoid double quoting if already quoted.
+        
+        // Handle Square Brackets [] (Rects)
         processed = processed.replace(/(\w+)\s*\[\s*(?!")([^\]\n]+?)(?!")\s*\]/g, '$1["$2"]');
+        
+        // Handle Curly Braces {} (Diamonds)
+        // Note: Curly braces are tricky because they also define style classes in newer mermaid versions, 
+        // but here we assume standard graph syntax A{Label}
+        processed = processed.replace(/(\w+)\s*\{\s*(?!")([^\}\n]+?)(?!")\s*\}/g, '$1{"$2"}');
+        
+        // Handle Double Parens (()) (Circles)
+        processed = processed.replace(/(\w+)\s*\(\(\s*(?!")([^\)\n]+?)(?!")\s*\)\)/g, '$1(("$2"))');
+        
+        // Handle Rounded Parens () (Rounded Rects) - be careful not to catch method calls like node("A") if syntax changes
+        // Only apply if it looks like a node definition
+        processed = processed.replace(/(\w+)\s*\(\s*(?!")([^\)\n]+?)(?!")\s*\)/g, '$1("$2")');
 
-        // Fix 4: Arrow syntax spacing protection (A-->B is fine, but A --> B is better)
+        // Fix 3: Arrow syntax spacing protection (A-->B is fine, but A --> B is better)
         processed = processed.replace(/(\S)(-->|--|-.->)(\S)/g, '$1 $2 $3');
 
         return processed;
@@ -147,9 +155,12 @@ export const MermaidVisualWidget: React.FC<MermaidVisualProps> = ({ widget, onRe
         if (!onRegenerate) return;
         setIsRepairing(true);
         // Feed the specific error context back to AI
+        // We pass the raw current state (GraphData or String) so the repair function knows what to fix
+        const currentDataStr = graphData ? JSON.stringify(graphData) : chart;
+        
         const instruction = `The mermaid diagram generation failed.
         Error: ${error}.
-        Current Data: ${JSON.stringify(graphData || chart)}.
+        Current Data: ${currentDataStr}.
         Task: Fix the syntax or structure issues. Use the 'graphData' JSON format strictly if possible.
         IMPORTANT: Wrap all labels in double quotes. Do NOT use nested square brackets.`;
         

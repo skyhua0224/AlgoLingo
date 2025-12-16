@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Search, Sparkles, History, Code2, BookOpen, MousePointer2, Eye, GraduationCap, Wrench, Zap, Layers, Maximize, ArrowRight, Gauge } from 'lucide-react';
+import { Search, Sparkles, History, Code2, BookOpen, MousePointer2, Eye, GraduationCap, Wrench, Zap, Layers, Maximize, ArrowRight, Gauge, Loader2, RotateCcw, XCircle } from 'lucide-react';
 import { generateForgeRoadmap } from '../services/geminiService';
 import { ForgeRoadmap, ForgeGenConfig, ForgeDensity } from '../types/forge';
 import { UserPreferences } from '../types';
@@ -17,6 +17,7 @@ export const Forge: React.FC<ForgeProps> = ({ language, onViewItem, preferences 
     const [query, setQuery] = useState('');
     const [loading, setLoading] = useState(false);
     const [loadingStep, setLoadingStep] = useState(0);
+    const [loadingTime, setLoadingTime] = useState(0); // Track seconds
     const [history, setHistory] = useState<ForgeRoadmap[]>([]);
     
     // Configuration State
@@ -37,6 +38,16 @@ export const Forge: React.FC<ForgeProps> = ({ language, onViewItem, preferences 
             } catch (e) { console.error(e); }
         }
     }, []);
+
+    // Timer for loading
+    useEffect(() => {
+        let interval: any;
+        if (loading) {
+            setLoadingTime(0);
+            interval = setInterval(() => setLoadingTime(t => t + 1), 1000);
+        }
+        return () => clearInterval(interval);
+    }, [loading]);
 
     // Validate Config Consistency
     useEffect(() => {
@@ -103,15 +114,36 @@ export const Forge: React.FC<ForgeProps> = ({ language, onViewItem, preferences 
                         <Sparkles size={40} className="text-purple-500 animate-pulse" />
                     </div>
                 </div>
-                <h2 className="text-2xl font-black text-gray-900 dark:text-white mb-4 text-center">
+                <h2 className="text-2xl font-black text-gray-900 dark:text-white mb-2 text-center">
                     {LOADING_STEPS[loadingStep] || LOADING_STEPS[3]}
                 </h2>
-                <div className="w-64 h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                <p className="text-sm text-gray-500 font-mono mb-6">{loadingTime}s</p>
+                
+                <div className="w-64 h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden mb-8">
                     <div 
                         className="h-full bg-purple-500 transition-all duration-500"
                         style={{ width: `${(loadingStep + 1) * 25}%` }}
                     ></div>
                 </div>
+
+                {loadingTime > 60 && (
+                    <div className="flex gap-4 animate-fade-in-up">
+                        <button 
+                            onClick={handleSearch}
+                            className="px-4 py-2 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 rounded-xl font-bold text-sm hover:bg-purple-200 transition-colors flex items-center gap-2"
+                        >
+                            <RotateCcw size={16}/> {isZh ? "重试" : "Retry"}
+                        </button>
+                        {loadingTime > 120 && (
+                            <button 
+                                onClick={() => setLoading(false)}
+                                className="px-4 py-2 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-300 rounded-xl font-bold text-sm hover:bg-red-200 transition-colors flex items-center gap-2"
+                            >
+                                <XCircle size={16}/> {isZh ? "停止" : "Stop"}
+                            </button>
+                        )}
+                    </div>
+                )}
             </div>
         );
     }

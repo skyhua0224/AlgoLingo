@@ -9,8 +9,11 @@ export const useMistakeManager = () => {
 
     const recordMistake = useCallback((screen: LessonScreen, problemName: string, nodeIndex: number) => {
         // STRICT FILTER: Only record truly interactive widgets.
-        // This prevents "Dialogue" bubbles or "Callouts" from appearing as empty/broken exercises in Review Mode.
-        const interactiveTypes = ['quiz', 'parsons', 'fill-in', 'interactive-code', 'leetcode', 'steps-list'];
+        // Updated to include Engineering/Forge widgets (terminal, mini-editor, visual-quiz)
+        const interactiveTypes = [
+            'quiz', 'parsons', 'fill-in', 'interactive-code', 'leetcode', 'steps-list',
+            'terminal', 'mini-editor', 'visual-quiz', 'code-walkthrough'
+        ];
         
         let targetWidget: Widget | undefined = screen.widgets.find(w => 
             interactiveTypes.includes(w.type) || 

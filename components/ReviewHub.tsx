@@ -17,6 +17,7 @@ interface ReviewHubProps {
     onGenerateVariant?: (mistakeId: string) => void;
     targetLanguage: string;
     retentionStats?: Record<string, RetentionRecord>;
+    language: 'Chinese' | 'English'; // Added language prop
 }
 
 const LOCALE = {
@@ -106,15 +107,15 @@ const LOCALE = {
 
 export const ReviewHub: React.FC<ReviewHubProps> = ({ 
     mistakeCount, mistakes, onStartReview, onStartMistakePractice, 
-    onGenerateVariant, retentionStats = {}
+    onGenerateVariant, retentionStats = {}, language
 }) => {
     const [expandedMistake, setExpandedMistake] = useState<string | null>(null);
     const [activeTrainingTab, setActiveTrainingTab] = useState<'units' | 'types' | 'time'>('units');
     const [vaultOpen, setVaultOpen] = useState(true); 
     const [showAllMistakes, setShowAllMistakes] = useState(false); 
 
-    const language = 'Chinese'; 
     const t = LOCALE[language];
+    const langKey = language === 'Chinese' ? 'zh' : 'en';
 
     // 1. Calculate Decay (Forgetting Curve)
     const decayedItems = useMemo(() => {
@@ -124,10 +125,10 @@ export const ReviewHub: React.FC<ReviewHubProps> = ({
             return now > record.nextReview;
         }).map(([id, record]) => ({
             id,
-            name: PROBLEM_MAP[id] || id,
+            name: PROBLEM_MAP[id] ? PROBLEM_MAP[id][langKey] : id,
             overdueDays: Math.ceil((now - record.nextReview) / (1000 * 60 * 60 * 24))
         }));
-    }, [retentionStats]);
+    }, [retentionStats, langKey]);
 
     // Filter Active vs Resolved
     const activeMistakes = useMemo(() => mistakes.filter(m => !m.isResolved), [mistakes]);
@@ -144,7 +145,11 @@ export const ReviewHub: React.FC<ReviewHubProps> = ({
     const groupedByUnit = useMemo(() => {
         const groups: Record<string, { id: string, title: string, count: number }> = {};
         mistakes.forEach(m => { 
-            const problemId = Object.keys(PROBLEM_MAP).find(key => PROBLEM_MAP[key] === m.problemName);
+            // Reverse lookup problem ID from name (Handle multilingual lookup)
+            const problemId = Object.keys(PROBLEM_MAP).find(key => 
+                PROBLEM_MAP[key].en === m.problemName || PROBLEM_MAP[key].zh === m.problemName
+            );
+            
             const unit = PROBLEM_CATEGORIES.find(u => u.problems.includes(problemId || ''));
             if (unit) {
                 if (!groups[unit.id]) {

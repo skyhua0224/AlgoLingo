@@ -20,50 +20,43 @@ export interface EngineeringNavState {
     trackData: SkillTrack | null;
 }
 
+// Helper for safe parsing
+const safeParse = <T>(key: string, fallback: T): T => {
+    try {
+        const saved = localStorage.getItem(key);
+        return saved ? JSON.parse(saved) : fallback;
+    } catch (e) {
+        console.warn(`Failed to parse ${key}, using fallback.`, e);
+        return fallback;
+    }
+};
+
 export const useAppManager = () => {
     // --- STATE ---
     const [view, setView] = useState<AppView>('algorithms');
     const [activeTab, setActiveTab] = useState<AppView>('algorithms');
 
-    // Data
-    const [preferences, setPreferences] = useState<UserPreferences>(() => {
-        const saved = localStorage.getItem('algolingo_preferences');
-        return saved ? JSON.parse(saved) : {
-            userName: 'Guest',
-            hasOnboarded: false,
-            targetLanguage: 'Python',
-            spokenLanguage: 'English',
-            apiConfig: DEFAULT_API_CONFIG,
-            theme: 'system',
-            notificationConfig: { enabled: false, webhookUrl: '', type: 'custom' },
-            syncConfig: { enabled: false, githubToken: '' }
-        };
-    });
+    // Data - Protected by safeParse to prevent white screen on corrupted data
+    const [preferences, setPreferences] = useState<UserPreferences>(() => safeParse('algolingo_preferences', {
+        userName: 'Guest',
+        hasOnboarded: false,
+        targetLanguage: 'Python',
+        spokenLanguage: 'English',
+        apiConfig: DEFAULT_API_CONFIG,
+        theme: 'system',
+        notificationConfig: { enabled: false, webhookUrl: '', type: 'custom' },
+        syncConfig: { enabled: false, githubToken: '' }
+    }));
 
-    const [stats, setStats] = useState<UserStats>(() => {
-        const saved = localStorage.getItem('algolingo_stats');
-        return saved ? JSON.parse(saved) : INITIAL_STATS;
-    });
+    const [stats, setStats] = useState<UserStats>(() => safeParse('algolingo_stats', INITIAL_STATS));
 
-    const [progressMap, setProgressMap] = useState<ProgressMap>(() => {
-        const saved = localStorage.getItem('algolingo_progress_v2');
-        return saved ? JSON.parse(saved) : {};
-    });
+    const [progressMap, setProgressMap] = useState<ProgressMap>(() => safeParse('algolingo_progress_v2', {}));
 
-    const [mistakes, setMistakes] = useState<MistakeRecord[]>(() => {
-        const saved = localStorage.getItem('algolingo_mistakes');
-        return saved ? JSON.parse(saved) : [];
-    });
+    const [mistakes, setMistakes] = useState<MistakeRecord[]>(() => safeParse('algolingo_mistakes', []));
 
-    const [savedLessons, setSavedLessons] = useState<SavedLesson[]>(() => {
-        const saved = localStorage.getItem('algolingo_saved_lessons');
-        return saved ? JSON.parse(saved) : [];
-    });
+    const [savedLessons, setSavedLessons] = useState<SavedLesson[]>(() => safeParse('algolingo_saved_lessons', []));
 
-    const [careerSessions, setCareerSessions] = useState<CareerSession[]>(() => {
-        const saved = localStorage.getItem('algolingo_career_sessions');
-        return saved ? JSON.parse(saved) : [];
-    });
+    const [careerSessions, setCareerSessions] = useState<CareerSession[]>(() => safeParse('algolingo_career_sessions', []));
 
     // Session / Navigation Context
     const [activeProblem, setActiveProblem] = useState<Problem | null>(null);
@@ -384,6 +377,7 @@ export const useAppManager = () => {
     const handleDataLoaded = (data: any) => {
         // DIRECT LOCALSTORAGE WRITE to avoid React state race conditions during full restore
         try {
+            // 1. Persistence
             if (data.stats) localStorage.setItem('algolingo_stats', JSON.stringify(data.stats));
             if (data.progress) localStorage.setItem('algolingo_progress_v2', JSON.stringify(data.progress));
             if (data.mistakes) localStorage.setItem('algolingo_mistakes', JSON.stringify(data.mistakes));
@@ -397,17 +391,27 @@ export const useAppManager = () => {
                 });
             }
 
+            // 2. React State Update (Immediate UI Feedback without reload dependency)
+            if (data.stats) setStats(data.stats);
+            if (data.progress) setProgressMap(data.progress);
+            if (data.mistakes) setMistakes(data.mistakes);
+            if (data.savedLessons) setSavedLessons(data.savedLessons);
+            if (data.careerSessions) setCareerSessions(data.careerSessions);
+
             // Merge Preferences safely
-            const currentPrefs = JSON.parse(localStorage.getItem('algolingo_preferences') || '{}');
+            const currentPrefs = safeParse('algolingo_preferences', {});
             const newPrefs = { 
                 ...currentPrefs, 
                 ...data.preferences, 
                 hasOnboarded: true 
             };
             localStorage.setItem('algolingo_preferences', JSON.stringify(newPrefs));
+            
+            // This triggers the view transition in App.tsx instantly
+            setPreferences(newPrefs);
 
-            // Force Reload immediately to reboot app with new data
-            window.location.reload();
+            // 3. Optional Reload (to ensure clean slate for hooks/effects)
+            setTimeout(() => window.location.reload(), 100);
         } catch (e) {
             console.error("Data restore failed", e);
             alert("Failed to write data to storage. Please check disk space or permissions.");

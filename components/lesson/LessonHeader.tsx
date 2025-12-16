@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
-import { Clock, Zap, XCircle, Flame, Heart, RotateCcw } from 'lucide-react';
+import { Clock, Zap, XCircle, Flame, Heart, RotateCcw, FileText, Dumbbell } from 'lucide-react';
 import { Button } from '../Button';
 
 interface LessonHeaderProps {
@@ -10,11 +10,13 @@ interface LessonHeaderProps {
   mistakeCount: number;
   timerSeconds: number;
   isSkipMode?: boolean;
-  isMistakeMode?: boolean;
+  isMistakeMode?: boolean; // Now strictly for RETRY LOOP
   onExit: () => void;
   headerTitle?: string;
   language: 'Chinese' | 'English';
-  totalTime?: number; // Optional: Total seconds allowed for exam
+  totalTime?: number; 
+  onShowDescription?: () => void; 
+  isReviewContext?: boolean; // New prop for generic "Review Mode" (Purple)
 }
 
 export const LessonHeader: React.FC<LessonHeaderProps> = ({
@@ -28,7 +30,9 @@ export const LessonHeader: React.FC<LessonHeaderProps> = ({
   onExit,
   headerTitle,
   language,
-  totalTime
+  totalTime,
+  onShowDescription,
+  isReviewContext = false
 }) => {
   const [showStreakAnim, setShowStreakAnim] = useState(false);
   const isZh = language === 'Chinese';
@@ -52,16 +56,22 @@ export const LessonHeader: React.FC<LessonHeaderProps> = ({
   const remainingLives = Math.max(0, 3 - mistakeCount);
   const mistakesLeft = totalScreens - currentScreenIndex;
   
-  // Calculate remaining time if totalTime is provided
   const remainingTime = totalTime ? Math.max(0, totalTime - timerSeconds) : timerSeconds;
-  const isUrgent = totalTime && remainingTime < 60; // Red if less than 1 min
+  const isUrgent = totalTime && remainingTime < 60; 
+
+  // --- THEME LOGIC ---
+  // Mistake Loop -> Red (Danger/Correction)
+  // Review Context (Drill) -> Indigo/Purple (Focus)
+  // Standard -> White/Dark
+  let bgClass = 'bg-white dark:bg-dark-card border-gray-200 dark:border-gray-700';
+  if (isMistakeMode) {
+      bgClass = 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-900/30';
+  } else if (isReviewContext) {
+      bgClass = 'bg-indigo-50 dark:bg-indigo-900/10 border-indigo-200 dark:border-indigo-900/30';
+  }
 
   return (
-    <div className={`h-16 px-4 md:px-6 border-b flex items-center justify-between shrink-0 z-10 select-none transition-colors ${
-        isMistakeMode 
-        ? 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-900/30' 
-        : 'bg-white dark:bg-dark-card border-gray-200 dark:border-gray-700'
-    }`}>
+    <div className={`h-16 px-4 md:px-6 border-b flex items-center justify-between shrink-0 z-10 select-none transition-colors ${bgClass}`}>
       {/* Left: Timer & Lives/Mistakes */}
       <div className="flex items-center gap-4 w-1/4">
         <div className={`hidden md:flex items-center gap-2 font-mono font-bold text-sm ${isUrgent ? 'text-red-500 animate-pulse' : 'text-gray-400'}`}>
@@ -107,12 +117,15 @@ export const LessonHeader: React.FC<LessonHeaderProps> = ({
 
                 <div className={`w-full transition-opacity duration-300 ${showStreakAnim ? 'opacity-0' : 'opacity-100'}`}>
                      <div className="flex justify-between text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 px-1">
-                         <span className="truncate max-w-[120px]">{headerTitle || "Lesson"}</span>
+                         <div className="flex items-center gap-1 truncate max-w-[150px]">
+                             {isReviewContext && <Dumbbell size={10} className="text-indigo-500"/>}
+                             <span>{headerTitle || "Lesson"}</span>
+                         </div>
                          <span>{currentScreenIndex + 1}/{totalScreens}</span>
                      </div>
                      <div className="w-full h-2.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
                         <div 
-                            className={`h-full transition-all duration-500 ease-out rounded-full ${isSkipMode || totalTime ? 'bg-orange-500' : 'bg-brand'}`} 
+                            className={`h-full transition-all duration-500 ease-out rounded-full ${isSkipMode || totalTime ? 'bg-orange-500' : (isReviewContext ? 'bg-indigo-500' : 'bg-brand')}`} 
                             style={{ width: `${progressPercent}%` }} 
                         />
                      </div>
@@ -122,7 +135,16 @@ export const LessonHeader: React.FC<LessonHeaderProps> = ({
       </div>
 
       {/* Right: Exit */}
-      <div className="w-1/4 flex justify-end">
+      <div className="w-1/4 flex justify-end gap-2">
+        {onShowDescription && (
+            <button 
+                onClick={onShowDescription}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-white transition-colors p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full"
+                title={isZh ? "查看题目描述" : "View Problem Description"}
+            >
+                <FileText size={20} />
+            </button>
+        )}
         <button 
             onClick={onExit}
             className="text-gray-300 hover:text-gray-500 dark:hover:text-white transition-colors p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full"

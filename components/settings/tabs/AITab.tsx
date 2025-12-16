@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { UserPreferences } from '../../../types';
 import { Cpu, Key } from 'lucide-react';
@@ -88,7 +89,7 @@ export const AITab: React.FC<AITabProps> = ({ preferences, onChange, isZh }) => 
                         )}
 
                         <div>
-                            <label className="text-xs font-bold text-gray-500 block mb-2">{isZh ? "模型选择" : "Model Selection"}</label>
+                            <label className="text-xs font-bold text-gray-500 block mb-2">{isZh ? "基础模型 (日常响应)" : "Base Model (Daily Usage)"}</label>
                             <select 
                                 className="w-full p-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card text-gray-900 dark:text-white text-sm focus:border-brand outline-none"
                                 value={apiConfig.gemini.model}
@@ -96,10 +97,10 @@ export const AITab: React.FC<AITabProps> = ({ preferences, onChange, isZh }) => 
                             >
                                 {GEMINI_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
                             </select>
-                            <p className="text-[10px] text-gray-400 mt-2">
+                            <p className="text-[10px] text-gray-400 mt-2 bg-gradient-to-r from-purple-500/10 to-transparent p-2 rounded-lg border-l-2 border-purple-500">
                                 {isZh 
-                                ? "推荐使用 gemini-2.5-flash 以获得最快响应速度。" 
-                                : "Recommended: gemini-2.5-flash for fastest response speed."}
+                                ? "⚡️ 混合智能架构：基础交互由 Flash 2.5 极速驱动，复杂推理（如深度题解、知识图谱）将自动无缝升级至 Gemini 3 Pro。" 
+                                : "⚡️ Hybrid Intelligence: Flash 2.5 powers real-time speed. Complex reasoning tasks (Solutions, Roadmaps) automatically upgrade to Gemini 3 Pro."}
                             </p>
                         </div>
                     </div>

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Brain, Sparkles, Clock, Zap, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Brain, Sparkles, Clock, Zap, RefreshCw, AlertTriangle, X } from 'lucide-react';
 import { ChainOfThought } from './loading/ChainOfThought';
 import { GenerationError } from './loading/GenerationError';
 import { Button } from './Button';
@@ -144,7 +144,8 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
       setTimeout(() => setIsRetrying(false), 5000);
   };
 
-  const isTakingTooLong = elapsedSeconds > 45;
+  const showSlowWarning = elapsedSeconds > 60;
+  const showForceStop = elapsedSeconds > 120;
 
   // --- ERROR RENDER ---
   if (error) {
@@ -209,19 +210,34 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ problemName, phase
             </div>
 
             {/* Taking Too Long / Retry UI */}
-            {isTakingTooLong && (
-                <div className="mt-6 animate-fade-in-up">
-                    <div className="flex items-center gap-2 justify-center text-yellow-600 dark:text-yellow-500 text-xs font-bold mb-3">
+            {showSlowWarning && (
+                <div className="mt-6 animate-fade-in-up flex flex-col gap-3">
+                    <div className="flex items-center gap-2 justify-center text-yellow-600 dark:text-yellow-500 text-xs font-bold">
                         <AlertTriangle size={14} />
-                        {isChinese ? "生成时间较长，可能网络拥堵" : "Taking longer than usual..."}
+                        {isChinese ? "生成较慢，Gemini 仍在思考..." : "Taking longer than usual..."}
                     </div>
-                    <Button 
-                        variant="secondary" 
-                        onClick={handleRetry}
-                        className="w-full py-3 border-yellow-200 bg-yellow-50 hover:bg-yellow-100 text-yellow-800 flex items-center justify-center gap-2"
-                    >
-                        <RefreshCw size={16} /> {isChinese ? "重新尝试" : "Retry Request"}
-                    </Button>
+                    
+                    <div className="flex gap-2">
+                        {onRetry && (
+                            <Button 
+                                variant="secondary" 
+                                onClick={handleRetry}
+                                className="flex-1 py-3 border-yellow-200 bg-yellow-50 hover:bg-yellow-100 text-yellow-800 flex items-center justify-center gap-2 text-xs"
+                            >
+                                <RefreshCw size={14} /> {isChinese ? "重新触发" : "Retry"}
+                            </Button>
+                        )}
+                        
+                        {showForceStop && onCancel && (
+                            <Button
+                                variant="secondary"
+                                onClick={onCancel}
+                                className="flex-1 py-3 border-red-200 bg-red-50 hover:bg-red-100 text-red-800 flex items-center justify-center gap-2 text-xs"
+                            >
+                                <X size={14} /> {isChinese ? "强制停止" : "Force Stop"}
+                            </Button>
+                        )}
+                    </div>
                 </div>
             )}
         </div>

@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Problem, UserStats, DailyQuest, SavedLesson, MistakeRecord } from '../types';
 import { PROBLEM_CATEGORIES, PROBLEM_MAP } from '../constants';
@@ -72,6 +73,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 }) => {
   const [expandedUnit, setExpandedUnit] = useState<string | null>("unit_hashing");
   const t = LOCALE[language];
+  const langKey = language === 'Chinese' ? 'zh' : 'en';
 
   const quests = (stats.quests && stats.quests.length > 0) ? stats.quests : DEFAULT_QUESTS;
   const currentTier = stats.league?.currentTier || 'Bronze';
@@ -214,10 +216,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         {expandedUnit === unit.id && (
                             <div className="p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 bg-gray-50 dark:bg-dark-bg animate-fade-in-down">
                                 {unit.problems.map(pid => {
-                                    const name = PROBLEM_MAP[pid];
+                                    const problemData = PROBLEM_MAP[pid];
+                                    const name = problemData ? problemData[langKey] : pid;
                                     const level = progressMap[pid] || 0;
                                     const mastered = level >= 6;
-                                    if (!name) return null;
+                                    if (!problemData) return null;
 
                                     return (
                                         <button 

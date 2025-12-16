@@ -91,6 +91,7 @@ Single-widget screens are **STRICTLY FORBIDDEN** and will cause a system crash.
   - ❌ Wrong: \`{ "code": "", "explanation": "This loop does X" }, { "code": "for i in range(n):", "explanation": "" }\`
   - ✅ Correct: \`{ "code": "for i in range(n):", "explanation": "This loop does X" }\`
 - **NO COMMENTS IN CODE**: Do not put comments (// or #) in the \`code\` string. Put the comment text in the \`explanation\` field instead.
+  - **EXCEPTION**: You MAY use \`// ...\` or \`# ...\` to indicate omitted code sections.
 
 WIDGET RULES:
 ${PARSONS_RULES}

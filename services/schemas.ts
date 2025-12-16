@@ -1,3 +1,4 @@
+
 import { Schema, Type } from "@google/genai";
 
 // --- WIDGET SCHEMAS ---
@@ -26,6 +27,40 @@ export const interactiveCodeSchema: Schema = {
             }
         },
         caption: { type: Type.STRING }
+    }
+};
+
+export const comparisonCodeSchema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+        left: {
+            type: Type.OBJECT,
+            properties: {
+                title: { type: Type.STRING },
+                language: { type: Type.STRING },
+                lines: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: { code: { type: Type.STRING }, explanation: { type: Type.STRING } }
+                    }
+                }
+            }
+        },
+        right: {
+            type: Type.OBJECT,
+            properties: {
+                title: { type: Type.STRING },
+                language: { type: Type.STRING },
+                lines: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: { code: { type: Type.STRING }, explanation: { type: Type.STRING } }
+                    }
+                }
+            }
+        }
     }
 };
 
@@ -94,9 +129,10 @@ export const lessonPlanSchema: Schema = {
                     type: Type.OBJECT,
                     properties: {
                         id: { type: Type.STRING },
-                        type: { type: Type.STRING, enum: ['dialogue', 'flipcard', 'quiz', 'code', 'interactive-code', 'parsons', 'fill-in', 'callout', 'leetcode', 'steps-list'] },
+                        type: { type: Type.STRING, enum: ['dialogue', 'flipcard', 'quiz', 'code', 'interactive-code', 'comparison-code', 'parsons', 'fill-in', 'callout', 'leetcode', 'steps-list'] },
                         dialogue: dialogueSchema,
                         interactiveCode: interactiveCodeSchema,
+                        comparisonCode: comparisonCodeSchema,
                         parsons: parsonsSchema,
                         fillIn: fillInSchema,
                         leetcode: leetcodeSchema,
@@ -145,8 +181,7 @@ export const lessonPlanSchema: Schema = {
     }
 };
 
-// --- LEETCODE CONTEXT SCHEMA (SIMULATOR) ---
-
+// ... (Rest of schemas remain unchanged) ...
 export const leetCodeContextSchema: Schema = {
     type: Type.OBJECT,
     properties: {
@@ -209,8 +244,6 @@ export const leetCodeContextSchema: Schema = {
         }
     }
 };
-
-// --- JUDGE RESULT SCHEMA (VIRTUAL COMPILER) ---
 
 export const judgeResultSchema: Schema = {
     type: Type.OBJECT,

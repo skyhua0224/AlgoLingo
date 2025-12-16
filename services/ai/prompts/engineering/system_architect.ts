@@ -53,7 +53,7 @@ const PHASE_STRATEGIES: Record<string, string> = {
     'phase_08': `
     **PHASE 08: THE ARCHITECT'S CHALLENGE (Mastery)**
     - **GOAL**: Complete synthesis.
-    - **WIDGETS MANDATORY**: You MUST use 'arch-canvas' OR 'mini-editor'.
+    - **WIDGETS MANDATORY**: You MUST use 'mini-editor'.
     - **FORBIDDEN**: 'dialogue' (No hand-holding), simple 'quiz'.
     - **FOCUS**: High difficulty. Design a full module or refactor a broken system.
     `
@@ -100,7 +100,7 @@ export const getSystemArchitectPrompt = (topic: string, keywords: string[], leve
     1. **MANDATORY INTERACTION**: Every single screen MUST contain EXACTLY ONE interactive widget.
     2. **WIDGET VARIETY**: 
        - If Phase >= 05, do NOT use simple 'quiz' for more than 1 screen. Use 'fill-in', 'code-walkthrough', 'mini-editor', or 'terminal'.
-       - If Phase >= 08, usage of 'mini-editor' or 'arch-canvas' is REQUIRED.
+       - If Phase >= 08, usage of 'mini-editor' is REQUIRED.
 
     **WIDGET REQUIREMENTS**:
     - Generate EXACTLY 17 Screens.

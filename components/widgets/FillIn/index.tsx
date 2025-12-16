@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Widget } from '../../../types';
 import { BaseWidget } from '../BaseWidget';
 import { Keyboard, Check } from 'lucide-react';
@@ -8,8 +8,8 @@ interface FillInProps {
     widget: Widget;
     onUpdateAnswers: (answers: string[]) => void;
     language: 'Chinese' | 'English';
-    status?: string; // Added status prop
-    userAnswers?: string[]; // New prop for review mode
+    status?: string; 
+    userAnswers?: string[]; 
 }
 
 const WIDGET_LOCALE = {
@@ -30,16 +30,21 @@ export const FillInWidget: React.FC<FillInProps> = ({ widget, onUpdateAnswers, l
 
     // --- ROBUSTNESS: Normalize Placeholders ---
     if (code) {
-        // Explicitly handle [BLANK] style placeholders
         code = code.replace(/\[BLANK\]/g, '__BLANK__');
-        // Handle long underscores (4 or more) as placeholders
         code = code.replace(/_{4,}/g, '__BLANK__');
-        // Note: We removed the aggressive regex /\[?_?_?BLANK_?_?\]?/g which was eating syntax brackets like arr[__BLANK__]
     }
 
     const parts = code ? code.split('__BLANK__') : [];
     const [answers, setAnswers] = useState<string[]>([]);
     const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
+
+    // --- DEDUPLICATE OPTIONS ---
+    // AI often hallucinates duplicates (e.g. ['num', 'target', 'num', 'target']).
+    // We use a Set to ensure unique buttons.
+    const uniqueOptions = useMemo(() => {
+        if (!options) return [];
+        return Array.from(new Set(options));
+    }, [options]);
 
     useEffect(() => {
         if (userAnswers && userAnswers.length > 0) {
@@ -102,15 +107,16 @@ export const FillInWidget: React.FC<FillInProps> = ({ widget, onUpdateAnswers, l
                                         onFocus={() => setFocusedIndex(i)}
                                         onChange={(e) => handleTextChange(e.target.value, i)}
                                         className={`bg-gray-800 border-b-2 text-brand-light font-bold px-2 mx-1 min-w-[60px] h-6 focus:outline-none focus:border-brand text-center transition-colors ${focusedIndex === i ? 'border-brand bg-gray-700' : 'border-gray-500'} ${status === 'wrong' ? 'text-red-400 border-red-500' : ''}`}
-                                        placeholder="..."
+                                        // SHOW LENGTH HINT to solve variable ambiguity (e.g. '___ (3 chars)')
+                                        placeholder={correctValues && correctValues[i] ? `${'_'.repeat(correctValues[i].length)} (${correctValues[i].length})` : '...'}
                                         readOnly={status !== 'idle' && status !== undefined}
                                     />
                                 ) : (
                                  <span 
                                     onClick={() => clear(i)}
-                                    className={`inline-flex items-center justify-center px-2 min-w-[60px] h-6 mx-1 border-b-2 rounded cursor-pointer align-middle transition-all select-none ${answers[i] ? (status === 'wrong' ? 'text-red-300 border-red-500 bg-red-900/20' : 'text-brand-light border-brand-light bg-brand/20 font-bold') : 'border-gray-600 bg-gray-800 hover:bg-gray-700 animate-pulse'}`}
+                                    className={`inline-flex items-center justify-center px-2 min-w-[60px] h-6 mx-1 border-b-2 rounded cursor-pointer align-middle transition-all select-none ${answers[i] ? (status === 'wrong' ? 'text-red-300 border-red-500 bg-red-900/20' : 'text-brand-light border-brand-light bg-brand/20 font-bold') : 'border-gray-600 bg-gray-800 hover:bg-gray-700 animate-pulse text-gray-500 text-xs'}`}
                                  >
-                                     {answers[i] || '?'}
+                                     {answers[i] || (correctValues && correctValues[i] ? `${correctValues[i].length} ch` : '?')}
                                  </span>
                                 )
                              )}
@@ -138,7 +144,7 @@ export const FillInWidget: React.FC<FillInProps> = ({ widget, onUpdateAnswers, l
              
              {(!status || status === 'idle') && !isTypeMode && (
                 <div className="flex flex-wrap gap-3 justify-center">
-                    {(options || []).map((opt, idx) => (
+                    {uniqueOptions.map((opt, idx) => (
                         <button 
                             key={idx} 
                             onClick={() => fill(opt)}

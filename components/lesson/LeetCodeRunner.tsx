@@ -1,46 +1,79 @@
 
 import React, { useState, useEffect } from 'react';
-import { LessonPlan, LeetCodeContext, UserPreferences, SolutionStrategy } from '../../types';
+import { LessonPlan, LeetCodeContext, UserPreferences, SolutionStrategy, MistakeRecord } from '../../types';
 import { VirtualWorkspace } from '../VirtualWorkspace';
-import { Loader2, Zap, ArrowRight, Layout } from 'lucide-react';
+import { Loader2, Zap, ArrowRight, Layout, X, Home, RotateCcw, AlertTriangle } from 'lucide-react';
 import { GlobalAiAssistant } from '../GlobalAiAssistant';
-import { generateLeetCodeSolutions, generateOfficialLeetCodeSolution } from '../../services/geminiService';
+import { generateLeetCodeSolutions, generateOfficialLeetCodeSolution, generateMistakeRepairPlan } from '../../services/geminiService';
+import { LessonRunner } from './LessonRunner'; 
 
 interface LeetCodeRunnerProps {
     plan: LessonPlan;
     preferences: UserPreferences;
     language: 'Chinese' | 'English';
     onSuccess: () => void;
+    onSaveDrillResult: (stats: { xp: number; streak: number }, shouldSave: boolean, mistakes: MistakeRecord[]) => void;
     context?: LeetCodeContext | null; 
 }
 
 const adaptStrategy = (app: any, lang: string): SolutionStrategy => {
+    let safeExpandedKnowledge: string[] = [];
+    if (Array.isArray(app.expandedKnowledge)) {
+        safeExpandedKnowledge = app.expandedKnowledge;
+    } else if (typeof app.expandedKnowledge === 'string') {
+        safeExpandedKnowledge = [app.expandedKnowledge];
+    }
+
+    let safeKeywords: any[] = [];
+    if (Array.isArray(app.keywords)) {
+        safeKeywords = app.keywords;
+    }
+
     return {
         id: app.id,
         title: app.title,
         complexity: app.complexity,
         tags: app.tags || [],
         rationale: app.rationale,
+        // Map summary if available
+        summary: app.summary,
         derivation: app.derivation || app.intuition || "No explanation provided.",
         analogy: app.analogy,
         memoryTip: app.memoryTip,
-        expandedKnowledge: app.expandedKnowledge || [],
+        expandedKnowledge: safeExpandedKnowledge,
         mermaid: app.mermaid,
-        keywords: app.keywords || [],
+        logicSteps: app.logicSteps, 
+        keywords: safeKeywords,
         code: app.code || "// Code logic missing", 
         codeWidgets: app.widgets || app.codeWidgets || [],
         language: lang,
         isCustom: app.isCustom || false,
-        sections: app.sections // Pass through detailed sections if available (from cache)
+        sections: app.sections 
     };
 };
 
-export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preferences, language, onSuccess, context }) => {
-    // Default to workspace directly
-    const [step, setStep] = useState<'strategy-select' | 'generating' | 'workspace'>('workspace');
+export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preferences, language, onSuccess, onSaveDrillResult, context }) => {
+    // Steps: 'workspace' (IDE), 'generating' (Solution), 'drill' (Extra practice lesson)
+    const [step, setStep] = useState<'strategy-select' | 'generating' | 'workspace' | 'drill'>('workspace');
+    const [loadingMsg, setLoadingMsg] = useState("");
     const [strategies, setStrategies] = useState<SolutionStrategy[]>([]);
     const [activeStrategyId, setActiveStrategyId] = useState<string | null>(null);
+    const [drillPlan, setDrillPlan] = useState<LessonPlan | null>(null);
     const isZh = language === 'Chinese';
+
+    // Timeout State
+    const [loadingTime, setLoadingTime] = useState(0);
+    const [targetStrategyId, setTargetStrategyId] = useState<string | null>(null);
+
+    // Timer Logic for Generating State
+    useEffect(() => {
+        let interval: any;
+        if (step === 'generating') {
+            setLoadingTime(0);
+            interval = setInterval(() => setLoadingTime(t => t + 1), 1000);
+        }
+        return () => clearInterval(interval);
+    }, [step]);
 
     // 1. Load Strategy List (Lightweight metadata)
     useEffect(() => {
@@ -56,7 +89,6 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
                     setStrategies(adapted);
                 } catch(e) { console.error("Cache Parse Error", e); }
             } else if (context) {
-                // Generate Initial List if not present (Silent background generation or prompt user)
                 try {
                     const data = await generateLeetCodeSolutions(plan.title, context.problem.description, preferences);
                     const adapted = (data.approaches || []).map((app: any) => adaptStrategy(app, preferences.targetLanguage));
@@ -70,22 +102,15 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
         loadList();
     }, [plan.title, preferences.targetLanguage]);
 
-    const handleStrategySelect = async (strategyId: string) => {
+    const executeStrategyGeneration = async (strategyId: string) => {
         const strategy = strategies.find(s => s.id === strategyId);
         if (!strategy) return;
 
-        // If we already have detailed sections (from cache), just switch
-        if (strategy.sections && strategy.codeWidgets && strategy.codeWidgets.length > 0) {
-            setActiveStrategyId(strategyId);
-            return;
-        }
-
-        // Otherwise, generate the detailed "Official Solution"
+        setLoadingMsg(isZh ? "正在生成深度题解..." : "Generating deep dive...");
         setStep('generating');
+        setTargetStrategyId(strategyId);
         
         try {
-            // Call Gemini 3 Pro for the deep dive official solution
-            // Pass strategy.code so the AI analyzes existing code instead of rewriting
             const officialData = await generateOfficialLeetCodeSolution(
                 plan.title, 
                 strategy.title, 
@@ -93,10 +118,8 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
                 strategy.code 
             );
             
-            // Construct the FULL code string from lines to ensure consistency
             const fullCode = officialData.codeLines?.map((l: any) => l.code).join('\n') || officialData.code || "";
             
-            // Create Interactive Code Widget structure
             const codeWidget = {
                 id: `official_code_${Date.now()}`,
                 type: 'interactive-code',
@@ -107,32 +130,27 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
                 }
             };
 
-            // Merge into the strategy object
             const updatedStrategy: SolutionStrategy = {
                 ...strategy,
                 derivation: officialData.mathLogic || strategy.derivation,
                 rationale: officialData.summary || strategy.rationale,
-                sections: officialData.sections, // New structured content
-                code: fullCode || strategy.code, // Use new full code if available
-                codeWidgets: [codeWidget as any] // Force override
+                sections: officialData.sections, 
+                code: fullCode || strategy.code, 
+                codeWidgets: [codeWidget as any] 
             };
 
-            // Update State
             const updatedStrategies = strategies.map(s => s.id === strategyId ? updatedStrategy : s);
             setStrategies(updatedStrategies);
             setActiveStrategyId(strategyId);
             
-            // Update Cache (Persist the detailed solution)
             const cacheKey = `algolingo_sol_v3_${plan.title}_${preferences.targetLanguage}`;
             const cachedRaw = localStorage.getItem(cacheKey);
             if (cachedRaw) {
                 const parsed = JSON.parse(cachedRaw);
-                // Find and update the specific approach in the raw cache structure
                 parsed.approaches = parsed.approaches.map((app: any) => {
                     if (app.id === strategyId) {
                         return {
                             ...app,
-                            // Persist the new detailed fields
                             sections: officialData.sections,
                             mathLogic: officialData.mathLogic,
                             summary: officialData.summary,
@@ -148,27 +166,53 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
             setStep('workspace');
         } catch (e) {
             alert("Failed to generate official solution. Please try again.");
-            setStep('workspace'); // Go back to workspace to allow retry or selection of other
+            setStep('workspace'); 
         }
+    };
+
+    const handleStrategySelect = async (strategyId: string | null) => {
+        if (!strategyId) {
+            setActiveStrategyId(null);
+            return;
+        }
+
+        const strategy = strategies.find(s => s.id === strategyId);
+        if (!strategy) return;
+
+        if (strategy.sections && strategy.codeWidgets && strategy.codeWidgets.length > 0) {
+            setActiveStrategyId(strategyId);
+            return;
+        }
+        executeStrategyGeneration(strategyId);
     };
 
     const handleUpdateStrategy = (updatedStrategy: SolutionStrategy) => {
         setStrategies(prev => {
             const newStrategies = prev.map(s => s.id === updatedStrategy.id ? updatedStrategy : s);
-            
-            // Update Cache
-            const cacheKey = `algolingo_sol_v3_${plan.title}_${preferences.targetLanguage}`;
-            const cachedRaw = localStorage.getItem(cacheKey);
-            if (cachedRaw) {
-                try {
-                    const parsed = JSON.parse(cachedRaw);
-                    // This is a simplified cache update, it assumes 'updatedStrategy' matches the JSON structure
-                    // In a real app, might need inverse adaptation
-                    // For now, assume it's fine or rely on runtime state until reload
-                } catch(e) {}
-            }
             return newStrategies;
         });
+    };
+
+    const handleDrillStart = async (diagnosisContext?: string, referenceCode?: string) => {
+        setLoadingMsg(isZh ? "正在构建专属训练计划 (17关)..." : "Building focused drill plan (17 screens)...");
+        setStep('generating');
+        try {
+            const drillContext = diagnosisContext || `Failed to implement correct logic for ${plan.title}. Needs intense repetition.`;
+            const drill = await generateMistakeRepairPlan(drillContext, plan.title, preferences, referenceCode);
+            setDrillPlan(drill);
+            setStep('drill');
+        } catch (e) {
+            console.error(e);
+            alert("Failed to generate drill. Please try again.");
+            setStep('workspace');
+        }
+    };
+
+    const handleDrillComplete = (stats: {xp: number, streak: number}, mistakes: MistakeRecord[]) => {
+        // Save history via global handler
+        onSaveDrillResult(stats, true, mistakes);
+        setStep('workspace');
+        setDrillPlan(null);
     };
 
     if (!context) {
@@ -182,22 +226,100 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
         );
     }
 
-    // WORKSPACE
+    // --- Custom Actions for Drill Summary ---
+    const drillActions = [
+        {
+            label: isZh ? "回到力扣学习" : "Back to LeetCode",
+            icon: RotateCcw,
+            onClick: () => { setStep('workspace'); setDrillPlan(null); },
+            variant: 'secondary' as const
+        },
+        {
+            label: isZh ? "回到主页" : "Return Home",
+            icon: Home,
+            onClick: onSuccess, // This triggers navigation back to dashboard
+            variant: 'primary' as const
+        }
+    ];
+
     return (
         <div className="flex h-full relative bg-gray-50 dark:bg-dark-bg overflow-hidden">
             <GlobalAiAssistant problemName={plan.title} preferences={preferences} language={language} />
 
-            <div className="w-full h-full flex flex-col transition-all duration-300 ease-in-out">
-                <VirtualWorkspace 
-                    context={context} 
-                    preferences={preferences} 
-                    onSuccess={onSuccess}
-                    strategies={strategies}
-                    activeStrategyId={activeStrategyId}
-                    onSelectStrategy={handleStrategySelect}
-                    isGenerating={step === 'generating'}
-                    onUpdateStrategy={handleUpdateStrategy}
-                />
+            <div className="w-full h-full flex flex-col transition-all duration-300 ease-in-out relative">
+                
+                {/* 1. Main Workspace (Always Mounted to preserve state) */}
+                <div className="w-full h-full" style={{ display: (step === 'workspace' || step === 'generating') ? 'block' : 'none' }}>
+                    <VirtualWorkspace 
+                        context={context} 
+                        preferences={preferences} 
+                        onSuccess={onSuccess}
+                        strategies={strategies}
+                        activeStrategyId={activeStrategyId}
+                        onSelectStrategy={handleStrategySelect}
+                        isGenerating={step === 'generating'}
+                        onUpdateStrategy={handleUpdateStrategy}
+                        onDrill={handleDrillStart}
+                    />
+                </div>
+
+                {/* 2. Generating Overlay with Timeout Actions */}
+                {step === 'generating' && (
+                    <div className="absolute inset-0 z-50 flex flex-col items-center justify-center text-gray-400 bg-white/95 dark:bg-dark-bg/95 backdrop-blur-sm animate-fade-in-up">
+                        <Loader2 size={48} className="animate-spin text-brand mb-4"/>
+                        <p className="font-bold text-sm uppercase tracking-wider animate-pulse mb-6">
+                            {loadingMsg} ({loadingTime}s)
+                        </p>
+
+                        {/* Timeout Actions */}
+                        <div className="flex flex-col gap-3 min-w-[200px]">
+                            {/* > 60s: Allow Retry (Keep going in background, but re-trigger) */}
+                            {loadingTime > 60 && (
+                                <button 
+                                    onClick={() => targetStrategyId && executeStrategyGeneration(targetStrategyId)}
+                                    className="px-6 py-2.5 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-yellow-200 transition-colors"
+                                >
+                                    <RotateCcw size={14}/> {isZh ? "生成较慢，重试?" : "Taking long, Retry?"}
+                                </button>
+                            )}
+                            
+                            {/* > 120s: Force Stop */}
+                            {loadingTime > 120 && (
+                                <button 
+                                    onClick={() => setStep('workspace')}
+                                    className="px-6 py-2.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-red-200 transition-colors"
+                                >
+                                    <AlertTriangle size={14}/> {isZh ? "强制停止" : "Force Stop"}
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* 3. Drill Overlay */}
+                {step === 'drill' && drillPlan && (
+                    <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur flex items-center justify-center p-4">
+                        <div className="w-full h-full md:w-[95vw] md:h-[95vh] bg-white dark:bg-dark-bg rounded-3xl overflow-hidden shadow-2xl relative border border-gray-200 dark:border-gray-800">
+                            <div className="absolute top-4 right-4 z-50">
+                                <button onClick={() => setStep('workspace')} className="p-2 bg-gray-100 dark:bg-gray-800 rounded-full hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors">
+                                    <X size={20} className="text-gray-500 hover:text-red-500"/>
+                                </button>
+                            </div>
+                            <LessonRunner 
+                                plan={drillPlan} 
+                                nodeIndex={-1} 
+                                onComplete={(stats, _, mistakes) => handleDrillComplete(stats, mistakes)}
+                                onExit={() => setStep('workspace')}
+                                language={language}
+                                preferences={preferences}
+                                stats={{ streak: 0, xp: 0, gems: 0, lastPlayed: '', history: {} }}
+                                isReviewMode={true} // Visual styling
+                                allowMistakeLoop={true} // Enable mistake repair loop for Drill
+                                customSummaryActions={drillActions} // Inject buttons
+                            />
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

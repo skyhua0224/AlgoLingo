@@ -102,8 +102,31 @@ export default function App() {
         );
     }
     
+    // LESSON RUNNER (FULL SCREEN MODAL)
     if (view === 'runner' && currentLessonPlan) {
-        return null; 
+        return (
+            <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur flex items-center justify-center p-0 md:p-4">
+                <div className="w-full h-full md:w-[95vw] md:h-[95vh] bg-white dark:bg-dark-bg rounded-none md:rounded-3xl overflow-hidden shadow-2xl relative border border-gray-200 dark:border-gray-800">
+                    <LessonRunner 
+                        plan={currentLessonPlan}
+                        nodeIndex={activeNodeIndex}
+                        onComplete={actions.handleLessonComplete}
+                        onExit={() => {
+                            if (activeForgeItem) actions.setView('forge-detail');
+                            else actions.setView('dashboard');
+                        }}
+                        onRegenerate={actions.handleRetryLoading}
+                        onUpdatePlan={actions.handleUpdateCurrentPlan} 
+                        language={preferences.spokenLanguage}
+                        preferences={preferences}
+                        isReviewMode={state.loadingContext === 'review'}
+                        isSkipContext={isSkipAttempt}
+                        stats={stats}
+                        problemContext={activeProblemContext}
+                    />
+                </div>
+            </div>
+        ); 
     }
 
     if (view === 'unit-map' && activeProblem) {
@@ -149,6 +172,7 @@ export default function App() {
                     onBack={() => actions.setActiveTab('algorithms')}
                     targetLanguage={preferences.targetLanguage}
                     retentionStats={stats.retention}
+                    language={preferences.spokenLanguage} 
                 />
             );
         case 'engineering':
@@ -212,26 +236,6 @@ export default function App() {
 
   return (
     <>
-        {view === 'runner' && currentLessonPlan && (
-            <LessonRunner 
-                plan={currentLessonPlan}
-                nodeIndex={activeNodeIndex}
-                onComplete={actions.handleLessonComplete}
-                onExit={() => {
-                    if (activeForgeItem) actions.setView('forge-detail');
-                    else actions.setView('dashboard');
-                }}
-                onRegenerate={actions.handleRetryLoading}
-                onUpdatePlan={actions.handleUpdateCurrentPlan} // Pass update handler
-                language={preferences.spokenLanguage}
-                preferences={preferences}
-                isReviewMode={state.loadingContext === 'review'}
-                isSkipContext={isSkipAttempt}
-                stats={stats}
-                problemContext={activeProblemContext}
-            />
-        )}
-
         <Layout 
             activeTab={activeTab} 
             onTabChange={(tab) => actions.setActiveTab(tab)}

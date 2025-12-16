@@ -10,6 +10,7 @@ import { SOFTWARE_ARCH_DATA, CS_FUNDAMENTALS_DATA } from '../../data/engineering
 import { generateEngineeringLesson, generateEngineeringRoadmap, generateCustomTrack } from '../../services/geminiService';
 import { EngineeringTopic, TopicProfile, SkillTrack, EngineeringPillar, LocalizedContent, EngineeringStep } from '../../types/engineering';
 import { useAppManager, EngineeringNavState } from '../../hooks/useAppManager';
+import { RotateCcw, XCircle } from 'lucide-react';
 
 interface EngineeringHubProps {
     preferences: UserPreferences;
@@ -40,6 +41,17 @@ export const EngineeringHub: React.FC<EngineeringHubProps> = ({ preferences, onU
     // Loading State
     const [loading, setLoading] = useState(false);
     const [loadingMsg, setLoadingMsg] = useState("");
+    const [loadingTime, setLoadingTime] = useState(0);
+
+    // Timer for loading
+    useEffect(() => {
+        let interval: any;
+        if (loading) {
+            setLoadingTime(0);
+            interval = setInterval(() => setLoadingTime(t => t + 1), 1000);
+        }
+        return () => clearInterval(interval);
+    }, [loading]);
 
     // RESTORE PROFILE ON MOUNT (If returning to a specific topic)
     useEffect(() => {
@@ -208,8 +220,19 @@ export const EngineeringHub: React.FC<EngineeringHubProps> = ({ preferences, onU
             <div className="flex flex-col items-center justify-center h-[80vh] animate-fade-in-up">
                 <div className="w-16 h-16 border-4 border-brand border-t-transparent rounded-full animate-spin mb-6"></div>
                 <h2 className="text-xl font-black text-gray-900 dark:text-white animate-pulse">
-                    {loadingMsg}
+                    {loadingMsg} ({loadingTime}s)
                 </h2>
+                
+                {loadingTime > 60 && (
+                    <div className="mt-6 flex gap-4">
+                        <button 
+                            onClick={() => { /* Trigger whatever was running - complicated without full context re-pass, simple is just stop */ setLoading(false); }} 
+                            className="px-4 py-2 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-xl font-bold text-sm hover:bg-red-200 transition-colors flex items-center gap-2"
+                        >
+                            <XCircle size={16}/> {language === 'Chinese' ? "取消" : "Cancel"}
+                        </button>
+                    </div>
+                )}
             </div>
         )
     }

@@ -63,21 +63,32 @@ export const getLeetCodeSolutionSystemInstruction = (
                 "complexity": "Time: O(...) | Space: O(...)",
                 "tags": ["Tag1", "Tag2"],
                 
+                // --- NEW: SUMMARY ---
+                "summary": "One sentence high-level summary of the approach (e.g. 'Use a hashmap to store complements').",
+
                 // --- BLOCK 1: RATIONALE ---
                 "rationale": "Why use this specific data structure or algorithm? (Use Markdown)",
                 
                 // --- BLOCK 2: THINKING PROCESS ---
                 "derivation": "Step-by-step mental journey... (Use Markdown)",
                 
-                // --- BLOCK 3: VISUALIZATION ---
-                "mermaid": "graph TD; A[Start] --> B{Check}; ...", 
+                // --- BLOCK 3: LOGIC STEPS (VISUAL) ---
+                // PREFERRED OVER MERMAID: Provide structured steps for the UI to render.
+                "logicSteps": [
+                    { "title": "Init Pointers", "detail": "Set L=0, R=n-1", "type": "init" },
+                    { "title": "Loop Condition", "detail": "While L < R...", "type": "condition" },
+                    { "title": "Move Logic", "detail": "If sum < target, L++", "type": "action" }
+                ],
                 
-                // --- BLOCK 4: SYNTAX & KEYWORDS ---
+                // --- BLOCK 4: MNEMONIC (MANDATORY) ---
+                "memoryTip": "A short, catchy phrase or rhyme to help remember this specific logic forever.",
+
+                // --- BLOCK 5: SYNTAX & KEYWORDS ---
                 "keywords": [
                     { "term": "enumerate", "definition": "Why used here?", "memoryTip": "Quick tip" }
                 ],
 
-                // --- BLOCK 5: INTERACTIVE CODE (MANDATORY) ---
+                // --- BLOCK 6: INTERACTIVE CODE (MANDATORY) ---
                 "widgets": [
                     {
                         "type": "interactive-code",
@@ -94,7 +105,7 @@ export const getLeetCodeSolutionSystemInstruction = (
                     }
                 ],
                 
-                // --- BLOCK 6: RAW COPY ---
+                // --- BLOCK 7: RAW COPY ---
                 "code": "Full raw code string for copy-paste..."
             }
         ]

@@ -4,10 +4,9 @@ import { CareerSession, InterviewTurn } from '../../types/career';
 import { UserPreferences } from '../../types';
 import { generateNextTurn } from '../../services/ai/career/generator';
 import { VirtualWorkspace } from '../VirtualWorkspace';
-import { ArchCanvasWidget } from '../widgets/ArchCanvas';
 import { QuizWidget } from '../widgets/Quiz';
 import { FillInWidget } from '../widgets/FillIn';
-import { X, Clock, Send, Loader2, Mic, CheckCircle2, Bot, User, AlertCircle } from 'lucide-react';
+import { X, Clock, Send, Loader2, Mic, CheckCircle2, Bot, User, AlertCircle, Volume2, VolumeX, Layout } from 'lucide-react';
 import { Button } from '../Button';
 
 interface InterviewRunnerProps {
@@ -32,6 +31,11 @@ export const InterviewRunner: React.FC<InterviewRunnerProps> = ({ session, onUpd
     const [isThinking, setIsThinking] = useState(false);
     const [timeLeft, setTimeLeft] = useState(0);
     
+    // Voice State
+    const [isListening, setIsListening] = useState(false);
+    const [voiceEnabled, setVoiceEnabled] = useState(false);
+    const recognitionRef = useRef<any>(null);
+
     // Widget Interaction State
     const [quizSelection, setQuizSelection] = useState<number | null>(null);
     const [fillInAnswers, setFillInAnswers] = useState<string[]>([]);
@@ -42,6 +46,58 @@ export const InterviewRunner: React.FC<InterviewRunnerProps> = ({ session, onUpd
     const turns = session.turns;
     const currentTurn = turns[turns.length - 1];
     const hasStarted = turns.length > 0;
+
+    // --- SPEECH RECOGNITION SETUP ---
+    useEffect(() => {
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+            recognitionRef.current = new SpeechRecognition();
+            recognitionRef.current.continuous = false;
+            recognitionRef.current.interimResults = false;
+            recognitionRef.current.lang = isZh ? 'zh-CN' : 'en-US';
+
+            recognitionRef.current.onresult = (event: any) => {
+                const transcript = event.results[0][0].transcript;
+                setInput(prev => prev ? `${prev} ${transcript}` : transcript);
+                setIsListening(false);
+            };
+
+            recognitionRef.current.onerror = (event: any) => {
+                console.error("Speech Error", event.error);
+                setIsListening(false);
+            };
+            
+            recognitionRef.current.onend = () => {
+                setIsListening(false);
+            };
+        }
+    }, [isZh]);
+
+    const toggleListening = () => {
+        if (!recognitionRef.current) {
+            alert("Speech recognition not supported in this browser.");
+            return;
+        }
+        if (isListening) {
+            recognitionRef.current.stop();
+        } else {
+            setIsListening(true);
+            recognitionRef.current.start();
+        }
+    };
+
+    // --- TTS OUTPUT ---
+    useEffect(() => {
+        if (voiceEnabled && currentTurn && currentTurn.role === 'ai' && currentTurn.message && !isThinking) {
+            // Cancel previous speech
+            window.speechSynthesis.cancel();
+            
+            const utterance = new SpeechSynthesisUtterance(currentTurn.message);
+            utterance.lang = isZh ? 'zh-CN' : 'en-US';
+            utterance.rate = 1.0;
+            window.speechSynthesis.speak(utterance);
+        }
+    }, [currentTurn?.id, voiceEnabled, isThinking, isZh]);
 
     // Reset interaction state on new turn
     useEffect(() => {
@@ -82,6 +138,7 @@ export const InterviewRunner: React.FC<InterviewRunnerProps> = ({ session, onUpd
     const handleUserAction = async (content: string) => {
         if (isThinking) return;
         setIsThinking(true);
+        window.speechSynthesis.cancel(); // Stop AI talking
 
         // 1. Update current turn
         const updatedTurns = [...session.turns];
@@ -175,24 +232,15 @@ export const InterviewRunner: React.FC<InterviewRunnerProps> = ({ session, onUpd
             return (
                 <div className="w-full max-w-4xl my-4 border border-gray-700 rounded-xl overflow-hidden bg-[#1e1e1e] shadow-2xl">
                     {isPending ? (
-                        <div className="h-[500px] flex flex-col">
-                            <div className="p-4 bg-gray-800 border-b border-gray-700 flex justify-between items-center">
-                                <div>
-                                    <h3 className="font-bold text-white mb-1">System Design Challenge</h3>
-                                    <p className="text-xs text-gray-400">{turn.payload.systemDesign.goal}</p>
-                                </div>
-                                <Button size="sm" onClick={() => handleUserAction("[DESIGN SUBMITTED]")}>Submit Design</Button>
+                        <div className="h-[400px] flex flex-col items-center justify-center p-8 text-center">
+                            <div className="p-4 bg-gray-800 rounded-full mb-4">
+                                <Layout size={48} className="text-gray-400"/>
                             </div>
-                            <div className="flex-1 relative">
-                                <ArchCanvasWidget widget={{
-                                    id: 'sd', type: 'arch-canvas',
-                                    archCanvas: {
-                                        goal: turn.payload.systemDesign.goal,
-                                        requiredComponents: turn.payload.systemDesign.requirements,
-                                        initialComponents: turn.payload.systemDesign.initialComponents
-                                    }
-                                }} />
-                            </div>
+                            <h3 className="text-xl font-bold text-white mb-2">System Design Challenge</h3>
+                            <p className="text-gray-400 mb-6 max-w-md text-sm">{turn.payload.systemDesign.goal}</p>
+                            <Button size="md" onClick={() => handleUserAction("[DESIGN SUBMITTED]")}>
+                                {isZh ? "提交架构设计" : "Submit Design"}
+                            </Button>
                         </div>
                     ) : (
                         <div className="p-8 text-center text-gray-500">Architecture Diagram Submitted</div>
@@ -271,9 +319,18 @@ export const InterviewRunner: React.FC<InterviewRunnerProps> = ({ session, onUpd
                     </div>
                 )}
 
-                <button onClick={onExit} className="p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white transition-colors">
-                    <X size={24}/>
-                </button>
+                <div className="flex items-center gap-4">
+                    <button 
+                        onClick={() => setVoiceEnabled(!voiceEnabled)}
+                        className={`p-2 rounded-full transition-colors ${voiceEnabled ? 'bg-blue-600 text-white' : 'hover:bg-gray-800 text-gray-400'}`}
+                        title={isZh ? "语音输出" : "Voice Output"}
+                    >
+                        {voiceEnabled ? <Volume2 size={20}/> : <VolumeX size={20}/>}
+                    </button>
+                    <button onClick={onExit} className="p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white transition-colors">
+                        <X size={24}/>
+                    </button>
+                </div>
             </div>
 
             {/* Chat Stream */}
@@ -342,23 +399,31 @@ export const InterviewRunner: React.FC<InterviewRunnerProps> = ({ session, onUpd
 
             {/* Input Area */}
             <div className="p-4 md:p-6 bg-[#0a0a0a]/90 backdrop-blur border-t border-gray-800 shrink-0">
-                <div className="max-w-4xl mx-auto relative">
-                    <input 
-                        className="w-full bg-gray-900 border border-gray-700 rounded-2xl pl-5 pr-14 py-4 text-base text-white focus:border-blue-500 outline-none transition-all placeholder-gray-600 shadow-lg"
-                        placeholder={isZh ? "输入回答，或完成上方题目..." : "Type answer or solve problem above..."}
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleUserAction(input)}
-                        disabled={isThinking}
-                        autoFocus
-                    />
+                <div className="max-w-4xl mx-auto relative flex gap-2">
                     <button 
-                        onClick={() => handleUserAction(input)}
-                        disabled={!input.trim() || isThinking}
-                        className="absolute right-2 top-2 p-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-500 disabled:opacity-0 disabled:cursor-not-allowed transition-all hover:scale-105 active:scale-95"
+                        onClick={toggleListening}
+                        className={`p-4 rounded-2xl transition-all flex items-center justify-center ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
                     >
-                        <Send size={18}/>
+                        <Mic size={20} />
                     </button>
+                    <div className="flex-1 relative">
+                        <input 
+                            className="w-full bg-gray-900 border border-gray-700 rounded-2xl pl-5 pr-14 py-4 text-base text-white focus:border-blue-500 outline-none transition-all placeholder-gray-600 shadow-lg"
+                            placeholder={isZh ? "输入回答 (支持语音)..." : "Type answer (voice supported)..."}
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleUserAction(input)}
+                            disabled={isThinking}
+                            autoFocus
+                        />
+                        <button 
+                            onClick={() => handleUserAction(input)}
+                            disabled={!input.trim() || isThinking}
+                            className="absolute right-2 top-2 p-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-500 disabled:opacity-0 disabled:cursor-not-allowed transition-all hover:scale-105 active:scale-95"
+                        >
+                            <Send size={18}/>
+                        </button>
+                    </div>
                 </div>
                 <div className="text-center mt-2 text-[10px] text-gray-600 font-mono">
                     ALGO-LINGO AI INTERVIEW SIMULATION V3.1

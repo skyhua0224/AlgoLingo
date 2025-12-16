@@ -22,6 +22,7 @@ export interface SolutionStrategy {
     complexity: string; // Time/Space
     
     // Rich Content Blocks
+    summary?: string; // NEW: One-sentence summary for list view
     tags: string[]; // e.g. ["Two Pointers", "Array"]
     
     // The "Thinking Process"
@@ -43,7 +44,12 @@ export interface SolutionStrategy {
     }[];
 
     // Visuals
-    mermaid?: string; // Flowchart
+    mermaid?: string; // Legacy support
+    logicSteps?: {    // NEW: Native UI Logic Flow
+        title: string;
+        detail: string;
+        type?: 'init' | 'loop' | 'condition' | 'action' | 'result'; 
+    }[];
     
     language: string;
     isCustom?: boolean; // Is this user generated?
