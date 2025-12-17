@@ -36,35 +36,31 @@ export const MermaidVisualWidget: React.FC<MermaidVisualProps> = ({ widget, onRe
     const chartRef = useRef<HTMLDivElement>(null);
     const [error, setError] = useState<string | null>(null);
     const [isRepairing, setIsRepairing] = useState(false);
+    const [renderKey, setRenderKey] = useState(0);
 
     // --- SANITIZER: Fix common AI syntax errors (e.g. nested brackets, missing quotes) ---
     const preProcessChart = (raw: string): string => {
         if (!raw) return "";
         let processed = raw;
         
+        // Remove markdown code blocks if present
+        processed = processed.replace(/```mermaid/g, '').replace(/```/g, '').trim();
+
+        // Ensure "graph TD" or similar is present. If missing, prepend it.
+        if (!processed.startsWith('graph') && !processed.startsWith('sequenceDiagram') && !processed.startsWith('classDiagram') && !processed.startsWith('flowchart')) {
+            processed = `graph TD\n${processed}`;
+        }
+        
         // Fix 1: Nested Brackets in labels like "Node[Group [A]]" -> "Node[Group (A)]"
-        // Heuristic: Replace inner [ ] with ( )
         processed = processed.replace(/\[([^\]\[]*?)\[(.*?)\]([^\]\[]*?)\]/g, '[$1($2)$3]');
         
-        // Fix 2: Force Quotes for labels inside [], {}, (()) that contain special chars like () or spaces, but aren't already quoted
-        // Pattern: ID[Text(With)Parens] -> ID["Text(With)Parens"]
-        
-        // Handle Square Brackets [] (Rects)
+        // Fix 2: Force Quotes for labels inside [], {}, (()) that contain special chars like () or spaces
         processed = processed.replace(/(\w+)\s*\[\s*(?!")([^\]\n]+?)(?!")\s*\]/g, '$1["$2"]');
-        
-        // Handle Curly Braces {} (Diamonds)
-        // Note: Curly braces are tricky because they also define style classes in newer mermaid versions, 
-        // but here we assume standard graph syntax A{Label}
         processed = processed.replace(/(\w+)\s*\{\s*(?!")([^\}\n]+?)(?!")\s*\}/g, '$1{"$2"}');
-        
-        // Handle Double Parens (()) (Circles)
         processed = processed.replace(/(\w+)\s*\(\(\s*(?!")([^\)\n]+?)(?!")\s*\)\)/g, '$1(("$2"))');
-        
-        // Handle Rounded Parens () (Rounded Rects) - be careful not to catch method calls like node("A") if syntax changes
-        // Only apply if it looks like a node definition
         processed = processed.replace(/(\w+)\s*\(\s*(?!")([^\)\n]+?)(?!")\s*\)/g, '$1("$2")');
 
-        // Fix 3: Arrow syntax spacing protection (A-->B is fine, but A --> B is better)
+        // Fix 3: Arrow syntax spacing protection
         processed = processed.replace(/(\S)(-->|--|-.->)(\S)/g, '$1 $2 $3');
 
         return processed;
@@ -89,7 +85,6 @@ export const MermaidVisualWidget: React.FC<MermaidVisualProps> = ({ widget, onRe
                 default: shapeStart = '['; shapeEnd = ']';
             }
             
-            // Syntax: ID["Label"]
             // Ensure ID is safe
             const safeId = node.id.replace(/[^a-zA-Z0-9_]/g, ''); 
             output += `    ${safeId}${shapeStart}"${safeLabel}"${shapeEnd}\n`;
@@ -106,29 +101,26 @@ export const MermaidVisualWidget: React.FC<MermaidVisualProps> = ({ widget, onRe
 
             if (edge.label) {
                 const safeEdgeLabel = edge.label.replace(/"/g, "'");
-                // Syntax: A -->|Label| B
                 output += `    ${safeFrom} ${arrow}|"${safeEdgeLabel}"| ${safeTo}\n`;
             } else {
                 output += `    ${safeFrom} ${arrow} ${safeTo}\n`;
             }
         });
         
-        // Style cleanup (basic)
         output += `    classDef default fill:#fff,stroke:#333,stroke-width:2px,color:#333;\n`;
         
         return output;
     };
 
     // Determine content source
-    const finalChart = graphData 
-        ? compileMermaid(graphData) 
-        : preProcessChart((chart || "").replace(/```mermaid/g, '').replace(/```/g, '').trim());
+    const finalChart = graphData ? compileMermaid(graphData) : preProcessChart(chart || "");
 
     useEffect(() => {
+        // Reset error when chart content changes
         setError(null);
+        
         if (chartRef.current && typeof mermaid !== 'undefined' && finalChart) {
             try {
-                // Config
                 mermaid.initialize({ 
                     startOnLoad: false, 
                     theme: 'neutral',
@@ -136,10 +128,11 @@ export const MermaidVisualWidget: React.FC<MermaidVisualProps> = ({ widget, onRe
                     fontFamily: 'monospace'
                 });
                 
-                // Clear previous svg to force re-render cleanly
-                chartRef.current.removeAttribute('data-processed');
+                // Clear previous svg
                 chartRef.current.innerHTML = finalChart; 
+                chartRef.current.removeAttribute('data-processed');
                 
+                // Async init
                 mermaid.init(undefined, chartRef.current).catch((e: any) => {
                     console.error("Mermaid async init failed", e);
                     setError("Syntax Error: " + (e.message || "Unknown"));
@@ -149,35 +142,41 @@ export const MermaidVisualWidget: React.FC<MermaidVisualProps> = ({ widget, onRe
                 setError(e.message || "Invalid Syntax");
             }
         }
-    }, [finalChart, widget.id]);
+    }, [finalChart, widget.id, renderKey]);
 
     const handleRepair = async () => {
         if (!onRegenerate) return;
         setIsRepairing(true);
+        
         // Feed the specific error context back to AI
-        // We pass the raw current state (GraphData or String) so the repair function knows what to fix
         const currentDataStr = graphData ? JSON.stringify(graphData) : chart;
         
         const instruction = `The mermaid diagram generation failed.
         Error: ${error}.
         Current Data: ${currentDataStr}.
-        Task: Fix the syntax or structure issues. Use the 'graphData' JSON format strictly if possible.
-        IMPORTANT: Wrap all labels in double quotes. Do NOT use nested square brackets.`;
+        Task: Fix the syntax or structure issues. Ensure labels are quoted. Simplify if needed.
+        IMPORTANT: Return ONLY the valid Mermaid code string.`;
         
-        await onRegenerate(instruction);
-        setIsRepairing(false);
+        try {
+            await onRegenerate(instruction);
+            setRenderKey(prev => prev + 1); // Force re-effect even if content similar
+        } catch (e) {
+            console.error("Repair failed", e);
+        } finally {
+            setIsRepairing(false);
+        }
     };
 
     return (
         <BaseWidget>
             <div className="bg-white dark:bg-dark-card rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm p-4 relative group min-h-[120px]">
-                {/* Manual Retry Tool - ALWAYS VISIBLE if handler provided */}
+                {/* Tools */}
                 <div className="absolute top-3 right-3 z-10 flex gap-2">
                     {onRegenerate && (
                         <button 
                             onClick={handleRepair}
                             disabled={isRepairing}
-                            className="p-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-brand hover:text-white rounded-lg text-gray-500 shadow-sm transition-colors border border-gray-200 dark:border-gray-600"
+                            className={`p-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-brand hover:text-white rounded-lg text-gray-500 shadow-sm transition-colors border border-gray-200 dark:border-gray-600 ${isRepairing ? 'cursor-not-allowed opacity-70' : ''}`}
                             title="Regenerate Diagram"
                         >
                             <RefreshCw size={14} className={isRepairing ? "animate-spin" : ""} />
@@ -203,7 +202,7 @@ export const MermaidVisualWidget: React.FC<MermaidVisualProps> = ({ widget, onRe
                             </button>
                         ) : (
                             <div className="text-[10px] text-red-400 italic">
-                                (Repair unavailable in this view)
+                                (Repair unavailable)
                             </div>
                         )}
                         
@@ -212,7 +211,8 @@ export const MermaidVisualWidget: React.FC<MermaidVisualProps> = ({ widget, onRe
                         </div>
                     </div>
                 ) : (
-                    <div className="mermaid flex justify-center overflow-x-auto" ref={chartRef} key={finalChart}>
+                    // Use finalChart as key to force DOM replacement on change
+                    <div className="mermaid flex justify-center overflow-x-auto" ref={chartRef} key={`${finalChart}_${renderKey}`}>
                         {finalChart}
                     </div>
                 )}

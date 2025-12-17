@@ -4,7 +4,7 @@ import { LessonPlan, LeetCodeContext, UserPreferences, SolutionStrategy, Mistake
 import { VirtualWorkspace } from '../VirtualWorkspace';
 import { Loader2, Zap, ArrowRight, Layout, X, Home, RotateCcw, AlertTriangle } from 'lucide-react';
 import { GlobalAiAssistant } from '../GlobalAiAssistant';
-import { generateLeetCodeSolutions, generateOfficialLeetCodeSolution, generateMistakeRepairPlan } from '../../services/geminiService';
+import { generateProblemStrategies, generateSolutionDeepDive, generateMistakeRepairPlan } from '../../services/geminiService'; // CHANGED IMPORTS
 import { LessonRunner } from './LessonRunner'; 
 
 interface LeetCodeRunnerProps {
@@ -35,7 +35,6 @@ const adaptStrategy = (app: any, lang: string): SolutionStrategy => {
         complexity: app.complexity,
         tags: app.tags || [],
         rationale: app.rationale,
-        // Map summary if available
         summary: app.summary,
         derivation: app.derivation || app.intuition || "No explanation provided.",
         analogy: app.analogy,
@@ -90,7 +89,8 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
                 } catch(e) { console.error("Cache Parse Error", e); }
             } else if (context) {
                 try {
-                    const data = await generateLeetCodeSolutions(plan.title, context.problem.description, preferences);
+                    // NEW API CALL
+                    const data = await generateProblemStrategies(plan.title, context.problem.description, preferences);
                     const adapted = (data.approaches || []).map((app: any) => adaptStrategy(app, preferences.targetLanguage));
                     setStrategies(adapted);
                     localStorage.setItem(cacheKey, JSON.stringify(data));
@@ -111,7 +111,8 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
         setTargetStrategyId(strategyId);
         
         try {
-            const officialData = await generateOfficialLeetCodeSolution(
+            // NEW API CALL
+            const officialData = await generateSolutionDeepDive(
                 plan.title, 
                 strategy.title, 
                 preferences,
@@ -186,6 +187,7 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
         executeStrategyGeneration(strategyId);
     };
 
+    // ... handleUpdateStrategy, handleDrillStart etc remain same ...
     const handleUpdateStrategy = (updatedStrategy: SolutionStrategy) => {
         setStrategies(prev => {
             const newStrategies = prev.map(s => s.id === updatedStrategy.id ? updatedStrategy : s);
@@ -209,7 +211,6 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
     };
 
     const handleDrillComplete = (stats: {xp: number, streak: number}, mistakes: MistakeRecord[]) => {
-        // Save history via global handler
         onSaveDrillResult(stats, true, mistakes);
         setStep('workspace');
         setDrillPlan(null);
@@ -226,7 +227,6 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
         );
     }
 
-    // --- Custom Actions for Drill Summary ---
     const drillActions = [
         {
             label: isZh ? "回到力扣学习" : "Back to LeetCode",
@@ -237,7 +237,7 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
         {
             label: isZh ? "回到主页" : "Return Home",
             icon: Home,
-            onClick: onSuccess, // This triggers navigation back to dashboard
+            onClick: onSuccess, 
             variant: 'primary' as const
         }
     ];
@@ -248,7 +248,6 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
 
             <div className="w-full h-full flex flex-col transition-all duration-300 ease-in-out relative">
                 
-                {/* 1. Main Workspace (Always Mounted to preserve state) */}
                 <div className="w-full h-full" style={{ display: (step === 'workspace' || step === 'generating') ? 'block' : 'none' }}>
                     <VirtualWorkspace 
                         context={context} 
@@ -263,7 +262,6 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
                     />
                 </div>
 
-                {/* 2. Generating Overlay with Timeout Actions */}
                 {step === 'generating' && (
                     <div className="absolute inset-0 z-50 flex flex-col items-center justify-center text-gray-400 bg-white/95 dark:bg-dark-bg/95 backdrop-blur-sm animate-fade-in-up">
                         <Loader2 size={48} className="animate-spin text-brand mb-4"/>
@@ -271,9 +269,7 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
                             {loadingMsg} ({loadingTime}s)
                         </p>
 
-                        {/* Timeout Actions */}
                         <div className="flex flex-col gap-3 min-w-[200px]">
-                            {/* > 60s: Allow Retry (Keep going in background, but re-trigger) */}
                             {loadingTime > 60 && (
                                 <button 
                                     onClick={() => targetStrategyId && executeStrategyGeneration(targetStrategyId)}
@@ -283,7 +279,6 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
                                 </button>
                             )}
                             
-                            {/* > 120s: Force Stop */}
                             {loadingTime > 120 && (
                                 <button 
                                     onClick={() => setStep('workspace')}
@@ -296,7 +291,6 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
                     </div>
                 )}
 
-                {/* 3. Drill Overlay */}
                 {step === 'drill' && drillPlan && (
                     <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur flex items-center justify-center p-4">
                         <div className="w-full h-full md:w-[95vw] md:h-[95vh] bg-white dark:bg-dark-bg rounded-3xl overflow-hidden shadow-2xl relative border border-gray-200 dark:border-gray-800">
@@ -313,9 +307,9 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
                                 language={language}
                                 preferences={preferences}
                                 stats={{ streak: 0, xp: 0, gems: 0, lastPlayed: '', history: {} }}
-                                isReviewMode={true} // Visual styling
-                                allowMistakeLoop={true} // Enable mistake repair loop for Drill
-                                customSummaryActions={drillActions} // Inject buttons
+                                isReviewMode={true} 
+                                allowMistakeLoop={true} 
+                                customSummaryActions={drillActions}
                             />
                         </div>
                     </div>

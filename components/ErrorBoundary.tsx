@@ -1,3 +1,4 @@
+
 import React, { ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, Trash2, RefreshCw } from 'lucide-react';
 
@@ -11,15 +12,13 @@ interface ErrorBoundaryState {
   isZh: boolean;
 }
 
+// Fix: Explicitly use React.Component to ensure setState and props are available to the instance
 export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  constructor(props: ErrorBoundaryProps) {
-    super(props);
-    this.state = {
-      hasError: false,
-      error: null,
-      isZh: true,
-    };
-  }
+  public state: ErrorBoundaryState = {
+    hasError: false,
+    error: null,
+    isZh: true,
+  };
 
   static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
     return { hasError: true, error };
@@ -32,6 +31,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
           if (prefs) {
               const parsed = JSON.parse(prefs);
               if (parsed.spokenLanguage === 'English') {
+                  // Fix: setState is correctly inherited from React.Component
                   this.setState({ isZh: false });
               }
           }
@@ -102,6 +102,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
       );
     }
 
+    // Fix: props is correctly available on instance when extending React.Component
     return this.props.children;
   }
 }

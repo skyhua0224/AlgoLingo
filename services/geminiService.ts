@@ -1,101 +1,39 @@
 
-// ... existing imports ...
 import { GoogleGenAI } from "@google/genai";
+import { UserPreferences, LessonPlan, LeetCodeContext, MistakeRecord, SavedLesson, SolutionStrategy, Widget } from "../types";
+import { ForgeGenConfig, ForgeRoadmap, ForgeStage } from "../types/forge";
+import { EngineeringTopic, SkillTrack, SyntaxProfile, SyntaxUnit, SyntaxLesson } from "../types/engineering";
 import { getClient } from "./ai/client";
-import { UserPreferences, LessonPlan, Widget, LessonScreen, SolutionStrategy, LeetCodeContext, MistakeRecord } from "../types";
-import { ForgeRoadmap } from "../types/forge";
-import { SkillTrack, EngineeringStep } from "../types/engineering";
-import { AIGenerationError } from "./ai/generator";
 
-import { getForgeRoadmapPrompt, getForgeStagePrompt } from "./ai/prompts/forge";
-import { getTrackSyllabusPrompt } from "./ai/prompts/engineering/track_generator";
-import { getTrackSuggestionPrompt } from "./ai/prompts/engineering/track_suggestions";
-import { getTopicRoadmapPrompt } from "./ai/prompts/engineering/topic_roadmap";
-import { getRegenerateScreenPrompt } from "./ai/prompts/regenerate";
+// Import Prompts
+import { getLessonPlanSystemInstruction, getVariantSystemInstruction, getLeetCodeContextSystemInstruction, getDailyWorkoutSystemInstruction } from "./ai/prompts/algo";
+import { getJudgeSystemInstruction } from "./ai/prompts/judge";
+import { getProblemStrategiesPrompt } from "./ai/prompts/algo/strategies";
+import { getSolutionDeepDivePrompt } from "./ai/prompts/algo/deep_dive";
 import { getDisputeJudgePrompt } from "./ai/prompts/dispute";
-import { getLeetCodeSolutionSystemInstruction, getOfficialSolutionPrompt } from "./ai/prompts/stages/leetcode";
-import { getMistakeRepairSystemInstruction, getDailyWorkoutSystemInstruction } from "./ai/prompts/stages/workout";
-import { lessonPlanSchema } from "./ai/schemas";
-import { ForgeGenConfig } from "../types/forge";
-import { getVariantSystemInstruction } from "./ai/prompts";
+import { getForgeRoadmapPrompt, getForgeStagePrompt } from "./ai/prompts/forge";
+import { getRegenerateScreenPrompt } from "./ai/prompts/regenerate";
+import { getTopicRoadmapPrompt } from "./ai/prompts/engineering/topic_roadmap";
 import { getSystemArchitectPrompt } from "./ai/prompts/engineering/system_architect";
 import { getCSKernelPrompt } from "./ai/prompts/engineering/cs_kernel";
+import { getTrackSyllabusPrompt } from "./ai/prompts/engineering/track_generator";
+import { getTrackSuggestionPrompt } from "./ai/prompts/engineering/track_suggestions";
 import { getSyntaxRoadmapPrompt } from "./ai/prompts/engineering/syntax_roadmap";
 import { getSyntaxTrainerPrompt } from "./ai/prompts/engineering/syntax_trainer";
+import { getMistakeRepairSystemInstruction } from "./ai/prompts/stages/workout";
+
+// Import Schemas
+import { lessonPlanSchema, leetCodeContextSchema, judgeResultSchema } from "./ai/schemas";
 import { PROBLEM_MAP } from "../constants";
 
-// Re-export existing generators
-export { 
-    generateLessonPlan, 
-    generateLeetCodeContext, 
-    validateUserCode, 
-    generateAiAssistance,
-} from "./ai/generator";
-
-// --- HELPER: WIDGET VALIDATOR & SANITIZER ---
-const sanitizeLessonPlan = (rawPlan: any): LessonPlan => {
-    if (!rawPlan || typeof rawPlan !== 'object') throw new Error("Invalid plan format");
-    
-    const plan: LessonPlan = {
-        title: rawPlan.title || "Untitled Lesson",
-        description: rawPlan.description || "No description",
-        suggestedQuestions: Array.isArray(rawPlan.suggestedQuestions) ? rawPlan.suggestedQuestions : [],
-        screens: [],
-        headerImage: rawPlan.headerImage
-    };
-
-    if (Array.isArray(rawPlan.screens)) {
-        plan.screens = rawPlan.screens.map((screen: any, sIdx: number) => {
-            const safeScreen = {
-                id: screen.id || `screen_${sIdx}`,
-                header: screen.header || "Learn",
-                widgets: [] as Widget[]
-            };
-
-            if (Array.isArray(screen.widgets)) {
-                safeScreen.widgets = screen.widgets.map((w: any, wIdx: number) => {
-                    let type = (w.type || 'callout').toLowerCase();
-                    // Normalizations
-                    if (type === 'mermaidvisual') type = 'mermaid';
-                    if (type === 'comparisontable') type = 'comparison-table';
-                    if (type === 'fillin') type = 'fill-in';
-                    if (type === 'interactivecode') type = 'interactive-code';
-                    if (type === 'comparisoncode') type = 'comparison-code';
-                    if (type === 'stepslist') type = 'steps-list';
-                    if (type === 'visualquiz') type = 'visual-quiz';
-                    if (type === 'codewalkthrough') type = 'code-walkthrough';
-                    if (type === 'minieditor') type = 'mini-editor';
-                    
-                    const safeWidget: Widget = {
-                        id: w.id || `w_${sIdx}_${wIdx}`,
-                        type: type as any,
-                        dialogue: w.dialogue,
-                        callout: w.callout,
-                        flipcard: w.flipcard,
-                        quiz: w.quiz,
-                        interactiveCode: w.interactiveCode,
-                        comparisonCode: w.comparisonCode, // Added mapping
-                        parsons: w.parsons,
-                        fillIn: w.fillIn || w.fillin, 
-                        stepsList: w.stepsList || w.stepslist,
-                        mermaid: w.mermaid,
-                        visualQuiz: w.visualQuiz || w.visualquiz,
-                        comparisonTable: w.comparisonTable || w.comparisontable,
-                        code: w.code,
-                        leetcode: w.leetcode,
-                        terminal: w.terminal,
-                        codeWalkthrough: w.codeWalkthrough || w.codewalkthrough,
-                        miniEditor: w.miniEditor || w.minieditor,
-                        archCanvas: w.archCanvas || w.archcanvas
-                    } as any;
-                    return safeWidget;
-                }).filter((w): w is Widget => w !== null);
-            }
-            return safeScreen;
-        }).filter(s => s.widgets.length > 0);
+export class AIGenerationError extends Error {
+    rawOutput?: string;
+    constructor(message: string, rawOutput?: string) {
+        super(message);
+        this.name = "AIGenerationError";
+        this.rawOutput = rawOutput;
     }
-    return plan;
-};
+}
 
 const callAI = async (
     preferences: UserPreferences,
@@ -103,22 +41,72 @@ const callAI = async (
     prompt: string,
     schema?: any,
     jsonMode: boolean = false,
-    tools?: any[],
     modelOverride?: string
 ): Promise<string> => {
+    const provider = preferences.apiConfig.provider;
+
+    if (provider === 'openai') {
+        const { apiKey, baseUrl, model } = preferences.apiConfig.openai;
+        const url = `${baseUrl || 'https://api.openai.com/v1'}/chat/completions`;
+        
+        try {
+            const body: any = {
+                model: model || 'gpt-4o',
+                messages: [
+                    { role: 'system', content: systemInstruction },
+                    { role: 'user', content: prompt }
+                ],
+                temperature: 0.4,
+                frequency_penalty: 0.5,
+            };
+
+            if (jsonMode) {
+                body.response_format = { type: "json_object" };
+                body.messages[0].content += "\n\nIMPORTANT: OUTPUT MUST BE VALID JSON MATCHING THE REQUESTED SCHEMA.";
+            }
+
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify(body)
+            });
+
+            if (!response.ok) {
+                const err = await response.text();
+                throw new Error(`OpenAI API Error ${response.status}: ${err}`);
+            }
+
+            const data = await response.json();
+            return data.choices?.[0]?.message?.content || "";
+        } catch (e: any) {
+            console.error("OpenAI Call Failed", e);
+            throw e;
+        }
+    }
+
     const client = getClient(preferences);
-    const modelId = modelOverride || preferences.apiConfig.gemini.model || 'gemini-3-pro-preview';
+    const modelId = modelOverride || preferences.apiConfig.gemini.model || 'gemini-2.5-flash';
     
+    const safeSystemInstruction = systemInstruction + `
+    
+    CRITICAL SAFETY:
+    - DO NOT generate infinite loops of emojis.
+    - DO NOT repeat the same phrase more than once.
+    - If you are stuck, stop generating.
+    `;
+
     try {
         const response = await client.models.generateContent({
             model: modelId,
             contents: prompt,
             config: {
-                systemInstruction: systemInstruction,
+                systemInstruction: safeSystemInstruction,
                 responseMimeType: jsonMode ? "application/json" : undefined,
                 responseSchema: jsonMode ? schema : undefined,
                 temperature: 0.4,
-                tools: tools,
             }
         });
         return response.text || "";
@@ -128,137 +116,75 @@ const callAI = async (
     }
 };
 
-export const generateLeetCodeSolutions = async (problemName: string, problemDescription: string, preferences: UserPreferences) => {
-    const systemInstruction = getLeetCodeSolutionSystemInstruction(preferences.targetLanguage, preferences.spokenLanguage);
-    const prompt = `Generate solutions for ${problemName}. Description: ${problemDescription}`;
-    const text = await callAI(preferences, systemInstruction, prompt, undefined, true);
-    return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+export const generateLessonPlan = async (
+  problemName: string, 
+  phaseIndex: number, 
+  preferences: UserPreferences,
+  mistakes: MistakeRecord[] = [],
+  savedLessons: SavedLesson[] = [],
+  targetSolution?: SolutionStrategy 
+): Promise<LessonPlan> => {
+  const targetLang = preferences.targetLanguage;
+  const speakLang = preferences.spokenLanguage;
+  const systemInstruction = getLessonPlanSystemInstruction(problemName, targetLang, speakLang, phaseIndex, targetSolution);
+  
+  let userPrompt = `Generate the lesson plan for Phase ${phaseIndex + 1} of ${problemName}.`;
+  
+  if (targetSolution) {
+      userPrompt += `\n\n**MANDATORY STRATEGY**: You MUST teach the '${targetSolution.title}' approach.
+      Reference Code Logic: 
+      ${targetSolution.code.substring(0, 500)}...
+      Derivation: ${targetSolution.derivation.substring(0, 300)}...
+      
+      Do NOT generate content for any other algorithm.`;
+  }
+
+  if (mistakes.length > 0) {
+      userPrompt += `\nContext: The user previously struggled with: ${mistakes.map(m => m.context).join(', ')}. Please reinforce these concepts.`;
+  }
+
+  let text = "";
+
+  try {
+      console.log(`[AI] Generating Plan for ${problemName}...`);
+      text = await callAI(preferences, systemInstruction, userPrompt, lessonPlanSchema, true);
+      
+      if (!text) throw new Error("Empty response from AI");
+      
+      let plan: LessonPlan;
+      try {
+          const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
+          plan = JSON.parse(cleanText);
+      } catch (e) {
+          throw new AIGenerationError("JSON Parse Error", text);
+      }
+
+      if (!plan.screens) plan.screens = [];
+      
+      // Inject solution context
+      plan.context = {
+          ...plan.context,
+          type: 'algo',
+          targetSolution
+      };
+
+      return plan;
+
+  } catch (error: any) {
+      if (error instanceof AIGenerationError) throw error;
+      throw new AIGenerationError(error.message || "Unknown Generation Error", text);
+  }
 };
 
-export const generateOfficialLeetCodeSolution = async (problemName: string, strategyTitle: string, preferences: UserPreferences, existingCode?: string) => {
-    const systemInstruction = getOfficialSolutionPrompt(problemName, strategyTitle, preferences.targetLanguage, preferences.spokenLanguage);
-    const prompt = existingCode ? `Analyze this code: ${existingCode}` : "Generate solution";
-    const text = await callAI(preferences, systemInstruction, prompt, undefined, true);
-    return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
-};
-
-// --- NEW: ANALYZE USER STRATEGY ---
-export const analyzeUserStrategy = async (
-    code: string, 
-    problemName: string, 
-    existingStrategies: string[], 
-    preferences: UserPreferences
-) => {
-    const lang = preferences.spokenLanguage;
-    const targetLang = preferences.targetLanguage;
-    
-    const systemInstruction = `
-    ROLE: Senior Algorithm Judge.
-    TASK: Analyze user's submitted code for "${problemName}".
-    
-    INPUT:
-    - User Code: (Code provided by user)
-    - Existing Strategies: ${JSON.stringify(existingStrategies)}
-    
-    GOAL:
-    1. Determine if this code represents a NEW approach compared to the Existing Strategies.
-       - If it's just a variable rename of an existing one, it is NOT new.
-       - If it uses a different algorithm (e.g. Iterative vs Recursive, Map vs Array), it IS new.
-    2. If NEW: Generate a full 'SolutionStrategy' object for it.
-    3. If DUPLICATE: Return the name of the matching existing strategy.
-
-    OUTPUT JSON:
-    {
-        "isNew": boolean,
-        "match": string | null, // Title of existing strategy if isNew is false
-        "strategy": { // Only if isNew is true
-            "title": "Short descriptive title (e.g. 'Two Pointers Optimized')",
-            "complexity": "Time: O(?) | Space: O(?)",
-            "rationale": "Why this works...",
-            "derivation": "Step by step logic...",
-            "memoryTip": "Mnemonic...",
-            "tags": ["Tag1", "Tag2"],
-            "keywords": [{ "term": "key", "definition": "def" }]
-        }
-    }
-    `;
-
-    const prompt = `Analyze this ${targetLang} code:\n\`\`\`\n${code}\n\`\`\``;
-    const text = await callAI(preferences, systemInstruction, prompt, undefined, true);
-    return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
-};
-
-export const refineUserSolution = async (userNotes: string, problemTitle: string, preferences: UserPreferences) => { return {} as any; };
-export const analyzeImageSolution = async (base64Image: string, problemTitle: string, preferences: UserPreferences) => { return {} as any; };
-export const regenerateSolutionStrategy = async (originalStrategy: SolutionStrategy, instruction: string, preferences: UserPreferences) => { return {} as any; };
-export const fixMermaidCode = async (brokenCode: string, errorMsg: string, preferences: UserPreferences) => { return ""; };
-
-export const regenerateLessonScreen = async (
-    currentScreen: any,
-    planContext: any,
-    userInstruction: string,
-    preferences: UserPreferences
-): Promise<LessonScreen> => {
-    const systemInstruction = getRegenerateScreenPrompt(
-        currentScreen, 
-        planContext, 
-        userInstruction, 
-        preferences.spokenLanguage,
-        preferences.targetLanguage
-    );
-    const prompt = "Generate the single replacement screen JSON.";
-    const text = await callAI(preferences, systemInstruction, prompt, undefined, true); 
-    const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
-    const rawData = JSON.parse(cleanText);
-    let rawScreen = rawData;
-    if (rawData.screens && Array.isArray(rawData.screens)) {
-        rawScreen = rawData.screens[0];
-    }
-    // SANITIZATION APPLIED HERE
-    const fakePlanInput = { title: "Temp", screens: [rawScreen] };
-    const cleanPlan = sanitizeLessonPlan(fakePlanInput);
-    
-    if (cleanPlan.screens.length === 0) throw new Error("Regeneration resulted in empty screen");
-    const newScreen = cleanPlan.screens[0];
-    newScreen.id = `regen_${Date.now()}`;
-    return newScreen;
-};
-
-export const verifyAnswerDispute = async (widget: any, userAnswer: string, context: string, preferences: UserPreferences) => {
-    const systemInstruction = getDisputeJudgePrompt(JSON.stringify(widget), userAnswer, context, preferences.spokenLanguage);
-    const text = await callAI(preferences, systemInstruction, "Judge the appeal.", undefined, true);
-    return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
-};
-
-export const generateMistakeRepairPlan = async (mistakeContext: string, problemName: string, preferences: UserPreferences, referenceCode?: string) => {
-    const systemInstruction = getMistakeRepairSystemInstruction(preferences.targetLanguage, preferences.spokenLanguage);
-    let prompt = `GENERATE MISTAKE REPAIR PLAN.\nFAILED PROBLEM: "${problemName}"\nERROR CONTEXT: "${mistakeContext}"\nExecute the 4-phase repair structure (Diagnosis -> Concept -> Drill -> Mastery).\nGenerate 17 screens.`;
-    if (referenceCode) {
-        prompt += `\nREFERENCE CODE (STANDARD ANSWER):\n\`\`\`${preferences.targetLanguage}\n${referenceCode}\n\`\`\`\nSTRICT INSTRUCTION: You MUST use the exact variable names, coding style, and structure from the REFERENCE CODE above for all drill exercises. Do not invent new variable names.`;
-    }
-    try {
-        const text = await callAI(preferences, systemInstruction, prompt, lessonPlanSchema, true);
-        const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
-        const rawPlan = JSON.parse(cleanText);
-        // SANITIZATION APPLIED HERE
-        const plan = sanitizeLessonPlan(rawPlan);
-        plan.title = preferences.spokenLanguage === 'Chinese' ? `专项特训：${problemName} 修复` : `Targeted Repair: ${problemName}`;
-        return plan;
-    } catch (e: any) {
-        console.error("Repair Plan Generation Failed", e);
-        throw new AIGenerationError("Failed to generate repair plan.", e.message);
-    }
-};
-
-// ... generateDailyWorkoutPlan ...
 export const generateDailyWorkoutPlan = async (
     mistakes: MistakeRecord[],
     learnedProblemIds: string[],
     preferences: UserPreferences
 ): Promise<LessonPlan> => {
     const learnedProblemNames = learnedProblemIds.map(id => PROBLEM_MAP[id]).filter(n => !!n);
-    // If no learned problems, default to first problem
-    const targetProblems = learnedProblemNames.length === 0 ? ["Two Sum"] : learnedProblemNames;
+    if (learnedProblemNames.length === 0) {
+        return generateLessonPlan("Two Sum", 0, preferences);
+    }
 
     const topMistakes = mistakes.slice(0, 5);
     const mistakeContext = topMistakes.map(m => `Problem: ${m.problemName}, Failed Logic: ${m.context}`).join('\n');
@@ -266,29 +192,47 @@ export const generateDailyWorkoutPlan = async (
     const systemInstruction = getDailyWorkoutSystemInstruction(preferences.targetLanguage, preferences.spokenLanguage);
     const prompt = `
     GENERATE DAILY WORKOUT
-    LEARNED PROBLEMS: ${targetProblems.join(', ')}
+    LEARNED PROBLEMS: ${learnedProblemNames.join(', ')}
     RECENT MISTAKES: ${mistakeContext || "None. Focus on general reinforcement."}
     `;
 
     const text = await callAI(preferences, systemInstruction, prompt, lessonPlanSchema, true);
     const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
     
-    const rawPlan = JSON.parse(cleanText);
-    // SANITIZATION APPLIED HERE
-    const plan: LessonPlan = sanitizeLessonPlan(rawPlan);
-    
+    const plan: LessonPlan = JSON.parse(cleanText);
     plan.title = preferences.spokenLanguage === 'Chinese' ? "📅 今日智能特训" : "📅 Daily Smart Workout";
     return plan;
 };
 
-// ... generateVariantLesson ...
 export const generateVariantLesson = async (mistake: MistakeRecord, preferences: UserPreferences): Promise<LessonPlan> => {
     const systemInstruction = getVariantSystemInstruction(preferences.targetLanguage, preferences.spokenLanguage);
     const prompt = `Create VARIANT of: ${mistake.problemName}. Widget Data: ${JSON.stringify(mistake.widget)}`;
     const text = await callAI(preferences, systemInstruction, prompt, lessonPlanSchema, true);
-    const rawPlan = JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
-    // SANITIZATION APPLIED HERE
-    return sanitizeLessonPlan(rawPlan);
+    return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+};
+
+export const generateLeetCodeContext = async (problemName: string, preferences: UserPreferences): Promise<LeetCodeContext> => {
+    const systemInstruction = getLeetCodeContextSystemInstruction(problemName, preferences.spokenLanguage, preferences.targetLanguage);
+    try {
+        const text = await callAI(preferences, systemInstruction, `Generate full LeetCode simulation data for ${problemName}`, leetCodeContextSchema, true);
+        return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+    } catch (error: any) {
+        throw error;
+    }
+};
+
+export const validateUserCode = async (code: string, problemDesc: string, preferences: UserPreferences, languageOverride?: string) => {
+    const targetLang = languageOverride || preferences.targetLanguage;
+    const systemInstruction = getJudgeSystemInstruction(targetLang, preferences.spokenLanguage);
+    const prompt = `Problem: ${problemDesc}\nUser Code:\n\`\`\`${targetLang}\n${code}\n\`\`\``;
+    try {
+        const modelId = 'gemini-3-pro-preview'; 
+        const text = await callAI(preferences, systemInstruction, prompt, judgeResultSchema, true, modelId);
+        return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+    } catch (e) {
+        console.error("Validation failed", e);
+        return { status: "Runtime Error", error_message: "Judge Connection Failed.", test_cases: [] };
+    }
 };
 
 export const generateEngineeringLesson = async (
@@ -312,10 +256,7 @@ export const generateEngineeringLesson = async (
     try {
         const text = await callAI(preferences, systemInstruction, prompt, lessonPlanSchema, true);
         const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
-        const rawPlan = JSON.parse(cleanText);
-        // SANITIZATION APPLIED HERE
-        const plan = sanitizeLessonPlan(rawPlan);
-        
+        const plan = JSON.parse(cleanText);
         plan.context = { type: 'pillar', pillar, topic, phaseIndex: 0, levelId: level, topicId: topicId, stepId: stepId }; 
         return plan;
     } catch (e: any) {
@@ -324,16 +265,44 @@ export const generateEngineeringLesson = async (
     }
 };
 
-export const generateReviewLesson = async (mistakes: MistakeRecord[], preferences: UserPreferences) => generateDailyWorkoutPlan(mistakes, ["p_1"], preferences);
-export const generateSyntaxClinicPlan = async (preferences: UserPreferences) => {
-    // Basic plan
-    return {
-        title: "Syntax Clinic",
-        description: "Focus on syntax errors.",
-        screens: [],
-        suggestedQuestions: []
-    } as LessonPlan;
+export const generateEngineeringRoadmap = async (topic: string, pillar: string, keywords: string[], preferences: UserPreferences) => {
+    const prompt = getTopicRoadmapPrompt(topic, pillar, keywords, preferences.spokenLanguage);
+    const text = await callAI(preferences, "You are a curriculum designer.", prompt, undefined, true);
+    return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim()).roadmap;
 };
+
+export const generateCustomTrack = async (title: string, description: string, preferences: UserPreferences): Promise<SkillTrack> => {
+    const prompt = getTrackSyllabusPrompt(title, description, preferences.spokenLanguage);
+    const text = await callAI(preferences, "You are a curriculum designer.", prompt, undefined, true);
+    const data = JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+    return {
+        id: `custom_${Date.now()}`,
+        title: title,
+        icon: "Sparkles",
+        category: "other",
+        description: description,
+        progress: 0,
+        isOfficial: false,
+        createdAt: Date.now(),
+        modules: data.modules
+    };
+};
+
+export const generateTrackSuggestions = async (category: string, existingTitles: string[], preferences: UserPreferences) => {
+    const prompt = getTrackSuggestionPrompt(category, existingTitles);
+    const text = await callAI(preferences, "You are a career coach.", prompt, undefined, true);
+    const data = JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+    return data.tracks.map((t: any) => ({
+        ...t,
+        id: `suggested_${Date.now()}_${Math.random()}`,
+        category,
+        progress: 0,
+        isOfficial: false,
+        createdAt: Date.now()
+    }));
+};
+
+export const generateSyntaxClinicPlan = async (preferences: UserPreferences) => generateLessonPlan("Syntax Clinic", 1, preferences); 
 
 export const generateSyntaxRoadmap = async (profile: any, preferences: UserPreferences) => {
     const prompt = getSyntaxRoadmapPrompt(profile);
@@ -351,27 +320,56 @@ export const generateSyntaxLesson = async (unit: any, lesson: any, stageId: stri
     const systemInstruction = getSyntaxTrainerPrompt(profile, unit, lesson, stageId, preferences.spokenLanguage);
     const prompt = `Generate lesson for ${lesson.title.en}. Stage: ${stageId}.`;
     const text = await callAI(preferences, systemInstruction, prompt, lessonPlanSchema, true);
-    const rawPlan = JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
-    // SANITIZATION APPLIED HERE
-    const plan = sanitizeLessonPlan(rawPlan);
-    
+    const plan = JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
     plan.context = { type: 'syntax', language: profile.language, unitId: unit.id, lessonId: lesson.id, phaseIndex: stageId === 'sandbox' ? 6 : parseInt(stageId) };
     return plan;
 }
 
+export const generateAiAssistance = async (context: string, userQuery: string, preferences: UserPreferences, model: string) => {
+    try {
+        return await callAI(preferences, "You are a helpful coding assistant. Be brief.", `Context:\n${context}\n\nUser Question: ${userQuery}\n\nAnswer briefly.`, undefined, false, model);
+    } catch (e) {
+        return "AI is offline.";
+    }
+};
+
+export const generateProblemStrategies = async (problemName: string, description: string, preferences: UserPreferences) => {
+    const prompt = getProblemStrategiesPrompt(problemName, description, preferences.spokenLanguage);
+    const text = await callAI(preferences, "You are an algorithm expert.", prompt, undefined, true);
+    return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+};
+
+export const generateSolutionDeepDive = async (problemName: string, strategyTitle: string, preferences: UserPreferences, existingCode?: string) => {
+    const prompt = getSolutionDeepDivePrompt(problemName, strategyTitle, preferences.targetLanguage, preferences.spokenLanguage, existingCode);
+    const text = await callAI(preferences, "You are an official solution writer.", prompt, undefined, true);
+    return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+};
+
+export const generateMistakeRepairPlan = async (drillContext: string, problemTitle: string, preferences: UserPreferences, referenceCode?: string) => {
+    const prompt = `FAILED LOGIC: ${drillContext}\nPROBLEM: ${problemTitle}\nREFERENCE CODE: ${referenceCode || 'N/A'}`;
+    const system = getMistakeRepairSystemInstruction(preferences.targetLanguage, preferences.spokenLanguage);
+    const text = await callAI(preferences, system, prompt, lessonPlanSchema, true);
+    return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+};
+
+export const verifyAnswerDispute = async (widget: Widget, userAnswer: string, context: string, preferences: UserPreferences) => {
+    const prompt = getDisputeJudgePrompt(JSON.stringify(widget), userAnswer, context, preferences.spokenLanguage);
+    const text = await callAI(preferences, "You are an impartial judge.", "Evaluate appeal.", undefined, true);
+    return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+};
+
 export const generateForgeRoadmap = async (topic: string, config: ForgeGenConfig, preferences: UserPreferences): Promise<ForgeRoadmap> => {
     const prompt = getForgeRoadmapPrompt(topic, preferences.spokenLanguage, config);
-    // Use Pro model for deep planning
-    const text = await callAI(preferences, "You are a curriculum architect.", prompt, undefined, true, undefined, 'gemini-3-pro-preview');
+    const text = await callAI(preferences, "Curriculum Architect", prompt, undefined, true, 'gemini-3-pro-preview');
     const data = JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
     
     return {
         id: `forge_${Date.now()}`,
-        topic,
+        topic: topic,
         title: data.title,
         description: data.description,
         stages: data.stages.map((s: any) => ({ ...s, status: s.id === 1 ? 'unlocked' : 'locked' })),
-        config,
+        config: config,
         createdAt: Date.now()
     };
 };
@@ -380,30 +378,61 @@ export const generateForgeStage = async (roadmap: ForgeRoadmap, stageId: number,
     const stage = roadmap.stages.find(s => s.id === stageId);
     if (!stage) throw new Error("Stage not found");
     
-    const systemInstruction = getForgeStagePrompt(
+    const prompt = getForgeStagePrompt(
         roadmap.topic, 
         stage.title, 
         stage.description, 
         stage.focus, 
-        preferences.spokenLanguage,
+        preferences.spokenLanguage, 
         roadmap.config,
-        stageId - 1
+        stageId - 1 // 0-based index
     );
     
-    const text = await callAI(preferences, systemInstruction, "Generate stage content.", lessonPlanSchema, true);
-    const rawPlan = JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
-    // SANITIZATION APPLIED HERE
-    const plan = sanitizeLessonPlan(rawPlan);
-    
-    plan.context = { 
-        type: 'forge', 
-        roadmapId: roadmap.id,
-        stageId: stageId,
-        stageTitle: stage.title 
-    };
+    const text = await callAI(preferences, prompt, "Generate Micro-Lesson", lessonPlanSchema, true);
+    const plan = JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+    plan.context = { type: 'forge', roadmapId: roadmap.id, stageId: stageId, stageTitle: stage.title };
     return plan;
 };
 
-export const generateCustomTrack = async (title: any, description: any, preferences: any) => { return {} as any };
-export const generateTrackSuggestions = async (category: any, existingTitles: any, preferences: any) => { return [] as any };
-export const generateEngineeringRoadmap = async (topic: any, pillar: any, keywords: any, preferences: any) => { return [] as any };
+export const fixMermaidCode = async (instruction: string, preferences: UserPreferences) => {
+    const system = "You are a Mermaid.js Syntax Expert. Fix the diagram code provided by the user. Return ONLY the raw Mermaid code string. Do NOT use markdown blocks. Do NOT include explanations. Ensure labels are double-quoted. Avoid nested brackets.";
+    return await callAI(preferences, system, instruction, undefined, false);
+};
+
+export const regenerateLessonScreen = async (originalScreen: any, context: any, instruction: string, preferences: UserPreferences) => {
+    const prompt = getRegenerateScreenPrompt(originalScreen, context, instruction, preferences.spokenLanguage, preferences.targetLanguage);
+    const text = await callAI(preferences, prompt, "Regenerate Screen", undefined, true);
+    return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+};
+
+export const analyzeUserStrategy = async (code: string, problemTitle: string, existingStrategies: string[], preferences: UserPreferences) => {
+    const prompt = `
+    Analyze this user code for "${problemTitle}".
+    Existing Strategies: ${existingStrategies.join(', ')}.
+    
+    Code:
+    \`\`\`${preferences.targetLanguage}
+    ${code}
+    \`\`\`
+    
+    Task: Determine if this code represents a NEW strategy not in the list, or matches an existing one.
+    
+    Output JSON:
+    {
+        "isNew": boolean,
+        "match": string | null, // If matches existing, which one?
+        "strategy": { // If new, provide details
+            "title": "Strategy Name",
+            "complexity": "Time/Space",
+            "tags": ["Tag1"],
+            "derivation": "Explanation",
+            "rationale": "Why this works",
+            "analogy": "Analogy",
+            "memoryTip": "Tip",
+            "keywords": []
+        }
+    }
+    `;
+    const text = await callAI(preferences, "You are an Algorithm Analyst.", prompt, undefined, true);
+    return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+};

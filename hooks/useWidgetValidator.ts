@@ -65,7 +65,10 @@ export const useWidgetValidator = () => {
     const validate = (widget: Widget, state: WidgetState): boolean => {
         if (!widget) return true; // Non-interactive widgets pass automatically
 
-        switch (widget.type) {
+        // Normalize type to kebab-case (e.g. "fillIn" -> "fill-in") to handle AI inconsistencies
+        const type = widget.type.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+
+        switch (type) {
             case 'quiz':
                 if (widget.quiz && state.quizSelection !== undefined && state.quizSelection !== null) {
                     return state.quizSelection === widget.quiz.correctIndex;

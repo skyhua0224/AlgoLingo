@@ -1,12 +1,10 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { LeetCodeContext, UserPreferences, SolutionStrategy } from '../types';
-import { GripVertical, GripHorizontal, FileText, Lightbulb, Zap, Loader2, Tag, ArrowRight, BookOpen, Key, HelpCircle, CheckCircle2, History, Stethoscope, AlertTriangle, X, RotateCcw, Copy, Eye, ArrowLeft } from 'lucide-react';
-import { validateUserCode, refineUserSolution, regenerateSolutionStrategy, generateAiAssistance, analyzeUserStrategy } from '../services/geminiService';
+import { GripVertical, GripHorizontal, FileText, Lightbulb, Zap, Tag, ArrowRight, BookOpen, Key, CheckCircle2, History, Stethoscope, Copy, Eye, ArrowLeft, RotateCcw, X, Terminal } from 'lucide-react';
+import { validateUserCode, generateAiAssistance, analyzeUserStrategy } from '../services/geminiService';
 import { InteractiveCodeWidget } from './widgets/InteractiveCode';
-import { CalloutWidget } from './widgets/Callout';
 import { MermaidVisualWidget } from './widgets/MermaidVisual';
-import { LogicFlowWidget } from './widgets/LogicFlow';
 import { MarkdownText } from './common/MarkdownText';
 import { CodeEditor } from './workspace/CodeEditor';
 import { ConsolePanel } from './workspace/ConsolePanel';
@@ -321,7 +319,7 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
         if (isGenerating) {
              return (
                 <div className="h-full flex flex-col items-center justify-center bg-white dark:bg-[#0c0c0c] p-8 text-center animate-fade-in-up">
-                    <Loader2 size={32} className="text-brand animate-spin mb-4"/>
+                    <div className="animate-spin mb-4"><Zap size={32} className="text-brand"/></div>
                     <h2 className="text-lg font-black text-gray-900 dark:text-white mb-2">{isZh ? "Gemini 正在撰写官方题解..." : "Gemini is writing Official Solution..."}</h2>
                     <p className="text-xs text-gray-500">{isZh ? "深度解析可能需要几秒钟" : "Deep dive analysis in progress"}</p>
                 </div>

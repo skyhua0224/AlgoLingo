@@ -146,3 +146,8 @@ export const getVariantSystemInstruction = (
     - You may add a short 'callout' before the interactive widget to explain the variation context.
     `;
 };
+
+// Fix path exports to point to parent directory sibling folders
+export { getLeetCodeContextSystemInstruction } from "../stages/leetcode";
+export { getJudgeSystemInstruction } from "../judge";
+export { getDailyWorkoutSystemInstruction } from "../stages/workout";

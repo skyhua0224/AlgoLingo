@@ -231,14 +231,21 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
 
   const handleCheck = () => {
     const state: WidgetState = { quizSelection, fillInAnswers, parsonsOrder, stepsOrder, miniEditorValid };
-    const targetWidget = currentScreen.widgets.find(w => 
-        ['quiz', 'parsons', 'fill-in', 'steps-list', 'mini-editor', 'visual-quiz', 'terminal', 'interactive-code'].includes(w.type) ||
-        (w.type === 'flipcard' && w.flipcard?.mode === 'assessment')
-    );
+    
+    // Robust finding logic: Handles AI capitalization quirks (fillIn vs fill-in)
+    const targetWidget = currentScreen.widgets.find(w => {
+        const type = w.type;
+        const normalized = type.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+        
+        return ['quiz', 'parsons', 'fill-in', 'steps-list', 'mini-editor', 'visual-quiz', 'terminal', 'interactive-code'].includes(normalized) ||
+        (type === 'flipcard' && w.flipcard?.mode === 'assessment');
+    });
 
     let isCorrect = true;
     if (targetWidget) {
-        if (targetWidget.type === 'interactive-code' || targetWidget.type === 'interactiveCode' || targetWidget.type === 'code-walkthrough') {
+        const normalizedType = targetWidget.type.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+        
+        if (normalizedType === 'interactive-code' || normalizedType === 'code-walkthrough') {
              isCorrect = true; 
         } else {
              isCorrect = validate(targetWidget, state);

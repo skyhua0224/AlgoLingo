@@ -50,24 +50,20 @@ export const InteractiveCodeWidget: React.FC<InteractiveCodeProps> = ({ widget, 
       return raw.replace(/(^|\s+)(\/\/|#).*$/, '$1').trimEnd();
   };
 
-  // Pre-process lines: Clean code and remove lines that became empty (pure comments)
-  // This ensures continuous line numbers without gaps for hidden comments.
+  // Pre-process lines: Identify empty lines as "Spacers"
   const displayedLines = safeLines.map(line => {
       const cleaned = cleanDisplayCode(line.code);
-      // Identify if it was originally intended as a spacer (empty line)
-      const isOriginalSpacer = (line as any).isSpacer || (!line.code || line.code.trim().length === 0);
-      
-      // Identify if it BECAME empty after stripping comments (e.g. "# step 1")
-      // These should be removed entirely to avoid awkward gaps.
-      const becameEmpty = !isOriginalSpacer && (!cleaned || cleaned.trim().length === 0);
+      // Identify if it was originally intended as a spacer (empty line) or became empty
+      // We explicitly check for emptiness to mark as spacer.
+      const isSpacer = (!line.code || line.code.trim().length === 0) || (!cleaned || cleaned.trim().length === 0);
       
       return {
           ...line,
-          code: cleaned, // Use cleaned code
-          isSpacer: isOriginalSpacer,
-          shouldRemove: becameEmpty
+          code: isSpacer ? '' : cleaned, 
+          isSpacer: isSpacer,
+          // We keep the line in the array to maintain line numbering, but render it differently
       };
-  }).filter(l => !l.shouldRemove);
+  });
 
   useEffect(() => {
     if (typeof Prism !== 'undefined') {
@@ -98,23 +94,31 @@ export const InteractiveCodeWidget: React.FC<InteractiveCodeProps> = ({ widget, 
             </div>
 
             {/* Code Area - Enforce Dark Mode for contrast with Prism Tomorrow Theme */}
-            <div className="overflow-x-auto relative z-0 bg-[#1e1e1e]">
+            <div className="overflow-x-auto relative z-0 bg-[#1e1e1e] py-2">
                 {displayedLines.map((line, idx) => {
+                    const isActive = !line.isSpacer && activeLine === idx;
+                    
                     return (
                         <div 
                             key={idx}
                             onClick={() => !line.isSpacer && setActiveLine(idx)}
-                            className={`flex transition-colors border-l-4 ${!line.isSpacer && activeLine === idx ? 'bg-[#37373d] border-brand' : 'border-transparent'} ${!line.isSpacer ? 'hover:bg-[#2d2d2d] hover:border-gray-600 cursor-pointer' : 'cursor-default'}`}
+                            className={`flex transition-colors border-l-4 ${
+                                line.isSpacer 
+                                ? 'border-transparent cursor-default' 
+                                : (isActive ? 'bg-[#37373d] border-brand' : 'border-transparent hover:bg-[#2d2d2d] hover:border-gray-600 cursor-pointer')
+                            }`}
                         >
-                            <div className="w-10 shrink-0 text-right text-gray-600 text-xs font-mono py-2 pr-3 select-none border-r border-gray-700 mr-3 bg-[#252526]">
-                                {line.isSpacer ? '' : (idx + 1)}
+                            {/* Line Number */}
+                            <div className={`w-10 shrink-0 text-right text-xs font-mono py-1 pr-3 select-none mr-3 ${line.isSpacer ? 'text-gray-700' : 'text-gray-500'}`}>
+                                {idx + 1}
                             </div>
-                            <div className="py-2 font-mono text-sm text-gray-300 whitespace-pre pr-4 min-h-[1.5em] w-full">
-                                {/* Use &nbsp; if line is empty to ensure height */}
+                            
+                            {/* Code Content */}
+                            <div className="py-1 font-mono text-sm text-gray-300 whitespace-pre pr-4 min-h-[1.5em] w-full">
                                 <pre className={`language-${codeLang.toLowerCase()} !m-0 !p-0 !bg-transparent !text-sm !text-inherit`} style={{margin:0, padding:0}}>
                                     <code dangerouslySetInnerHTML={{ 
                                         __html: line.isSpacer 
-                                            ? '&nbsp;' 
+                                            ? ' ' // Just a space to keep height
                                             : (typeof Prism !== 'undefined' 
                                                 ? Prism.highlight(line.code, Prism.languages[codeLang.toLowerCase()] || Prism.languages.python, codeLang.toLowerCase())
                                                 : line.code)
@@ -128,7 +132,7 @@ export const InteractiveCodeWidget: React.FC<InteractiveCodeProps> = ({ widget, 
             
             {/* Explanation Box - FORCED TEXT-WHITE for contrast */}
             <div className="bg-[#252526] p-4 border-t-4 border-brand-dark transition-all min-h-[80px]">
-                 {activeLine !== null && displayedLines[activeLine] ? (
+                 {activeLine !== null && displayedLines[activeLine] && !displayedLines[activeLine].isSpacer ? (
                      <div className="animate-fade-in-up">
                          <div className="flex items-center gap-2 mb-2 text-brand-light font-bold text-xs uppercase tracking-wider">
                              <Info size={14} />

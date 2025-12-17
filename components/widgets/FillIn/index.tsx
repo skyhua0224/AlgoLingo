@@ -2,7 +2,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Widget } from '../../../types';
 import { BaseWidget } from '../BaseWidget';
-import { Keyboard, Check } from 'lucide-react';
+import { Keyboard, Check, X } from 'lucide-react';
+import { MarkdownText } from '../../common/MarkdownText';
 
 interface FillInProps {
     widget: Widget;
@@ -25,7 +26,7 @@ const WIDGET_LOCALE = {
 
 export const FillInWidget: React.FC<FillInProps> = ({ widget, onUpdateAnswers, language, status, userAnswers }) => {
     if (!widget.fillIn) return null;
-    let { code, options, correctValues, inputMode } = widget.fillIn;
+    let { code, options, correctValues, inputMode, explanation } = widget.fillIn;
     const t = WIDGET_LOCALE[language];
 
     // --- ROBUSTNESS: Normalize Placeholders ---
@@ -125,19 +126,40 @@ export const FillInWidget: React.FC<FillInProps> = ({ widget, onUpdateAnswers, l
                  </pre>
              </div>
 
-             {/* Answer Reveal */}
-             {status === 'wrong' && correctValues && (
-                 <div className="mb-6 p-4 bg-green-50 dark:bg-green-900/20 border-2 border-green-200 dark:border-green-900/50 rounded-xl animate-fade-in-up shadow-sm flex items-start gap-3">
-                    <Check size={18} className="text-green-600 dark:text-green-400 mt-0.5 shrink-0"/>
-                    <div>
-                        <h4 className="text-green-800 dark:text-green-300 font-extrabold text-xs uppercase mb-1 tracking-wider">
-                            {t.correctAnswer}
-                        </h4>
-                        <div className="flex flex-wrap gap-2 font-mono text-sm text-green-700 dark:text-green-200 font-bold">
-                            {correctValues.map((val, idx) => (
-                                <span key={idx} className="underline decoration-2 underline-offset-2 decoration-green-400/50">{val}</span>
-                            ))}
-                        </div>
+             {/* Feedback & Explanation */}
+             {(status === 'wrong' || status === 'correct') && (
+                 <div className={`mb-6 p-5 rounded-2xl border-2 animate-fade-in-up shadow-sm flex items-start gap-4 ${status === 'correct' ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-900/50' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-900/50'}`}>
+                    
+                    <div className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center border-2 shadow-sm ${status === 'correct' ? 'bg-green-100 border-green-200 text-green-600 dark:bg-green-900/40 dark:border-green-800 dark:text-green-400' : 'bg-red-100 border-red-200 text-red-600 dark:bg-red-900/40 dark:border-red-800 dark:text-red-400'}`}>
+                        {status === 'correct' ? <Check size={20} strokeWidth={3} /> : <X size={20} strokeWidth={3} />}
+                    </div>
+
+                    <div className="flex-1 min-w-0 pt-1">
+                        {status === 'wrong' && (
+                            <div className="mb-3">
+                                <h4 className="text-red-800 dark:text-red-300 font-extrabold text-xs uppercase mb-1.5 tracking-wider">
+                                    {t.correctAnswer}
+                                </h4>
+                                <div className="flex flex-wrap gap-2 font-mono text-sm text-red-700 dark:text-red-200 font-bold">
+                                    {correctValues?.map((val, idx) => (
+                                        <span key={idx} className="bg-red-100 dark:bg-red-900/40 px-2 py-1 rounded-md border border-red-200 dark:border-red-800">{val}</span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {status === 'correct' && (
+                             <h4 className="text-green-800 dark:text-green-300 font-extrabold text-sm uppercase mb-2 tracking-wider">
+                                 {language === 'Chinese' ? "回答正确" : "Correct Solution"}
+                             </h4>
+                        )}
+                        
+                        {explanation && (
+                            <div className={`text-sm leading-relaxed ${status === 'wrong' ? 'pt-3 border-t border-red-200 dark:border-red-800/50 text-red-900 dark:text-red-200' : 'text-green-900 dark:text-green-100'}`}>
+                                 {status === 'wrong' && <div className="font-bold text-xs uppercase opacity-70 mb-1">Analysis</div>}
+                                 <MarkdownText content={explanation} />
+                            </div>
+                        )}
                     </div>
                  </div>
              )}

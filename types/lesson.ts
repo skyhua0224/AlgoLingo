@@ -16,41 +16,65 @@ export interface LessonScreen {
     isRetry?: boolean; 
 }
 
+export interface LogicStep {
+    title: string;
+    detail: string;
+    type?: 'init' | 'loop' | 'condition' | 'action' | 'result'; 
+}
+
+export interface KeywordMeta {
+    term: string;
+    definition: string;
+}
+
+// NEW: Mission Brief Data Structure
+export interface MissionBriefData {
+    type: 'visual_io' | 'transformation';
+    input: string;  // e.g. "['eat', 'tea', 'tan']"
+    output: string; // e.g. "[['eat', 'tea'], ['tan']]"
+    
+    // The Trap (Why not brute force?)
+    trap: {
+        title: string; // "Time Limit Exceeded"
+        description: string; // "O(N^2) is too slow..."
+    };
+}
+
+// NEW: Smart Tag Data Structure
+export interface SmartTagData {
+    name: string;       // "HashMap"
+    definition: string; // "Key-Value mapping..."
+    codeSnippet: string;// "dict = {}"
+}
+
 export interface SolutionStrategy {
     id: string;
     title: string; // e.g. "HashMap Approach"
     complexity: string; // Time/Space
     
     // Rich Content Blocks
-    summary?: string; // NEW: One-sentence summary for list view
+    summary?: string; // One-sentence summary for list view
     tags: string[]; // e.g. ["Two Pointers", "Array"]
     
     // The "Thinking Process"
-    derivation: string; // How we arrived here, associations (The "Process")
-    analogy?: string; // Real world analogy
+    derivation: string; // How we arrived here (The "Process")
     rationale?: string; // "Why use this?"
+    
+    // NEW: Pedagogical Fields
+    analogy?: string; // Real world analogy
     memoryTip?: string; // "How to remember/understand"
-    expandedKnowledge?: string[]; // Related concepts
+    
+    // Visuals
+    logicSteps?: LogicStep[]; // Native UI Logic Flow
+    mermaid?: string; // Legacy support
     
     // Code & Syntax
     code: string; // Raw code string for reference
     codeWidgets: Widget[]; // Interactive code widget for line-by-line
     
     // Language specifics
-    keywords: {
-        term: string; // e.g. "enumerate"
-        definition: string; // Why used
-        memoryTip?: string; // How to remember
-    }[];
+    keywords: KeywordMeta[]; // e.g. "enumerate" -> "Why used here?"
 
-    // Visuals
-    mermaid?: string; // Legacy support
-    logicSteps?: {    // NEW: Native UI Logic Flow
-        title: string;
-        detail: string;
-        type?: 'init' | 'loop' | 'condition' | 'action' | 'result'; 
-    }[];
-    
     language: string;
     isCustom?: boolean; // Is this user generated?
 
@@ -59,6 +83,8 @@ export interface SolutionStrategy {
         header: string;
         content: string;
     }[];
+
+    expandedKnowledge?: string[];
 }
 
 export interface LessonPlan {

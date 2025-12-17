@@ -2,7 +2,7 @@
 import React from 'react';
 import { Widget } from '../../../types';
 import { BaseWidget } from '../BaseWidget';
-import { Bot, Check } from 'lucide-react';
+import { Bot, Check, CheckCircle2, X } from 'lucide-react';
 import { MarkdownText } from '../../common/MarkdownText';
 
 interface QuizProps {
@@ -95,19 +95,34 @@ export const QuizWidget: React.FC<QuizProps> = ({ widget, selectedIdx, onSelect,
                 })}
             </div>
 
-            {/* Explicit Answer Box for Wrong State */}
-            {status === 'wrong' && (
-                 <div className="ml-14 mt-6 p-4 bg-green-50 dark:bg-green-900/20 border-2 border-green-200 dark:border-green-900/50 rounded-xl animate-fade-in-up shadow-sm flex items-start gap-3">
-                    <Check size={18} className="text-green-600 dark:text-green-400 mt-0.5 shrink-0"/>
-                    <div>
-                        <h4 className="text-green-800 dark:text-green-300 font-extrabold text-xs uppercase mb-1 tracking-wider">
-                            {t.correctAnswer}
-                        </h4>
-                        <div className="font-medium text-green-700 dark:text-green-200 text-sm">
-                            <MarkdownText content={correctOptionText || "See option marked green"} />
-                        </div>
+            {/* Answer & Explanation */}
+            {(status === 'wrong' || (status === 'correct' && widget.quiz.explanation)) && (
+                 <div className={`ml-14 mt-6 p-5 rounded-2xl animate-fade-in-up shadow-sm flex items-start gap-4 border-2 ${status === 'correct' ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-900/50' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-900/50'}`}>
+                    <div className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center border-2 shadow-sm ${status === 'correct' ? 'bg-green-100 border-green-200 text-green-600 dark:bg-green-900/40 dark:border-green-800 dark:text-green-400' : 'bg-red-100 border-red-200 text-red-600 dark:bg-red-900/40 dark:border-red-800 dark:text-red-400'}`}>
+                        {status === 'correct' ? <CheckCircle2 size={22} strokeWidth={2.5}/> : <X size={22} strokeWidth={2.5}/>}
+                    </div>
+                    
+                    <div className="flex-1 pt-1">
+                        {status === 'wrong' && (
+                            <div className="mb-3">
+                                <h4 className="text-red-800 dark:text-red-300 font-extrabold text-xs uppercase mb-1.5 tracking-wider">
+                                    {t.correctAnswer}
+                                </h4>
+                                <div className="font-bold text-red-900 dark:text-red-100 text-sm bg-red-100/50 dark:bg-red-900/30 px-3 py-2 rounded-lg border border-red-100 dark:border-red-800 inline-block">
+                                    <MarkdownText content={correctOptionText || "See option marked green"} />
+                                </div>
+                            </div>
+                        )}
+                        
+                        {status === 'correct' && (
+                             <h4 className="text-green-800 dark:text-green-300 font-extrabold text-sm uppercase mb-2 tracking-wider">
+                                 {language === 'Chinese' ? "回答正确" : "Correct!"}
+                             </h4>
+                        )}
+                        
                         {widget.quiz.explanation && (
-                            <div className="mt-2 text-xs text-green-600/80 dark:text-green-400/80 pt-2 border-t border-green-200 dark:border-green-800">
+                            <div className={`text-sm leading-relaxed ${status === 'wrong' ? 'pt-3 border-t border-red-200 dark:border-red-800 text-red-800 dark:text-red-200' : 'text-green-900 dark:text-green-100'}`}>
+                                {status === 'wrong' && <div className="font-bold text-xs uppercase opacity-70 mb-1">Analysis</div>}
                                 <MarkdownText content={widget.quiz.explanation} />
                             </div>
                         )}
