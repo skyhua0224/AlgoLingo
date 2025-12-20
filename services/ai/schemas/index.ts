@@ -60,7 +60,6 @@ export const leetcodeSchema: Schema = {
     required: ["problemSlug", "concept", "exampleCode"]
 };
 
-// New Schemas
 export const terminalSchema: Schema = {
     type: Type.OBJECT,
     properties: {
@@ -114,14 +113,10 @@ export const archCanvasSchema: Schema = {
     required: ["goal", "requiredComponents"]
 };
 
-// --- FORGE WIDGETS ---
 export const mermaidSchema: Schema = {
     type: Type.OBJECT,
     properties: {
-        // Legacy support (optional)
         chart: { type: Type.STRING, description: "Deprecated. Use graphData if possible." },
-        
-        // New Structured Data
         graphData: {
             type: Type.OBJECT,
             description: "Structured definition of the graph. PREFERRED over 'chart' string.",
@@ -170,9 +165,9 @@ export const visualQuizSchema: Schema = {
                 properties: {
                     id: { type: Type.STRING },
                     label: { type: Type.STRING },
-                    icon: { type: Type.STRING, description: "Lucide icon name" }
+                    icon: { type: Type.STRING, description: "MANDATORY: Lucide icon name (e.g. 'Hash', 'Database', 'Binary', 'Workflow', 'Cpu', 'Layers')" }
                 },
-                required: ["id", "label"]
+                required: ["id", "label", "icon"]
             }
         },
         correctId: { type: Type.STRING },
@@ -200,14 +195,13 @@ export const comparisonTableSchema: Schema = {
     required: ["headers", "rows"]
 };
 
-// Root Lesson Plan Schema
 export const lessonPlanSchema: Schema = {
     type: Type.OBJECT,
     properties: {
       title: { type: Type.STRING },
       description: { type: Type.STRING },
       suggestedQuestions: { type: Type.ARRAY, items: { type: Type.STRING } },
-      headerImage: { type: Type.STRING, description: "Optional generated image URL" },
+      headerImage: { type: Type.STRING },
       screens: {
         type: Type.ARRAY,
         items: {
@@ -221,7 +215,7 @@ export const lessonPlanSchema: Schema = {
                     type: Type.OBJECT,
                     properties: {
                         id: { type: Type.STRING },
-                        type: { type: Type.STRING }, // simplified enum for brevity in this file
+                        type: { type: Type.STRING },
                         dialogue: dialogueSchema,
                         interactiveCode: interactiveCodeSchema,
                         parsons: parsonsSchema,
@@ -371,18 +365,13 @@ export const judgeResultSchema: Schema = {
         analysis: {
             type: Type.OBJECT,
             properties: {
-                // Success
                 timeComplexity: { type: Type.STRING },
                 spaceComplexity: { type: Type.STRING },
-                
-                // General Analysis (Both Success and Failure)
-                userIntent: { type: Type.STRING, description: "What the user was seemingly trying to do in their code." },
-                strategyDetected: { type: Type.STRING, description: "The algorithmic approach identified (e.g. 'Two Pointers', 'Brute Force')." },
-                explanation: { type: Type.STRING, description: "Brief analysis of the logic." },
-
-                // Failure Only
-                bugDiagnosis: { type: Type.STRING, description: "Markdown. Detailed breakdown of WHY it failed." },
-                correctCode: { type: Type.STRING, description: "Fixed version of the user's code." },
+                userIntent: { type: Type.STRING },
+                strategyDetected: { type: Type.STRING },
+                explanation: { type: Type.STRING },
+                bugDiagnosis: { type: Type.STRING },
+                correctCode: { type: Type.STRING },
             }
         }
     }

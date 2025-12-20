@@ -207,7 +207,7 @@ export const INITIAL_STATS: UserStats = {
 export const DEFAULT_API_CONFIG: ApiConfig = {
     provider: 'gemini-official',
     gemini: {
-        model: 'gemini-2.5-flash', // Optimized for real-time speed. Deep reasoning tasks auto-upgrade to Gemini 3.
+        model: 'gemini-2.5-flash', // REVERTED: High stability for long lesson generation.
     },
     openai: {
         baseUrl: 'https://api.openai.com/v1',
@@ -217,6 +217,7 @@ export const DEFAULT_API_CONFIG: ApiConfig = {
 };
 
 export const GEMINI_MODELS = [
+    'gemini-3-flash-preview',
     'gemini-2.5-flash',
     'gemini-2.5-pro',
     'gemini-3-pro-preview',

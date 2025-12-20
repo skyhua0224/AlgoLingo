@@ -52,7 +52,7 @@ export const generateNextTurn = async (
 
     try {
         const response = await client.models.generateContent({
-            model: preferences.apiConfig.gemini.model || 'gemini-2.5-flash',
+            model: preferences.apiConfig.gemini.model || 'gemini-3-flash-preview',
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
@@ -115,7 +115,7 @@ export const generateJDSyllabus = async (
     
     try {
         const response = await client.models.generateContent({
-            model: 'gemini-2.5-pro', // Use Pro for complex planning
+            model: 'gemini-3-pro-preview', // Use latest Pro for complex planning
             contents: prompt,
             config: { responseMimeType: "application/json" }
         });
@@ -158,7 +158,7 @@ export const generateRapidExam = async (
     let text = "";
     try {
         const response = await client.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3-flash-preview',
             contents: prompt,
             config: { 
                 systemInstruction: systemInstruction,
@@ -241,7 +241,7 @@ export const generateAICompanies = async (
 
     try {
         const response = await client.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3-flash-preview',
             contents: prompt,
             config: { 
                 responseMimeType: "application/json",

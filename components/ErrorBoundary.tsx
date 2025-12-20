@@ -1,5 +1,4 @@
-
-import React, { ErrorInfo, ReactNode } from 'react';
+import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, Trash2, RefreshCw } from 'lucide-react';
 
 interface ErrorBoundaryProps {
@@ -12,32 +11,43 @@ interface ErrorBoundaryState {
   isZh: boolean;
 }
 
-// Fix: Explicitly use React.Component to ensure setState and props are available to the instance
+/**
+ * Standard React Error Boundary component.
+ * We use React.Component with generics for props and state to ensure base members 
+ * like state, setState, and props are correctly recognized by TypeScript.
+ */
 export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  // Fix: Explicitly define state property using property initializer for clear type recognition
   public state: ErrorBoundaryState = {
     hasError: false,
     error: null,
     isZh: true,
   };
 
+  // Fix: Standard constructor calling super(props) to initialize the Component base
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+  }
+
+  // Fix: Standard static method to update state when an error occurs
   static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
     return { hasError: true, error };
   }
 
   componentDidMount() {
-      // Determine language from local storage since we are outside React Context
-      try {
-          const prefs = localStorage.getItem('algolingo_preferences');
-          if (prefs) {
-              const parsed = JSON.parse(prefs);
-              if (parsed.spokenLanguage === 'English') {
-                  // Fix: setState is correctly inherited from React.Component
-                  this.setState({ isZh: false });
-              }
-          }
-      } catch(e) {
-          // Fallback to default (true/Chinese)
+    // Determine language from local storage since we are outside React Context
+    try {
+      const prefs = localStorage.getItem('algolingo_preferences');
+      if (prefs) {
+        const parsed = JSON.parse(prefs);
+        if (parsed.spokenLanguage === 'English') {
+          // Fix: setState is correctly available on the instance via React.Component inheritance
+          this.setState({ isZh: false });
+        }
       }
+    } catch (e) {
+      // Fallback to default (true/Chinese)
+    }
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
@@ -45,7 +55,9 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   }
 
   handleReset = () => {
-    const msg = this.state.isZh 
+    // Fix: state is correctly available on the instance via React.Component inheritance
+    const { isZh } = this.state;
+    const msg = isZh 
         ? "这将清除所有本地缓存数据以修复启动问题。确定吗？" 
         : "This will wipe local data to fix the crash. Are you sure?";
         
@@ -56,6 +68,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   };
 
   render() {
+    // Fix: state is correctly available on the instance via React.Component inheritance
     if (this.state.hasError) {
       const { isZh } = this.state;
       
@@ -102,7 +115,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
       );
     }
 
-    // Fix: props is correctly available on instance when extending React.Component
+    // Fix: props.children is available on the instance via React.Component inheritance
     return this.props.children;
   }
 }

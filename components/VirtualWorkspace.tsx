@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { LeetCodeContext, UserPreferences, SolutionStrategy } from '../types';
 import { GripVertical, GripHorizontal, FileText, Lightbulb, Zap, Tag, ArrowRight, BookOpen, Key, CheckCircle2, History, Stethoscope, Copy, Eye, ArrowLeft, RotateCcw, X, Terminal } from 'lucide-react';
@@ -20,7 +19,8 @@ interface VirtualWorkspaceProps {
     activeStrategyId?: string | null;
     onSelectStrategy?: (id: string | null) => void;
     onGenerateStrategies?: () => void;
-    onAddCustomStrategy?: (strategy: SolutionStrategy) => void;
+    // Fix: Removed duplicate onAddCustomStrategy identifier
+    onAddCustomStrategy?: (strategy: SolutionStrategy) => void; 
     onUpdateStrategy?: (strategy: SolutionStrategy) => void; 
     isGenerating?: boolean;
     onDrill?: (context: string, referenceCode?: string) => void; 
@@ -628,7 +628,8 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
                             code={code} 
                             language={currentLanguage} 
                             onChange={setCode} 
-                            onLanguageChange={setCurrentLanguage} 
+                            // Fix: Pass arrow function to match CodeEditor props and handle union type correctly
+                            onLanguageChange={(lang: any) => setCurrentLanguage(lang)} 
                         />
                     </div>
 

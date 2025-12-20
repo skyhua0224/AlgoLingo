@@ -4,20 +4,20 @@ export type WidgetType =
     | 'flipcard' 
     | 'quiz' 
     | 'code' 
-    | 'interactive-code'
-    | 'comparison-code' // NEW
+    | 'interactive-code' | 'interactiveCode'
+    | 'comparison-code' | 'comparisonCode' 
     | 'parsons'
-    | 'fill-in'
+    | 'fill-in' | 'fillIn'
     | 'leetcode' 
-    | 'steps-list'
+    | 'steps-list' | 'stepsList'
     | 'callout'
     | 'terminal'
-    | 'code-walkthrough'
-    | 'mini-editor'
+    | 'code-walkthrough' | 'codeWalkthrough'
+    | 'mini-editor' | 'miniEditor'
     | 'arch-canvas'
     | 'mermaid'
-    | 'visual-quiz'
-    | 'comparison-table';
+    | 'visual-quiz' | 'visualQuiz'
+    | 'comparison-table' | 'comparisonTable';
 
 export interface Widget {
   id: string;
@@ -59,7 +59,6 @@ export interface Widget {
       caption?: string;
   };
 
-  // NEW: Comparison Code Widget
   comparisonCode?: {
       left: {
           title: string;
@@ -124,16 +123,16 @@ export interface Widget {
       code: string;
       language: string;
       steps: {
-          lines: number[]; // 1-based line numbers to highlight
-          content: string; // Markdown explanation
+          lines: number[]; 
+          content: string; 
       }[];
   };
 
   miniEditor?: {
       language: string;
       startingCode: string; 
-      solutionSnippet: string; // For AI validation reference
-      validationRegex?: string; // Simple regex check
+      solutionSnippet: string; 
+      validationRegex?: string; 
       taskDescription: string;
   };
 
@@ -145,8 +144,8 @@ export interface Widget {
   };
   
   mermaid?: {
-      chart: string; // Raw mermaid syntax
-      graphData?: any; // Structured data
+      chart: string; 
+      graphData?: any; 
       caption?: string;
   };
 
@@ -156,6 +155,7 @@ export interface Widget {
           id: string;
           label: string;
           imageUrl?: string; 
+          imagePrompt?: string; // New: For dynamic generation
           icon?: string; 
       }[];
       correctId: string;

@@ -30,34 +30,27 @@ Single-widget screens are **STRICTLY FORBIDDEN** and will cause a system crash.
 **ABSOLUTE PROHIBITIONS:**
 - ❌ **NEVER** generate a screen with \`widgets.length === 1\`.
 - ❌ **NEVER** end a screen with a 'dialogue' widget. A dialogue must ALWAYS be followed by something visual.
-- ❌ **NEVER** write "Here is the code:" in a dialogue without actually adding an 'interactive-code' widget immediately after.
+
+**STEPS-LIST PROTOCOL (CRITICAL)**:
+- If mode is 'interactive', you **MUST** provide the \`correctOrder\` array. This is the only way the UI can show the user their mistakes.
+- Ensure the \`items\` array is a shuffled version or logical progression.
+
+**VISUAL QUIZ PROTOCOL (UPDATED)**:
+- ❌ **NO IMAGE GENERATION**: Do NOT provide 'imagePrompt' or 'imageUrl'.
+- ✅ **ICON-BASED测验**: You MUST provide a specific 'icon' name from the Lucide library for EACH option.
+- **CHOOSE LOGICAL ICONS**:
+  - For Memory/Storage: 'Database', 'HardDrive', 'Box'
+  - For Logic/Code: 'Terminal', 'Braces', 'Code2', 'Cpu'
+  - For Relationships: 'Network', 'Workflow', 'GitBranch'
+  - For Math/Counting: 'Hash', 'Binary', 'Divide'
+  - For Search/Find: 'Search', 'Binoculars', 'Eye'
 
 **QUIZ QUALITY CONTROL (STRICT):**
-- **LENGTH BALANCE**: The correct answer MUST NOT be significantly longer or more detailed than the distractors. **Distractors must be of similar length and complexity.** Do not make the correct answer obvious by being the only grammatically complete sentence.
-- **NO "ALL OF THE ABOVE"**: Do NOT use "All of the above" as an option.
-- **RANDOMIZE**: Ensure the correct answer index varies (A, B, C, D). Do not bias towards 'A' or 'D'.
-- **PLAUSIBLE DISTRACTORS**: Distractors must be common misconceptions, not obviously wrong nonsense.
+- **LENGTH BALANCE**: The correct answer MUST NOT be significantly longer or more detailed than the distractors. 
+- **PLAUSIBLE DISTRACTORS**: Distractors must be common misconceptions.
 
 **VISUALIZATION RULES (STRUCTURED PROTOCOL) - CRITICAL:**
-- **DO NOT** write Mermaid syntax strings directly in the \`chart\` field if possible.
-- **YOU MUST** use the \`graphData\` object to define nodes and edges structurally.
-- **Protocol**:
-  1. Define \`nodes\` with simple alphanumeric IDs (e.g., "A", "Node1").
-  2. Define \`edges\` referencing those IDs.
-  3. The frontend compiler will handle syntax generation and escaping.
-- **FALLBACK STRING RULE**: If you must use a string for the 'chart' field, **NEVER** use square brackets inside node labels.
-  - ❌ Incorrect: \`A[Array [1,2]]\` (Nested brackets crash the parser).
-  - ✅ Correct: \`A[Array (1,2)]\` (Use parentheses for inner content).
-
-**STRICT INTERACTIVE CODE RULES:**
-- **BLOCK CONTEXT**: An \`interactive-code\` widget must represent a **COMPLETE LOGICAL BLOCK**.
-- **MINIMUM LENGTH**: The \`lines\` array MUST contain **AT LEAST 3 LINES**.
-  - **NEVER** show a single line of code (e.g. just a function header) in isolation.
-  - **FIX**: If you want to explain one line, show it **IN CONTEXT** (e.g., inside its loop, if-block, or function definition).
-  - **Example**: Do not just show \`i++\`. Show \`for(int i=0; i<n; i++) { ... }\`.
-- **ONE LINE PER OBJECT**: The \`lines\` array must have one object per logical line of code.
-- **NO ORPHANED EXPLANATIONS**: Do NOT create an object with empty \`code\` just to hold an explanation.
-- **NO COMMENTS IN CODE**: Do not put comments (// or #) in the \`code\` string. Put the comment text in the \`explanation\` field instead.
+- **YOU MUST** use the \`graphData\` object to define nodes and edges structurally for Mermaid widgets.
 
 WIDGET RULES:
 ${PARSONS_RULES}

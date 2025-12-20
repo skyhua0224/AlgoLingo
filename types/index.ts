@@ -7,4 +7,5 @@ export * from './engineering';
 export * from './forge';
 export * from './career';
 
-export type AppView = 'algorithms' | 'review' | 'engineering' | 'forge' | 'career' | 'profile' | 'loading' | 'runner' | 'unit-map' | 'career-runner';
+// Fix: Add 'dashboard' and 'forge-detail' to AppView to resolve type mismatch in App.tsx and hooks
+export type AppView = 'algorithms' | 'review' | 'engineering' | 'forge' | 'career' | 'profile' | 'loading' | 'runner' | 'unit-map' | 'career-runner' | 'dashboard' | 'forge-detail';

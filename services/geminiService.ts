@@ -88,6 +88,7 @@ const callAI = async (
     }
 
     const client = getClient(preferences);
+    // Use override, then user pref, then default (now gemini-2.5-flash in constants)
     const modelId = modelOverride || preferences.apiConfig.gemini.model || 'gemini-2.5-flash';
     
     const safeSystemInstruction = systemInstruction + `
@@ -181,7 +182,7 @@ export const generateDailyWorkoutPlan = async (
     learnedProblemIds: string[],
     preferences: UserPreferences
 ): Promise<LessonPlan> => {
-    const learnedProblemNames = learnedProblemIds.map(id => PROBLEM_MAP[id]).filter(n => !!n);
+    const learnedProblemNames = learnedProblemIds.map(id => PROBLEM_MAP[id]).filter(id => !!id);
     if (learnedProblemNames.length === 0) {
         return generateLessonPlan("Two Sum", 0, preferences);
     }
@@ -201,6 +202,7 @@ export const generateDailyWorkoutPlan = async (
     
     const plan: LessonPlan = JSON.parse(cleanText);
     plan.title = preferences.spokenLanguage === 'Chinese' ? "📅 今日智能特训" : "📅 Daily Smart Workout";
+    
     return plan;
 };
 
@@ -208,7 +210,8 @@ export const generateVariantLesson = async (mistake: MistakeRecord, preferences:
     const systemInstruction = getVariantSystemInstruction(preferences.targetLanguage, preferences.spokenLanguage);
     const prompt = `Create VARIANT of: ${mistake.problemName}. Widget Data: ${JSON.stringify(mistake.widget)}`;
     const text = await callAI(preferences, systemInstruction, prompt, lessonPlanSchema, true);
-    return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+    const plan = JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+    return plan;
 };
 
 export const generateLeetCodeContext = async (problemName: string, preferences: UserPreferences): Promise<LeetCodeContext> => {
@@ -226,6 +229,7 @@ export const validateUserCode = async (code: string, problemDesc: string, prefer
     const systemInstruction = getJudgeSystemInstruction(targetLang, preferences.spokenLanguage);
     const prompt = `Problem: ${problemDesc}\nUser Code:\n\`\`\`${targetLang}\n${code}\n\`\`\``;
     try {
+        // Keeping Pro for Judge as it requires high intelligence for logical simulation
         const modelId = 'gemini-3-pro-preview'; 
         const text = await callAI(preferences, systemInstruction, prompt, judgeResultSchema, true, modelId);
         return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
@@ -267,13 +271,14 @@ export const generateEngineeringLesson = async (
 
 export const generateEngineeringRoadmap = async (topic: string, pillar: string, keywords: string[], preferences: UserPreferences) => {
     const prompt = getTopicRoadmapPrompt(topic, pillar, keywords, preferences.spokenLanguage);
-    const text = await callAI(preferences, "You are a curriculum designer.", prompt, undefined, true);
+    // Use 3 Flash for fast roadmap planning
+    const text = await callAI(preferences, "You are a curriculum designer.", prompt, undefined, true, 'gemini-3-flash-preview');
     return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim()).roadmap;
 };
 
 export const generateCustomTrack = async (title: string, description: string, preferences: UserPreferences): Promise<SkillTrack> => {
     const prompt = getTrackSyllabusPrompt(title, description, preferences.spokenLanguage);
-    const text = await callAI(preferences, "You are a curriculum designer.", prompt, undefined, true);
+    const text = await callAI(preferences, "You are a curriculum designer.", prompt, undefined, true, 'gemini-3-flash-preview');
     const data = JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
     return {
         id: `custom_${Date.now()}`,
@@ -290,7 +295,7 @@ export const generateCustomTrack = async (title: string, description: string, pr
 
 export const generateTrackSuggestions = async (category: string, existingTitles: string[], preferences: UserPreferences) => {
     const prompt = getTrackSuggestionPrompt(category, existingTitles);
-    const text = await callAI(preferences, "You are a career coach.", prompt, undefined, true);
+    const text = await callAI(preferences, "You are a career coach.", prompt, undefined, true, 'gemini-3-flash-preview');
     const data = JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
     return data.tracks.map((t: any) => ({
         ...t,
@@ -306,7 +311,7 @@ export const generateSyntaxClinicPlan = async (preferences: UserPreferences) => 
 
 export const generateSyntaxRoadmap = async (profile: any, preferences: UserPreferences) => {
     const prompt = getSyntaxRoadmapPrompt(profile);
-    const text = await callAI(preferences, "You are a curriculum designer.", prompt, undefined, false); 
+    const text = await callAI(preferences, "You are a curriculum designer.", prompt, undefined, false, 'gemini-3-flash-preview'); 
     try {
        const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
        const data = JSON.parse(cleanText);
@@ -327,7 +332,8 @@ export const generateSyntaxLesson = async (unit: any, lesson: any, stageId: stri
 
 export const generateAiAssistance = async (context: string, userQuery: string, preferences: UserPreferences, model: string) => {
     try {
-        return await callAI(preferences, "You are a helpful coding assistant. Be brief.", `Context:\n${context}\n\nUser Question: ${userQuery}\n\nAnswer briefly.`, undefined, false, model);
+        // ALWAYS use 3 Flash for quick chat
+        return await callAI(preferences, "You are a helpful coding assistant. Be brief.", `Context:\n${context}\n\nUser Question: ${userQuery}\n\nAnswer briefly.`, undefined, false, 'gemini-3-flash-preview');
     } catch (e) {
         return "AI is offline.";
     }
@@ -341,7 +347,7 @@ export const generateProblemStrategies = async (problemName: string, description
 
 export const generateSolutionDeepDive = async (problemName: string, strategyTitle: string, preferences: UserPreferences, existingCode?: string) => {
     const prompt = getSolutionDeepDivePrompt(problemName, strategyTitle, preferences.targetLanguage, preferences.spokenLanguage, existingCode);
-    const text = await callAI(preferences, "You are an official solution writer.", prompt, undefined, true);
+    const text = await callAI(preferences, "You are an official solution writer.", prompt, undefined, true, 'gemini-3-pro-preview');
     return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
 };
 
@@ -349,12 +355,13 @@ export const generateMistakeRepairPlan = async (drillContext: string, problemTit
     const prompt = `FAILED LOGIC: ${drillContext}\nPROBLEM: ${problemTitle}\nREFERENCE CODE: ${referenceCode || 'N/A'}`;
     const system = getMistakeRepairSystemInstruction(preferences.targetLanguage, preferences.spokenLanguage);
     const text = await callAI(preferences, system, prompt, lessonPlanSchema, true);
-    return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+    const plan = JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+    return plan;
 };
 
 export const verifyAnswerDispute = async (widget: Widget, userAnswer: string, context: string, preferences: UserPreferences) => {
     const prompt = getDisputeJudgePrompt(JSON.stringify(widget), userAnswer, context, preferences.spokenLanguage);
-    const text = await callAI(preferences, "You are an impartial judge.", "Evaluate appeal.", undefined, true);
+    const text = await callAI(preferences, "You are an impartial judge.", "Evaluate appeal.", undefined, true, 'gemini-3-flash-preview');
     return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
 };
 
@@ -396,13 +403,15 @@ export const generateForgeStage = async (roadmap: ForgeRoadmap, stageId: number,
 
 export const fixMermaidCode = async (instruction: string, preferences: UserPreferences) => {
     const system = "You are a Mermaid.js Syntax Expert. Fix the diagram code provided by the user. Return ONLY the raw Mermaid code string. Do NOT use markdown blocks. Do NOT include explanations. Ensure labels are double-quoted. Avoid nested brackets.";
-    return await callAI(preferences, system, instruction, undefined, false);
+    return await callAI(preferences, system, instruction, undefined, false, 'gemini-3-flash-preview');
 };
 
 export const regenerateLessonScreen = async (originalScreen: any, context: any, instruction: string, preferences: UserPreferences) => {
     const prompt = getRegenerateScreenPrompt(originalScreen, context, instruction, preferences.spokenLanguage, preferences.targetLanguage);
-    const text = await callAI(preferences, prompt, "Regenerate Screen", undefined, true);
-    return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+    // Use 3 Flash for quick screen tweaks
+    const text = await callAI(preferences, prompt, "Regenerate Screen", undefined, true, 'gemini-3-flash-preview');
+    const screen = JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
+    return screen;
 };
 
 export const analyzeUserStrategy = async (code: string, problemTitle: string, existingStrategies: string[], preferences: UserPreferences) => {
@@ -433,6 +442,6 @@ export const analyzeUserStrategy = async (code: string, problemTitle: string, ex
         }
     }
     `;
-    const text = await callAI(preferences, "You are an Algorithm Analyst.", prompt, undefined, true);
+    const text = await callAI(preferences, "You are an Algorithm Analyst.", prompt, undefined, true, 'gemini-3-flash-preview');
     return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
 };

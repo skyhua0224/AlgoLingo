@@ -7,7 +7,7 @@ import { regenerateLessonScreen, verifyAnswerDispute } from '../../services/gemi
 import { LessonHeader } from './LessonHeader';
 import { LessonFooter } from './LessonFooter';
 import { LeetCodeRunner } from './LeetCodeRunner';
-import { MistakeIntro } from './MistakeIntro'; // Re-used for transition
+import { MistakeIntro } from './MistakeIntro'; 
 import { LessonSummary, SummaryAction } from './LessonSummary';
 import { ExamSummary } from './ExamSummary'; 
 import { StreakCelebration } from './StreakCelebration';
@@ -110,7 +110,6 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
   };
 
   const renderDescriptionSidebar = () => {
-      // Mobile Only Sidebar Wrapper
       return (
         <div 
             className={`md:hidden fixed inset-y-0 right-0 h-full bg-white dark:bg-[#111] z-[120] shadow-2xl transform transition-transform duration-300 border-l border-gray-200 dark:border-gray-800 flex flex-col w-[85vw] ${showDescription ? 'translate-x-0' : 'translate-x-full'}`}
@@ -120,9 +119,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       );
   };
 
-  // ... Simulator Mode logic (omitted for brevity, assume unchanged) ...
   if (props.nodeIndex === 6) {
-    // SIMULATOR MODE LAYOUT (Standard)
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-100/90 dark:bg-black/90 backdrop-blur-md">
             <div className="flex w-full h-full relative overflow-hidden">
@@ -198,13 +195,6 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
   const [stepsOrder, setStepsOrder] = useState<string[]>([]);
   const [miniEditorValid, setMiniEditorValid] = useState(false);
 
-  // Appeal State
-  const [showAppealModal, setShowAppealModal] = useState(false);
-  const [userReason, setUserReason] = useState("");
-  const [isAppealing, setIsAppealing] = useState(false);
-  const [appealStatus, setAppealStatus] = useState<'idle' | 'loading' | 'success' | 'rejected'>('idle');
-  const [appealExplanation, setAppealExplanation] = useState('');
-
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [qualityIssue, setQualityIssue] = useState<QualityIssue | null>(null);
 
@@ -215,10 +205,6 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
     setStepsOrder([]);
     setMiniEditorValid(false);
     setQualityIssue(null);
-    setShowAppealModal(false); 
-    setAppealStatus('idle');
-    setIsAppealing(false);
-    setUserReason("");
     
     if (currentScreen && currentScreen.widgets.length === 1 && currentScreen.widgets[0].type === 'dialogue') {
         setQualityIssue({ 
@@ -232,7 +218,6 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
   const handleCheck = () => {
     const state: WidgetState = { quizSelection, fillInAnswers, parsonsOrder, stepsOrder, miniEditorValid };
     
-    // Robust finding logic: Handles AI capitalization quirks (fillIn vs fill-in)
     const targetWidget = currentScreen.widgets.find(w => {
         const type = w.type;
         const normalized = type.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
@@ -259,16 +244,12 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
     }
   };
 
-  // ... Appeal Logic (omitted for brevity, unchanged) ...
-  const openAppealModal = () => setShowAppealModal(true);
-  const confirmAppeal = async () => { /* ... */ };
-
   const handleRegenerateScreen = async (instruction: string) => {
       if (!currentScreen || isRegenerating) return;
       setIsRegenerating(true);
       
       try {
-          const planContext = props.plan.context || {};
+          const planContext: any = props.plan.context || {};
           if (!planContext.topic) planContext.topic = props.plan.title;
 
           const newScreen = await regenerateLessonScreen(
@@ -296,7 +277,6 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       }
   };
 
-  // --- SPECIAL RENDER FOR DEBUG TRANSITION ---
   if (currentScreen?.id === 'mistake_transition_screen') {
       return (
           <div className="flex flex-col h-full bg-black relative overflow-hidden items-center justify-center text-center p-8 animate-fade-in-up">
@@ -323,7 +303,6 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       );
   }
 
-  // --- STANDARD RENDER ---
   if (isFailed) {
       return (
           <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-red-50 dark:bg-dark-bg animate-scale-in">
@@ -399,7 +378,6 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
         />
 
         <div className="flex-1 flex overflow-hidden relative z-0">
-            {/* Main Learning Card */}
             <div className={`flex-1 flex flex-col p-3 md:p-4 transition-all duration-300 ease-in-out min-w-0 ${showDescription ? 'w-full md:w-2/3 lg:w-3/4' : 'w-full'}`}>
                 <div className="bg-white dark:bg-dark-card rounded-3xl shadow-sm border border-gray-200 dark:border-gray-800 h-full flex flex-col relative overflow-hidden">
                     <GlobalAiAssistant 
@@ -424,7 +402,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
                                         <button 
                                             onClick={() => handleRegenerateScreen(qualityIssue!.defaultPrompt)}
                                             disabled={isRegenerating}
-                                            className="px-3 py-1.5 bg-yellow-100 dark:bg-yellow-900/30 hover:bg-yellow-200 text-yellow-700 dark:text-yellow-300 rounded-lg text-xs font-bold transition-colors flex items-center gap-2"
+                                            className="px-3 py-1.5 bg-yellow-100 dark:bg-yellow-900/10 hover:bg-yellow-200 text-yellow-700 dark:text-yellow-300 rounded-lg text-xs font-bold transition-colors flex items-center gap-2"
                                         >
                                             {isRegenerating ? <Loader2 size={12} className="animate-spin"/> : <RefreshCw size={12}/>}
                                             {props.language === 'Chinese' ? "自动修复" : "Auto-Fix"}
@@ -438,18 +416,18 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
                                     {widget.type === 'dialogue' && <DialogueWidget widget={widget} />}
                                     {widget.type === 'flipcard' && <FlipCardWidget widget={widget} language={props.language} />}
                                     {widget.type === 'callout' && <CalloutWidget widget={widget} />}
-                                    {(widget.type === 'interactive-code' || widget.type === 'interactiveCode') && <InteractiveCodeWidget widget={widget} language={props.language} />}
-                                    {(widget.type === 'comparison-code' || widget.type === 'comparisonCode') && <ComparisonCodeWidget widget={widget} language={props.language} />}
+                                    {(widget.type === 'interactive-code' || (widget.type as any) === 'interactiveCode') && <InteractiveCodeWidget widget={widget} language={props.language} />}
+                                    {(widget.type === 'comparison-code' || (widget.type as any) === 'comparisonCode') && <ComparisonCodeWidget widget={widget} language={props.language} />}
                                     {widget.type === 'parsons' && <ParsonsWidget widget={widget} onUpdateOrder={setParsonsOrder} status={status} language={props.language} />}
-                                    {(widget.type === 'fill-in' || widget.type === 'fillIn') && <FillInWidget widget={widget} onUpdateAnswers={setFillInAnswers} language={props.language} status={status} />}
+                                    {(widget.type === 'fill-in' || (widget.type as any) === 'fillIn') && <FillInWidget widget={widget} onUpdateAnswers={setFillInAnswers} language={props.language} status={status} />}
                                     {widget.type === 'quiz' && <QuizWidgetPresenter widget={widget} selectedIdx={quizSelection} onSelect={setQuizSelection} status={status} language={props.language} />}
-                                    {(widget.type === 'steps-list' || widget.type === 'stepsList') && <StepsWidget widget={widget} onUpdateOrder={setStepsOrder} />}
+                                    {(widget.type === 'steps-list' || (widget.type as any) === 'stepsList') && <StepsWidget widget={widget} onUpdateOrder={setStepsOrder} status={status} />}
                                     {widget.type === 'terminal' && <TerminalWidget widget={widget} status={status} />}
-                                    {(widget.type === 'code-walkthrough' || widget.type === 'codeWalkthrough') && <CodeWalkthroughWidget widget={widget} />}
-                                    {(widget.type === 'mini-editor' || widget.type === 'miniEditor') && <MiniEditorWidget widget={widget} onValidationChange={setMiniEditorValid} />}
+                                    {(widget.type === 'code-walkthrough' || (widget.type as any) === 'codeWalkthrough') && <CodeWalkthroughWidget widget={widget} />}
+                                    {(widget.type === 'mini-editor' || (widget.type as any) === 'miniEditor') && <MiniEditorWidget widget={widget} onValidationChange={setMiniEditorValid} />}
                                     {widget.type === 'mermaid' && <MermaidVisualWidget widget={widget} onRegenerate={handleRegenerateScreen} />}
-                                    {(widget.type === 'visual-quiz' || widget.type === 'visualQuiz') && <VisualQuizWidget widget={widget} />}
-                                    {(widget.type === 'comparison-table' || widget.type === 'comparisonTable') && <ComparisonTableWidget widget={widget} />}
+                                    {(widget.type === 'visual-quiz' || (widget.type as any) === 'visualQuiz') && <VisualQuizWidget widget={widget} />}
+                                    {(widget.type === 'comparison-table' || (widget.type as any) === 'comparisonTable') && <ComparisonTableWidget widget={widget} />}
                                 </React.Fragment>
                             ))}
                         </div>
@@ -464,12 +442,10 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
                         isLastQuestion={currentIndex === totalScreens - 1}
                         onRegenerate={handleRegenerateScreen}
                         isRegenerating={isRegenerating}
-                        onReport={status === 'wrong' ? openAppealModal : undefined}
                     />
                 </div>
             </div>
 
-            {/* Desktop Description Card */}
             <div className={`hidden md:flex transition-all duration-300 ease-in-out ${showDescription && props.problemContext ? 'w-[400px] lg:w-[450px] p-4 pl-0 opacity-100 translate-x-0' : 'w-0 p-0 opacity-0 translate-x-10'}`}>
                 <div className="bg-white dark:bg-dark-card rounded-3xl shadow-sm border border-gray-200 dark:border-gray-800 h-full w-full flex flex-col overflow-hidden">
                     <DescriptionContent />
@@ -477,10 +453,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
             </div>
         </div>
 
-        {/* Mobile Sidebar Overlay */}
         {renderDescriptionSidebar()}
-
-        {/* Appeal Modal (Omitted for brevity as requested, assume present) */}
     </div>
   );
 };

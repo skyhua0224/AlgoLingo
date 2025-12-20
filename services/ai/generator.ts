@@ -1,9 +1,9 @@
 
 // ... existing imports ...
 import { getClient } from "./client";
-import { getLessonPlanSystemInstruction, getVariantSystemInstruction } from "./prompts/algo"; // CHANGED IMPORT
-import { getLeetCodeContextSystemInstruction, getDailyWorkoutSystemInstruction } from "./prompts/stages"; // CHANGED IMPORT: Assuming these are still in stages/index or similar if they weren't moved to algo. Wait, index.ts exported them. I should verify export.
-import { getJudgeSystemInstruction } from "./prompts/judge"; // Direct import
+import { getLessonPlanSystemInstruction, getVariantSystemInstruction } from "./prompts/algo";
+import { getLeetCodeContextSystemInstruction, getDailyWorkoutSystemInstruction } from "./prompts/stages";
+import { getJudgeSystemInstruction } from "./prompts/judge"; 
 import { getSystemArchitectPrompt } from "./prompts/engineering/system_architect";
 import { getCSKernelPrompt } from "./prompts/engineering/cs_kernel";
 import { getSyntaxRoadmapPrompt } from "./prompts/engineering/syntax_roadmap";
@@ -13,7 +13,6 @@ import { UserPreferences, MistakeRecord, LessonPlan, Widget, LeetCodeContext, Sa
 import { PROBLEM_MAP } from "../../constants";
 import { SyntaxProfile, SyntaxUnit, SyntaxLesson } from "../../types/engineering";
 
-// ... existing AIGenerationError class and isValidWidget function ...
 export class AIGenerationError extends Error {
     rawOutput?: string;
     constructor(message: string, rawOutput?: string) {
@@ -299,7 +298,7 @@ export const generateReviewLesson = async (mistakes: MistakeRecord[], preference
 export const generateSyntaxClinicPlan = async (preferences: UserPreferences) => generateLessonPlan("Syntax Clinic", 1, preferences); 
 export const generateSyntaxRoadmap = async (profile: any, preferences: UserPreferences) => {
     const prompt = getSyntaxRoadmapPrompt(profile);
-    const text = await callAI(preferences, "You are a curriculum designer.", prompt, undefined, false); 
+    const text = await callAI(preferences, "You are a curriculum designer.", prompt, undefined, false, 'gemini-3-flash-preview'); 
     try {
        const cleanText = text.replace(/```json\n?|\n?```/g, "").trim();
        const data = JSON.parse(cleanText);
@@ -320,7 +319,8 @@ export const generateSyntaxLesson = async (unit: any, lesson: any, stageId: stri
 
 export const generateAiAssistance = async (context: string, userQuery: string, preferences: UserPreferences, model: string) => {
     try {
-        return await callAI(preferences, "You are a helpful coding assistant. Be brief.", `Context:\n${context}\n\nUser Question: ${userQuery}\n\nAnswer briefly.`, undefined, false);
+        // Force fast flash for assistant
+        return await callAI(preferences, "You are a helpful coding assistant. Be brief.", `Context:\n${context}\n\nUser Question: ${userQuery}\n\nAnswer briefly.`, undefined, false, 'gemini-3-flash-preview');
     } catch (e) {
         return "AI is offline.";
     }

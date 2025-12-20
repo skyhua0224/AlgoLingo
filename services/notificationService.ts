@@ -67,7 +67,7 @@ export const generateAiNotification = async (
 
     try {
         const res = await client.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3-flash-preview',
             contents: context
         });
         return res.text || (lang === 'Chinese' ? "任务完成！保持连胜！" : "Quest Complete! Keep the streak alive!");
