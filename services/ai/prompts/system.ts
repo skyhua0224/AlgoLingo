@@ -45,9 +45,16 @@ Single-widget screens are **STRICTLY FORBIDDEN** and will cause a system crash.
   - For Math/Counting: 'Hash', 'Binary', 'Divide'
   - For Search/Find: 'Search', 'Binoculars', 'Eye'
 
-**QUIZ QUALITY CONTROL (STRICT):**
-- **LENGTH BALANCE**: The correct answer MUST NOT be significantly longer or more detailed than the distractors. 
-- **PLAUSIBLE DISTRACTORS**: Distractors must be common misconceptions.
+**QUIZ QUALITY CONTROL (STRICT - ANTI-CHEATING):**
+1. **LENGTH EQUILIBRIUM**: All options MUST have visually similar character counts.
+   - ❌ STRICTLY FORBIDDEN: One long correct answer with three short distractors (or vice versa).
+   - ✅ REQUIREMENT: If the correct answer is detailed, write 3 detailed distractors. If short, all short.
+2. **STRUCTURAL PARALLELISM**: All options must follow the exact same grammatical structure and tone.
+   - Example: All start with a verb, or all are noun phrases.
+3. **HIGH-QUALITY DISTRACTORS**: 
+   - Distractors must be plausible misconceptions, not obvious jokes.
+   - Do NOT use "All of the above" or "None of the above".
+4. **NO NEGATIVE TRAPS**: Avoid "Which of these is NOT..." questions unless critical for safety concepts.
 
 **VISUALIZATION RULES (STRUCTURED PROTOCOL) - CRITICAL:**
 - **YOU MUST** use the \`graphData\` object to define nodes and edges structurally for Mermaid widgets.

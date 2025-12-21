@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Check } from 'lucide-react';
 import { UserPreferences } from '../../types';
-import { checkCloudStatus, pushToGist, pullFromGist, SyncPayload } from '../../services/githubService';
+import { checkCloudStatus, pushToGist, pullFromGist } from '../../services/githubService';
 import { GistModal } from './GistModal';
 import { SyncConflictModal } from './SyncConflictModal';
 
@@ -12,7 +12,7 @@ import { AITab } from './tabs/AITab';
 import { SyncTab } from './tabs/SyncTab';
 import { AppearanceTab } from './tabs/AppearanceTab';
 import { NotificationTab } from './tabs/NotificationTab';
-import { DataTab } from './tabs/DataTab';
+import { DataTab } from './DataTab';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -22,12 +22,14 @@ interface SettingsModalProps {
   onExportData: () => void;
   onImportData: (file: File) => void;
   onDataLoaded: (data: any) => void;
+  onResetData: () => void;
   t: any;
   isZh: boolean;
+  collectFullState: () => any;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ 
-    isOpen, onClose, preferences, onUpdatePreferences, onExportData, onImportData, onDataLoaded, t, isZh 
+    isOpen, onClose, preferences, onUpdatePreferences, onExportData, onImportData, onDataLoaded, onResetData, t, isZh, collectFullState
 }) => {
     const [activeTab, setActiveTab] = useState('general');
     const [tempPrefs, setTempPrefs] = useState<UserPreferences>(preferences);
@@ -38,7 +40,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const [showGistIdModal, setShowGistIdModal] = useState<string | null>(null);
     const [conflictData, setConflictData] = useState<{local: any, cloud: any} | null>(null);
 
-    // Sync temp state with props when opening OR when preferences change externally (e.g. import)
     useEffect(() => {
         setTempPrefs(preferences);
         if (isOpen) {
@@ -54,38 +55,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         onClose();
     };
 
-    // Helper to collect all local data
-    const collectLocalData = () => {
-        const engineeringData: Record<string, any> = {};
-        for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            // Collect Engineering V3 keys, Solution Strategy keys, Context keys, AND Active Strategy Selection
-            if (key && (
-                key.startsWith('algolingo_syntax_v3_') || 
-                key.startsWith('algolingo_eng_v3_') || 
-                key.startsWith('algolingo_sol_v3_') || 
-                key.startsWith('algolingo_ctx_v3_') ||
-                key.startsWith('algolingo_active_strategy_') // Capture selections
-            )) {
-                try { engineeringData[key] = JSON.parse(localStorage.getItem(key)!); } catch (e) {}
-            }
-        }
-        ['algolingo_my_tracks', 'algolingo_forge_history_v2', 'algolingo_discovered_tracks'].forEach(key => {
-                const val = localStorage.getItem(key);
-                if (val) try { engineeringData[key] = JSON.parse(val); } catch(e) {}
-        });
-
-        return {
-            stats: JSON.parse(localStorage.getItem('algolingo_stats') || '{}'),
-            progress: JSON.parse(localStorage.getItem('algolingo_progress_v2') || '{}'),
-            mistakes: JSON.parse(localStorage.getItem('algolingo_mistakes') || '[]'),
-            savedLessons: JSON.parse(localStorage.getItem('algolingo_saved_lessons') || '[]'),
-            careerSessions: JSON.parse(localStorage.getItem('algolingo_career_sessions') || '[]'),
-            preferences: tempPrefs, // Use current temp prefs
-            engineeringData
-        };
-    };
-
     const handleSyncTrigger = async () => {
         const token = tempPrefs.syncConfig?.githubToken;
         const gistId = tempPrefs.syncConfig?.gistId;
@@ -99,7 +68,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         setSyncState('loading');
         setSyncMessage(isZh ? "正在连接 GitHub..." : "Connecting to GitHub...");
 
-        // 1. Check Cloud Status
         const status = await checkCloudStatus(token, gistId);
 
         if (status.error) {
@@ -109,18 +77,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         }
 
         if (!status.exists || !status.cloudData) {
-            // Case A: No cloud data -> Create/Push immediately
             setSyncMessage(isZh ? "未找到存档，正在创建..." : "No save found. Creating...");
             await executeSync('push', token, gistId);
         } else {
-            // Case B: Cloud data exists -> Always check for conflicts/versions
-            const localData = collectLocalData();
+            const localFull = collectFullState();
             const localTime = tempPrefs.syncConfig?.lastSynced || 0;
-            const cloudTime = status.cloudData.updatedAt;
+            const cloudTime = new Date(status.updatedAt || 0).getTime();
 
-            // Show Conflict Modal to let user decide, even if timestamps imply one direction
             setConflictData({
-                local: { updatedAt: localTime, stats: localData.stats, userName: localData.preferences.userName },
+                local: { updatedAt: localTime, stats: localFull.stats, userName: localFull.preferences.userName },
                 cloud: { updatedAt: cloudTime, stats: status.cloudData.stats, userName: status.cloudData.preferences.userName }
             });
             setSyncState('idle'); 
@@ -128,20 +93,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     };
 
     const executeSync = async (direction: 'push' | 'pull', token: string, gistId?: string) => {
-        setConflictData(null); // Close modal if open
+        setConflictData(null); 
         setSyncState('loading');
 
         try {
             if (direction === 'push') {
-                setSyncMessage(isZh ? "正在上传数据..." : "Uploading data...");
-                const localData = collectLocalData();
+                setSyncMessage(isZh ? "正在上传全量数据..." : "Uploading full state...");
+                const localData = collectFullState();
                 const res = await pushToGist(token, localData, gistId);
                 
                 if (res.success) {
                     const newConfig = { 
                         ...tempPrefs.syncConfig, 
                         enabled: true, 
-                        githubToken: token, // Ensure token is saved
+                        githubToken: token,
                         lastSynced: res.timestamp,
                         gistId: res.newGistId || gistId 
                     };
@@ -149,16 +114,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     onUpdatePreferences({ syncConfig: newConfig });
                     
                     setSyncState('success');
-                    setSyncMessage(isZh ? "同步成功 (已上传)" : "Sync Successful (Uploaded)");
+                    setSyncMessage(isZh ? "同步成功 (Time Machine 已备份)" : "Sync Successful (Snapshot Taken)");
                     if (!gistId && res.newGistId) setShowGistIdModal(res.newGistId);
                 } else {
                     throw new Error(res.error);
                 }
             } else {
-                setSyncMessage(isZh ? "正在下载数据..." : "Downloading data...");
+                setSyncMessage(isZh ? "正在还原全量数据..." : "Restoring full state...");
                 const res = await pullFromGist(token, gistId!);
                 if (res.success && res.data) {
-                    // Update state via AppManager callback (which also writes to localStorage)
                     onDataLoaded(res.data);
                     
                     const newConfig = { 
@@ -171,9 +135,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     setTempPrefs(prev => ({ ...prev, syncConfig: newConfig }));
                     
                     setSyncState('success');
-                    setSyncMessage(isZh ? "同步成功，正在刷新..." : "Sync Successful. Refreshing...");
-                    
-                    // No reload needed, App will remount via key change
+                    setSyncMessage(isZh ? "恢复成功" : "Restore Successful");
                 } else {
                     throw new Error(res.error);
                 }
@@ -204,7 +166,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             );
             case 'appearance': return <AppearanceTab {...commonProps} />;
             case 'notifications': return <NotificationTab {...commonProps} />;
-            case 'data': return <DataTab onExport={onExportData} onImport={onImportData} isZh={isZh} />;
+            case 'data': return <DataTab onExport={onExportData} onImport={onImportData} onReset={onResetData} isZh={isZh} />;
             default: return null;
         }
     };
@@ -228,13 +190,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     cloudData={conflictData.cloud}
                     isZh={isZh}
                     onCancel={() => { setConflictData(null); setSyncState('idle'); setSyncMessage(isZh ? "已取消" : "Cancelled"); }}
-                    onResolve={(action) => executeSync(action, tempPrefs.syncConfig!.githubToken, tempPrefs.syncConfig!.gistId)}
+                    onResolve={(action) => executeSync(action, tempPrefs.syncConfig!.githubToken, tempPrefs.syncConfig!.gistId || conflictData.cloud.gistId)}
                 />
             )}
 
             <div className="bg-white dark:bg-dark-card w-full max-w-4xl h-[85vh] md:h-[700px] rounded-3xl overflow-hidden shadow-2xl flex flex-col md:flex-row relative">
-                
-                {/* Mobile Close Button (Top Right) */}
                 <button 
                     onClick={onClose} 
                     className="md:hidden absolute top-4 right-4 p-2 bg-gray-100 dark:bg-gray-700 rounded-full text-gray-500 z-10"
@@ -242,10 +202,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <X size={20}/>
                 </button>
 
-                {/* Sidebar */}
                 <SettingsSidebar activeTab={activeTab} onSelectTab={setActiveTab} isZh={isZh} />
 
-                {/* Main Content Area */}
                 <div className="flex-1 flex flex-col h-full overflow-hidden">
                     <div className="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-10 relative">
                         <h2 className="text-2xl font-extrabold text-gray-800 dark:text-white mb-6 md:hidden">
@@ -254,7 +212,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         {renderContent()}
                     </div>
                     
-                    {/* Footer Action Bar */}
                     <div className="p-4 md:p-6 bg-gray-50 dark:bg-gray-800/50 border-t border-gray-100 dark:border-gray-700 flex justify-end gap-4 shrink-0">
                         <button 
                             onClick={onClose}

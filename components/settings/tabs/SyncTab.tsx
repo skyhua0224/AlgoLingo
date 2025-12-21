@@ -1,121 +1,77 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserPreferences } from '../../../types';
-import { Github, HelpCircle, RefreshCw, Check, Copy, Loader2, Cloud, AlertCircle } from 'lucide-react';
+import { Github, HelpCircle, RefreshCw, Check, Copy, Loader2, Cloud, AlertCircle, History, Clock, ArrowDown } from 'lucide-react';
+import { getGistCommits, GistCommit } from '../../../services/githubService';
 
 interface SyncTabProps {
     preferences: UserPreferences;
     onChange: (p: Partial<UserPreferences>) => void;
     onSync: (mode: 'create' | 'sync') => void;
-    syncStatus: string; // "idle" | "loading" | "success" | "error"
+    syncStatus: string; 
     syncMessage?: string;
     isZh: boolean;
 }
 
 export const SyncTab: React.FC<SyncTabProps> = ({ preferences, onChange, onSync, syncStatus, syncMessage, isZh }) => {
     const [showHelp, setShowHelp] = useState(false);
-    const [isCopied, setIsCopied] = useState(false);
-    const config = preferences.syncConfig || { enabled: false, githubToken: '' };
+    const [commits, setCommits] = useState<GistCommit[]>([]);
+    const [loadingCommits, setLoadingCommits] = useState(false);
+    const config = preferences.syncConfig;
 
-    const handleCopyId = () => {
-        if (config.gistId) {
-            navigator.clipboard.writeText(config.gistId);
-            setIsCopied(true);
-            setTimeout(() => setIsCopied(false), 2000);
+    useEffect(() => {
+        if (config.gistId && config.githubToken) {
+            setLoadingCommits(true);
+            getGistCommits(config.githubToken, config.gistId).then(setCommits).finally(() => setLoadingCommits(false));
         }
-    };
-
-    const isConfigured = !!config.githubToken;
-    const isLoading = syncStatus === 'loading';
+    }, [config.gistId]);
 
     return (
         <div className="space-y-6 animate-fade-in-up">
             <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2 text-brand font-bold text-sm uppercase tracking-wider">
-                    <Github size={16} />
-                    {isZh ? 'GitHub 云端同步' : 'GitHub Cloud Sync'}
-                </div>
-                <button
-                    onClick={() => setShowHelp(!showHelp)}
-                    className="text-brand hover:text-brand-dark dark:text-brand-light text-xs font-bold flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-brand/10 transition-colors"
-                >
-                    <HelpCircle size={14} />
-                    {isZh ? "如何配置？" : "Setup Guide"}
-                </button>
+                <div className="flex items-center gap-2 text-brand font-bold text-sm uppercase tracking-wider"><Github size={16} />{isZh ? 'GitHub 云端同步' : 'GitHub Cloud Sync'}</div>
+                <button onClick={() => setShowHelp(!showHelp)} className="text-brand hover:text-brand-dark text-xs font-bold flex items-center gap-1"><HelpCircle size={14} />{isZh ? "配置指南" : "Guide"}</button>
             </div>
 
-            {showHelp && (
-                <div className="mb-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-300 shadow-sm animate-fade-in-down">
-                        <p className="font-bold mb-2">{isZh ? "步骤指南：" : "Setup Guide:"}</p>
-                        <ol className="list-decimal list-inside space-y-1.5">
-                        <li>{isZh ? <span>访问 <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="text-brand underline">GitHub Tokens</a> 页面。</span> : <span>Visit <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="text-brand underline">GitHub Tokens</a> page.</span>}</li>
-                            <li>{isZh ? "生成新 Token (Classic)，在 Scopes 中勾选 `gist`。" : "Generate new Token (Classic), check `gist` in Scopes."}</li>
-                        <li>{isZh ? "复制 Token (以 ghp_ 开头) 填入下方。" : "Copy Token (starts with ghp_) and paste below."}</li>
-                            <li>{isZh ? "点击立即同步。系统会自动检测或创建存档。" : "Click Sync Now. System will detect or create save."}</li>
-                        </ol>
-                </div>
-            )}
+            {showHelp && <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl text-xs space-y-2 mb-4 animate-fade-in-down">
+                <p>{isZh ? "AlgoLingo 会在 Gist 中维护名为 'AlgoLingo Sync Data' 的存档。" : "AlgoLingo maintains a gist named 'AlgoLingo Sync Data'."}</p>
+                <p>{isZh ? "系统将基于本地与云端的时间戳进行自动脏检查同步。" : "Auto-sync with dirty check based on timestamps."}</p>
+            </div>}
 
             <div className="space-y-4">
                 <div>
-                    <label className="text-xs font-bold text-gray-500 block mb-2">{isZh ? 'GitHub Token (需要 Gist 权限)' : 'GitHub Token (Gist Scope Required)'}</label>
-                    <div className="flex gap-2">
-                        <input 
-                            type="password"
-                            className="flex-1 p-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card text-gray-900 dark:text-white font-mono text-sm focus:border-brand outline-none"
-                            value={config.githubToken}
-                            onChange={(e) => onChange({ syncConfig: { ...config, githubToken: e.target.value } })}
-                            placeholder="ghp_..."
-                        />
-                    </div>
+                    <label className="text-xs font-bold text-gray-500 block mb-2">{isZh ? 'GitHub Token (需勾选 gist 权限)' : 'GitHub Token (Gist Scope)'}</label>
+                    <input type="password" className="w-full p-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card text-gray-900 dark:text-white font-mono text-sm focus:border-brand outline-none" value={config.githubToken} onChange={(e) => onChange({ syncConfig: { ...config, githubToken: e.target.value } })} placeholder="ghp_..." />
                 </div>
 
+                <div className="flex items-center gap-2">
+                    <input type="checkbox" id="autosync" checked={config.autoSync} onChange={(e) => onChange({ syncConfig: { ...config, autoSync: e.target.checked } })} className="w-4 h-4 rounded border-gray-300 text-brand focus:ring-brand" />
+                    <label htmlFor="autosync" className="text-sm font-bold text-gray-700 dark:text-gray-300">{isZh ? '开启静默同步' : 'Enable Silent Sync'}</label>
+                </div>
+
+                <button onClick={() => onSync('sync')} disabled={!config.githubToken || syncStatus === 'loading'} className="w-full px-6 py-4 bg-brand text-white rounded-xl font-bold text-sm shadow-lg flex items-center justify-center gap-3 transition-all hover:bg-brand-light">
+                    {syncStatus === 'loading' ? <Loader2 size={18} className="animate-spin" /> : <Cloud size={18} />}
+                    {isZh ? '立即同步 / 检查更新' : 'Sync Now / Check Updates'}
+                </button>
+
+                {syncMessage && <div className={`p-4 rounded-xl text-center flex items-center justify-center gap-2 ${syncStatus === 'error' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}><AlertCircle size={16}/><p className="text-xs font-bold">{syncMessage}</p></div>}
+
+                {/* Recovery Slots */}
                 {config.gistId && (
-                    <div className="animate-fade-in-up">
-                        <label className="text-xs font-bold text-gray-500 block mb-2">Gist ID (Archive ID)</label>
-                        <div className="flex gap-2">
-                            <input 
-                                className="flex-1 p-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-500 font-mono text-xs outline-none"
-                                value={config.gistId || ''}
-                                readOnly
-                            />
-                            <button 
-                                onClick={handleCopyId}
-                                className="p-3 bg-white dark:bg-dark-card border-2 border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-500"
-                            >
-                                {isCopied ? <Check size={16} className="text-green-500"/> : <Copy size={16}/>}
-                            </button>
+                    <div className="pt-6 border-t border-gray-100 dark:border-gray-800">
+                        <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2"><History size={14}/> {isZh ? "恢复存档 (Recovery Slots)" : "Recovery Slots"}</h4>
+                        <div className="space-y-2">
+                            {loadingCommits ? <div className="py-4 text-center animate-pulse text-gray-400"><RefreshCw size={16} className="animate-spin mx-auto mb-1"/>Loading history...</div> :
+                            commits.map((c, idx) => (
+                                <div key={c.version} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-xl group hover:bg-brand/5 transition-all">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 bg-white dark:bg-gray-900 rounded-lg text-gray-400"><Clock size={14}/></div>
+                                        <div><div className="text-xs font-bold text-gray-800 dark:text-gray-200">{new Date(c.committedAt).toLocaleString()}</div><div className="text-[10px] text-gray-500 font-mono">{c.version.substring(0, 7)}</div></div>
+                                    </div>
+                                    <button className="text-[10px] font-black text-brand uppercase opacity-0 group-hover:opacity-100 flex items-center gap-1">{isZh ? "回档" : "Restore"} <ArrowDown size={10}/></button>
+                                </div>
+                            ))}
                         </div>
-                    </div>
-                )}
-
-                <div className="pt-4 border-t border-gray-100 dark:border-gray-800">
-                    <button 
-                        onClick={() => onSync('sync')}
-                        disabled={!config.githubToken || isLoading}
-                        className={`w-full px-6 py-4 rounded-xl font-bold text-sm shadow-lg flex items-center justify-center gap-3 transition-all ${
-                            isLoading 
-                            ? 'bg-gray-200 dark:bg-gray-800 text-gray-500 cursor-not-allowed' 
-                            : 'bg-brand text-white hover:bg-brand-light shadow-brand/20'
-                        }`}
-                    >
-                        {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Cloud size={18} />}
-                        {isLoading 
-                            ? (isZh ? "正在连接云端..." : "Connecting to Cloud...") 
-                            : (config.gistId ? (isZh ? "立即同步 (检查更新)" : "Sync Now (Check Cloud)") : (isZh ? "初始化同步" : "Initialize Sync"))
-                        }
-                    </button>
-                </div>
-                
-                {syncMessage && (
-                    <div className={`p-4 rounded-xl text-center flex items-center justify-center gap-2 ${
-                        syncStatus === 'error' 
-                        ? 'bg-red-50 dark:bg-red-900/20 text-red-600' 
-                        : (syncStatus === 'success' ? 'bg-green-50 dark:bg-green-900/20 text-green-600' : 'bg-gray-50 dark:bg-gray-800 text-gray-500')
-                    }`}>
-                        {syncStatus === 'error' && <AlertCircle size={16}/>}
-                        {syncStatus === 'success' && <Check size={16}/>}
-                        <p className="text-xs font-bold">{syncMessage}</p>
                     </div>
                 )}
             </div>

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { LeetCodeContext, UserPreferences, SolutionStrategy } from '../types';
 import { GripVertical, GripHorizontal, FileText, Lightbulb, Zap, Tag, ArrowRight, BookOpen, Key, CheckCircle2, History, Stethoscope, Copy, Eye, ArrowLeft, RotateCcw, X, Terminal } from 'lucide-react';
@@ -19,7 +20,6 @@ interface VirtualWorkspaceProps {
     activeStrategyId?: string | null;
     onSelectStrategy?: (id: string | null) => void;
     onGenerateStrategies?: () => void;
-    // Fix: Removed duplicate onAddCustomStrategy identifier
     onAddCustomStrategy?: (strategy: SolutionStrategy) => void; 
     onUpdateStrategy?: (strategy: SolutionStrategy) => void; 
     isGenerating?: boolean;
@@ -249,19 +249,22 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
     const handleDrillTrigger = () => {
         if (!onDrill) return;
         const targetResult = viewingSubmission ? viewingSubmission.resultData : result;
+        const targetCode = viewingSubmission ? viewingSubmission.code : code;
+        
         if (!targetResult) return;
         
-        let drillContext = "";
-        const correctCode = targetResult.analysis?.correctCode; 
+        // Construct rich payload to pass as string
+        const drillPayload = {
+            source: 'snapshot',
+            status: targetResult.status,
+            userCode: targetCode,
+            error: targetResult.error_message,
+            analysis: targetResult.analysis, // Contains bugDiagnosis, userIntent
+            problemDesc: safeContext.problem.description
+        };
         
-        if (targetResult.status === 'Compile Error') {
-            drillContext = `SYNTAX ERROR: ${targetResult.error_message}. The user struggles with syntax in ${currentLanguage}. Needs correction drill.`;
-        } else if (targetResult.status === 'Wrong Answer') {
-            const diagnosis = targetResult.analysis?.bugDiagnosis || "Logic incorrect";
-            drillContext = `LOGIC ERROR: ${diagnosis}. User Intent: ${targetResult.analysis?.userIntent}. Needs logic correction drill.`;
-        } else {
-            drillContext = `Optimization Drill: User passed but needs to improve speed/memory. Current complexity: ${targetResult.analysis?.timeComplexity}`;
-        }
+        const drillContext = JSON.stringify(drillPayload);
+        const correctCode = targetResult.analysis?.correctCode; 
         
         onDrill(drillContext, correctCode);
     };
@@ -628,7 +631,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
                             code={code} 
                             language={currentLanguage} 
                             onChange={setCode} 
-                            // Fix: Pass arrow function to match CodeEditor props and handle union type correctly
                             onLanguageChange={(lang: any) => setCurrentLanguage(lang)} 
                         />
                     </div>

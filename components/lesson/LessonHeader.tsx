@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
-import { X, Flame, Heart, RotateCcw, Clock } from 'lucide-react';
+import { X, Flame, Heart, RotateCcw, Clock, FileText } from 'lucide-react';
 
 interface LessonHeaderProps {
   currentScreenIndex: number;
@@ -30,6 +30,7 @@ export const LessonHeader: React.FC<LessonHeaderProps> = ({
   headerTitle,
   language,
   totalTime,
+  onShowDescription
 }) => {
   const [animateStreak, setAnimateStreak] = useState(false);
   
@@ -94,8 +95,20 @@ export const LessonHeader: React.FC<LessonHeaderProps> = ({
         )}
       </div>
 
-      {/* 3. Right: Stats (Hearts or Streak) */}
-      <div className="flex items-center justify-end min-w-[60px]">
+      {/* 3. Right: Stats (Hearts or Streak) & Description Toggle */}
+      <div className="flex items-center justify-end gap-4 min-w-[60px]">
+        
+        {/* Description Toggle (Only if context available) */}
+        {onShowDescription && (
+            <button 
+                onClick={onShowDescription}
+                className="text-gray-400 hover:text-brand transition-colors p-1"
+                title="Problem Description"
+            >
+                <FileText size={24} />
+            </button>
+        )}
+
         {/* Exam Timer Mode */}
         {totalTime ? (
              <div className={`flex items-center gap-1.5 font-mono font-bold ${remainingTime < 60 ? 'text-red-500 animate-pulse' : 'text-gray-500'}`}>

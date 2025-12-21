@@ -51,43 +51,42 @@ export const getMistakeRepairSystemInstruction = (
 
     TASK: GENERATE A FOCUSED REPAIR SESSION (17 SCREENS)
     
+    **INPUT CONTEXT HANDLING**:
+    The input "Failed Logic" provided might be a JSON string containing:
+    { "userCode": "...", "analysis": { "bugDiagnosis": "...", "userIntent": "..." }, "error": "..." }.
+    
+    **STEP 1: ANALYZE THE SNAPSHOT**:
+    - If JSON provided: Read 'userCode' and 'bugDiagnosis'. Identify the *exact* line or logic gap.
+    - If plain text: Use it as the diagnosis directly.
+    - **Distinguish Symptom vs Root Cause**: A syntax error (Symptom) might hide a logic flaw (Root Cause). Address BOTH.
+
     **GOAL**: The user failed a specific logic point. We must drill ONLY this point until they master it.
     
     TARGET LANGUAGE: ${targetLang}
     USER LANGUAGE: ${speakLang}
     
-    INPUT CONTEXT: I will provide the "Failed Logic", "Problem Context", and optionally "REFERENCE_CODE".
-
     **CRITICAL VARIABLE NAMING RULE (ZERO TOLERANCE)**:
     - **IF REFERENCE_CODE IS PROVIDED**: You **MUST** use the **EXACT SAME** variable names found in the reference code for ALL generated exercises (Parsons, Fill-in, Code).
       - Example: If reference uses \`nums\` and \`target\`, DO NOT use \`arr\` or \`k\`.
-      - Example: If reference uses \`prev\`, \`curr\`, DO NOT use \`p\`, \`q\`.
     - **AMBIGUITY CHECK**: Do NOT create "Fill-in" blanks that ask the user to guess a variable name (like 'index' vs 'i') UNLESS that variable was explicitly defined in the same screen's code block.
-      - **BAD**: \`for __BLANK__, num in enumerate(nums):\` (User might type 'i', 'idx', 'index' - all valid but system rejects).
-      - **GOOD**: \`for i, __BLANK__ in enumerate(nums):\` (Testing the 'value' unpacking is unambiguous).
-      - **GOOD**: \`for i, num in __BLANK__(nums):\` (Testing the function 'enumerate' is unambiguous).
 
     **STRUCTURE (EXACTLY 17 SCREENS)**:
     
-    1. **Diagnosis (Screen 1)**:
-       - Widget 1: 'dialogue' (Explain WHY the user failed previously).
-       - Widget 2: 'comparison-code' (Visual Diff). 
-         - Left Side: "Your Attempt" (The buggy logic).
-         - Right Side: "Correct Logic" (The fixed logic).
-         - Explanation: Point out the exact line difference.
+    1. **Phase A: Diagnosis & Triage (Screens 1-3)**:
+       - Screen 1: 'dialogue' + 'comparison-code' (Visual Diff). 
+         - Left: "Your Code" (Use the 'userCode' from context if available, otherwise generic buggy code).
+         - Right: "Fix" (The corrected logic).
+       - Screen 2-3: Simple syntax/concept checks (Quiz/Flipcard) to ensure they understand *why* it failed.
 
-    2. **Concept Repair (Screens 2-5)**:
-       - Focus: Isolate the specific syntax or logic pattern (e.g. loop boundary, pointer increment).
-       - Widgets: 'quiz' (What happens if...?), 'flipcard' (Rules).
-
-    3. **Intensive Drill (Screens 6-15)**:
+    2. **Phase B: Logic Reconstruction (Screens 4-12)**:
        - Focus: Repetition. Same logic, same variable names, slight context variations.
-       - Widgets: 'fill-in' (Type the missing logic), 'parsons' (Reorder the fixed logic).
+       - Widgets: 'parsons' (Reorder the fixed logic), 'fill-in' (Type the critical operator/function).
        - **CONSTRAINT**: Drill the specific implementation details of the fix.
 
-    4. **Final Check (Screens 16-17)**:
-       - Focus: Verify mastery.
-       - Widgets: 'fill-in' (inputMode='type') - Write the full corrected line/block.
+    3. **Phase C: Concept Reinforcement (Screens 13-17)**:
+       - Focus: Deepen understanding.
+       - Widgets: 'interactive-code' (Analyze complexity), 'quiz' (Edge cases).
+       - Screen 17: Final Mastery Check (Fill-in type mode).
 
     **CRITICAL**: 
     - Do NOT generate a "Variant Problem" (different algorithm). 

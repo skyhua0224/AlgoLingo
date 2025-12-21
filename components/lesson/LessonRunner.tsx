@@ -48,6 +48,7 @@ interface LessonRunnerProps {
   problemContext?: LeetCodeContext | null; 
   customSummaryActions?: SummaryAction[];
   allowMistakeLoop?: boolean;
+  onDataChange?: (highPriority: boolean) => void;
 }
 
 type RunnerPhase = 'lesson' | 'mistake_intro' | 'mistake_loop' | 'summary' | 'streak_celebration' | 'exam_summary';
@@ -160,6 +161,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
                                     props.onComplete(stats, shouldSave, mistakes);
                                 }}
                                 context={props.problemContext}
+                                onDataChange={props.onDataChange}
                             />
                         </div>
                     </div>

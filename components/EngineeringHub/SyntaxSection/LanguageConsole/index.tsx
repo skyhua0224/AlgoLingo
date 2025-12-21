@@ -14,9 +14,10 @@ interface LanguageConsoleProps {
     language: 'Chinese' | 'English';
     preferences: UserPreferences;
     onStartSyntaxLesson: (plan: any, isSkip?: boolean) => void; 
+    onDataChange?: (highPriority: boolean) => void;
 }
 
-export const LanguageConsole: React.FC<LanguageConsoleProps> = ({ currentLang, onUpdateLang, language, preferences, onStartSyntaxLesson }) => {
+export const LanguageConsole: React.FC<LanguageConsoleProps> = ({ currentLang, onUpdateLang, language, preferences, onStartSyntaxLesson, onDataChange }) => {
     const [profile, setProfile] = useState<SyntaxProfile | null>(null);
     const [loading, setLoading] = useState(false);
 
@@ -37,12 +38,14 @@ export const LanguageConsole: React.FC<LanguageConsoleProps> = ({ currentLang, o
     const handleSetupComplete = (newProfile: SyntaxProfile) => {
         localStorage.setItem(`algolingo_syntax_v3_${currentLang}`, JSON.stringify(newProfile));
         setProfile(newProfile);
+        onDataChange?.(true); // Profile creation is high value
     };
 
     const handleReset = () => {
         if (window.confirm(language === 'Chinese' ? "确定要重置该语言的学习进度吗？" : "Are you sure you want to reset progress for this language?")) {
             setProfile(null);
             localStorage.removeItem(`algolingo_syntax_v3_${currentLang}`);
+            onDataChange?.(false);
         }
     };
 

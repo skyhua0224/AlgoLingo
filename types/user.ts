@@ -57,11 +57,14 @@ export interface NotificationConfig {
     lastNotified?: number;
 }
 
+export type SyncStatus = 'synced' | 'syncing' | 'error' | 'conflict' | 'idle';
+
 export interface SyncConfig {
     enabled: boolean;
     githubToken: string;
     gistId?: string;
     lastSynced?: number;
+    autoSync?: boolean;
 }
 
 export interface UserPreferences {

@@ -9,9 +9,10 @@ import { Search } from 'lucide-react';
 interface TracksSectionProps {
     language: 'Chinese' | 'English';
     onSelectTrack?: (track: SkillTrack) => void;
+    onDataChange?: (highPriority: boolean) => void;
 }
 
-export const TracksSection: React.FC<TracksSectionProps> = ({ language, onSelectTrack }) => {
+export const TracksSection: React.FC<TracksSectionProps> = ({ language, onSelectTrack, onDataChange }) => {
     const [isCatalogOpen, setIsCatalogOpen] = useState(false);
     const [isCreateOpen, setIsCreateOpen] = useState(false);
     const [myTracks, setMyTracks] = useState<SkillTrack[]>([]);
@@ -33,6 +34,7 @@ export const TracksSection: React.FC<TracksSectionProps> = ({ language, onSelect
     const saveTracks = (newTracks: SkillTrack[]) => {
         setMyTracks(newTracks);
         localStorage.setItem('algolingo_my_tracks', JSON.stringify(newTracks));
+        onDataChange?.(true); // High priority sync for new tracks
     };
 
     const addTrack = (track: SkillTrack) => {

@@ -17,9 +17,10 @@ interface EngineeringHubProps {
     onUpdatePreferences: (p: Partial<UserPreferences>) => void;
     language: 'Chinese' | 'English';
     onStartLesson: (plan: any, isSkip?: boolean) => void;
+    onDataChange?: (highPriority: boolean) => void;
 }
 
-export const EngineeringHub: React.FC<EngineeringHubProps> = ({ preferences, onUpdatePreferences, language, onStartLesson }) => {
+export const EngineeringHub: React.FC<EngineeringHubProps> = ({ preferences, onUpdatePreferences, language, onStartLesson, onDataChange }) => {
     // Hook into global nav state to restore position after lesson
     const { state, actions } = useAppManager();
     const { engineeringNav } = state;
@@ -116,6 +117,10 @@ export const EngineeringHub: React.FC<EngineeringHubProps> = ({ preferences, onU
             
             localStorage.setItem(`algolingo_eng_v3_${pillarId}_${topic.id}`, JSON.stringify(newProfile));
             setTopicProfile(newProfile);
+            
+            // Notify AppManager that valuable data was created
+            onDataChange?.(true); 
+
         } catch (e) {
             console.error("Failed to generate roadmap", e);
             alert("AI Connection Failed.");
@@ -160,6 +165,7 @@ export const EngineeringHub: React.FC<EngineeringHubProps> = ({ preferences, onU
             }
             
             setActiveTrackData(updatedTrack);
+            onDataChange?.(true);
 
         } catch (e) {
             console.error("Failed to generate track syllabus", e);
@@ -315,6 +321,7 @@ export const EngineeringHub: React.FC<EngineeringHubProps> = ({ preferences, onU
             <TracksSection 
                 language={language}
                 onSelectTrack={handleSelectTrack}
+                onDataChange={onDataChange}
             />
         </div>
     );

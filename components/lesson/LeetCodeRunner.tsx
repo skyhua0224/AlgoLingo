@@ -2,9 +2,9 @@
 import React, { useState, useEffect } from 'react';
 import { LessonPlan, LeetCodeContext, UserPreferences, SolutionStrategy, MistakeRecord } from '../../types';
 import { VirtualWorkspace } from '../VirtualWorkspace';
-import { Loader2, Zap, ArrowRight, Layout, X, Home, RotateCcw, AlertTriangle } from 'lucide-react';
+import { Loader2, Zap, ArrowRight, Layout, X, Home, RotateCcw, AlertTriangle, RefreshCw } from 'lucide-react';
 import { GlobalAiAssistant } from '../GlobalAiAssistant';
-import { generateProblemStrategies, generateSolutionDeepDive, generateMistakeRepairPlan } from '../../services/geminiService'; // CHANGED IMPORTS
+import { generateProblemStrategies, generateSolutionDeepDive, generateMistakeRepairPlan } from '../../services/geminiService'; 
 import { LessonRunner } from './LessonRunner'; 
 
 interface LeetCodeRunnerProps {
@@ -14,6 +14,7 @@ interface LeetCodeRunnerProps {
     onSuccess: () => void;
     onSaveDrillResult: (stats: { xp: number; streak: number }, shouldSave: boolean, mistakes: MistakeRecord[]) => void;
     context?: LeetCodeContext | null; 
+    onDataChange?: (highPriority: boolean) => void;
 }
 
 const adaptStrategy = (app: any, lang: string): SolutionStrategy => {
@@ -51,13 +52,14 @@ const adaptStrategy = (app: any, lang: string): SolutionStrategy => {
     };
 };
 
-export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preferences, language, onSuccess, onSaveDrillResult, context }) => {
+export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preferences, language, onSuccess, onSaveDrillResult, context, onDataChange }) => {
     // Steps: 'workspace' (IDE), 'generating' (Solution), 'drill' (Extra practice lesson)
     const [step, setStep] = useState<'strategy-select' | 'generating' | 'workspace' | 'drill'>('workspace');
     const [loadingMsg, setLoadingMsg] = useState("");
     const [strategies, setStrategies] = useState<SolutionStrategy[]>([]);
     const [activeStrategyId, setActiveStrategyId] = useState<string | null>(null);
     const [drillPlan, setDrillPlan] = useState<LessonPlan | null>(null);
+    const [generationError, setGenerationError] = useState<string | null>(null); // New Error State
     const isZh = language === 'Chinese';
 
     // Timeout State
@@ -94,6 +96,7 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
                     const adapted = (data.approaches || []).map((app: any) => adaptStrategy(app, preferences.targetLanguage));
                     setStrategies(adapted);
                     localStorage.setItem(cacheKey, JSON.stringify(data));
+                    onDataChange?.(true);
                 } catch (e) {
                     console.error("Strategy Gen Failed");
                 }
@@ -108,6 +111,7 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
 
         setLoadingMsg(isZh ? "正在生成深度题解..." : "Generating deep dive...");
         setStep('generating');
+        setGenerationError(null); // Clear previous errors
         setTargetStrategyId(strategyId);
         
         try {
@@ -162,12 +166,14 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
                     return app;
                 });
                 localStorage.setItem(cacheKey, JSON.stringify(parsed));
+                onDataChange?.(true); // Critical update
             }
 
             setStep('workspace');
-        } catch (e) {
-            alert("Failed to generate official solution. Please try again.");
-            setStep('workspace'); 
+        } catch (e: any) {
+            console.error("Strategy Gen Failed", e);
+            setGenerationError(e.message || "Unknown generation error. The AI might be busy.");
+            // Do NOT automatically close. Let user read error.
         }
     };
 
@@ -187,7 +193,6 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
         executeStrategyGeneration(strategyId);
     };
 
-    // ... handleUpdateStrategy, handleDrillStart etc remain same ...
     const handleUpdateStrategy = (updatedStrategy: SolutionStrategy) => {
         setStrategies(prev => {
             const newStrategies = prev.map(s => s.id === updatedStrategy.id ? updatedStrategy : s);
@@ -198,15 +203,15 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
     const handleDrillStart = async (diagnosisContext?: string, referenceCode?: string) => {
         setLoadingMsg(isZh ? "正在构建专属训练计划 (17关)..." : "Building focused drill plan (17 screens)...");
         setStep('generating');
+        setGenerationError(null);
         try {
             const drillContext = diagnosisContext || `Failed to implement correct logic for ${plan.title}. Needs intense repetition.`;
             const drill = await generateMistakeRepairPlan(drillContext, plan.title, preferences, referenceCode);
             setDrillPlan(drill);
             setStep('drill');
-        } catch (e) {
+        } catch (e: any) {
             console.error(e);
-            alert("Failed to generate drill. Please try again.");
-            setStep('workspace');
+            setGenerationError(e.message || "Failed to generate drill.");
         }
     };
 
@@ -264,30 +269,60 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
 
                 {step === 'generating' && (
                     <div className="absolute inset-0 z-50 flex flex-col items-center justify-center text-gray-400 bg-white/95 dark:bg-dark-bg/95 backdrop-blur-sm animate-fade-in-up">
-                        <Loader2 size={48} className="animate-spin text-brand mb-4"/>
-                        <p className="font-bold text-sm uppercase tracking-wider animate-pulse mb-6">
-                            {loadingMsg} ({loadingTime}s)
-                        </p>
+                        {generationError ? (
+                            <div className="text-center p-8 max-w-md">
+                                <div className="w-16 h-16 bg-red-100 dark:bg-red-900/20 rounded-full flex items-center justify-center mx-auto mb-4 text-red-500">
+                                    <AlertTriangle size={32} />
+                                </div>
+                                <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
+                                    {isZh ? "生成遇到了阻碍" : "Generation Halted"}
+                                </h3>
+                                <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 font-mono bg-gray-100 dark:bg-black/20 p-3 rounded-lg break-words">
+                                    {generationError}
+                                </p>
+                                <div className="flex gap-3 justify-center">
+                                    <button 
+                                        onClick={() => setStep('workspace')}
+                                        className="px-6 py-2.5 bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded-xl text-sm font-bold hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors"
+                                    >
+                                        {isZh ? "返回" : "Back"}
+                                    </button>
+                                    <button 
+                                        onClick={() => targetStrategyId ? executeStrategyGeneration(targetStrategyId) : handleDrillStart()}
+                                        className="px-6 py-2.5 bg-brand text-white rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-brand-dark transition-colors shadow-lg"
+                                    >
+                                        <RefreshCw size={16}/> {isZh ? "重试" : "Retry"}
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <>
+                                <Loader2 size={48} className="animate-spin text-brand mb-4"/>
+                                <p className="font-bold text-sm uppercase tracking-wider animate-pulse mb-6">
+                                    {loadingMsg} ({loadingTime}s)
+                                </p>
 
-                        <div className="flex flex-col gap-3 min-w-[200px]">
-                            {loadingTime > 60 && (
-                                <button 
-                                    onClick={() => targetStrategyId && executeStrategyGeneration(targetStrategyId)}
-                                    className="px-6 py-2.5 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-yellow-200 transition-colors"
-                                >
-                                    <RotateCcw size={14}/> {isZh ? "生成较慢，重试?" : "Taking long, Retry?"}
-                                </button>
-                            )}
-                            
-                            {loadingTime > 120 && (
-                                <button 
-                                    onClick={() => setStep('workspace')}
-                                    className="px-6 py-2.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-red-200 transition-colors"
-                                >
-                                    <AlertTriangle size={14}/> {isZh ? "强制停止" : "Force Stop"}
-                                </button>
-                            )}
-                        </div>
+                                <div className="flex flex-col gap-3 min-w-[200px]">
+                                    {loadingTime > 60 && (
+                                        <button 
+                                            onClick={() => targetStrategyId && executeStrategyGeneration(targetStrategyId)}
+                                            className="px-6 py-2.5 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-yellow-200 transition-colors"
+                                        >
+                                            <RotateCcw size={14}/> {isZh ? "生成较慢，重试?" : "Taking long, Retry?"}
+                                        </button>
+                                    )}
+                                    
+                                    {loadingTime > 120 && (
+                                        <button 
+                                            onClick={() => setStep('workspace')}
+                                            className="px-6 py-2.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-red-200 transition-colors"
+                                        >
+                                            <AlertTriangle size={14}/> {isZh ? "强制停止" : "Force Stop"}
+                                        </button>
+                                    )}
+                                </div>
+                            </>
+                        )}
                     </div>
                 )}
 

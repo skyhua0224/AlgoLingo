@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Sparkles, Code2, ArrowRight, X, Flame, ThumbsUp, Zap, Lightbulb, RefreshCw, Trash2, Workflow, ChevronRight, Brain, Key, ScrollText } from 'lucide-react';
 import { SolutionStrategy, UserPreferences, MissionBriefData, SmartTagData } from '../types';
@@ -15,9 +16,10 @@ interface SolutionSetupProps {
     language: 'Chinese' | 'English';
     onConfirm: (strategy: SolutionStrategy) => void;
     onCancel: () => void;
+    onDataChange?: (highPriority: boolean) => void;
 }
 
-export const SolutionSetup: React.FC<SolutionSetupProps> = ({ problemName, problemDesc, preferences, language, onConfirm, onCancel }) => {
+export const SolutionSetup: React.FC<SolutionSetupProps> = ({ problemName, problemDesc, preferences, language, onConfirm, onCancel, onDataChange }) => {
     const isZh = language === 'Chinese';
     const [isLoadingList, setIsLoadingList] = useState(false);
     const [solutions, setSolutions] = useState<SolutionStrategy[]>([]);
@@ -85,6 +87,10 @@ export const SolutionSetup: React.FC<SolutionSetupProps> = ({ problemName, probl
             setSolutions(adapted);
             if (adapted.length > 0) setSelectedId(adapted[0].id);
             localStorage.setItem(cacheKey, JSON.stringify(data));
+            
+            // Notify high-value data generation
+            onDataChange?.(true);
+
         } catch (e) {
             console.error("Strategy Generation Failed", e);
             alert(isZh ? "生成策略失败，请重试。" : "Failed to generate strategies. Please try again.");

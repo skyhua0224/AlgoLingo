@@ -100,6 +100,7 @@ export interface LessonPlan {
       language?: string;
       unitId?: string;
       lessonId?: string;
+      problemId?: string; // Added for strong consistency
       phaseIndex?: number;
       
       // Solution Context (New)
@@ -135,6 +136,7 @@ export interface SavedLesson {
 
 export interface MistakeRecord {
   id: string;
+  problemId?: string; // Added: Canonical ID for strong lookup
   problemName: string;
   nodeIndex: number; 
   questionType: string; 

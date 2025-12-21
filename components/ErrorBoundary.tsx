@@ -11,25 +11,13 @@ interface ErrorBoundaryState {
   isZh: boolean;
 }
 
-/**
- * Standard React Error Boundary component.
- * We use React.Component with generics for props and state to ensure base members 
- * like state, setState, and props are correctly recognized by TypeScript.
- */
-export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  // Fix: Explicitly define state property using property initializer for clear type recognition
+export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   public state: ErrorBoundaryState = {
     hasError: false,
     error: null,
     isZh: true,
   };
 
-  // Fix: Standard constructor calling super(props) to initialize the Component base
-  constructor(props: ErrorBoundaryProps) {
-    super(props);
-  }
-
-  // Fix: Standard static method to update state when an error occurs
   static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
     return { hasError: true, error };
   }
@@ -41,81 +29,64 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
       if (prefs) {
         const parsed = JSON.parse(prefs);
         if (parsed.spokenLanguage === 'English') {
-          // Fix: setState is correctly available on the instance via React.Component inheritance
           this.setState({ isZh: false });
         }
       }
     } catch (e) {
-      // Fallback to default (true/Chinese)
+      // ignore
     }
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error("Uncaught error:", error, errorInfo);
+    console.error("ErrorBoundary caught an error", error, errorInfo);
   }
 
   handleReset = () => {
-    // Fix: state is correctly available on the instance via React.Component inheritance
-    const { isZh } = this.state;
-    const msg = isZh 
-        ? "这将清除所有本地缓存数据以修复启动问题。确定吗？" 
-        : "This will wipe local data to fix the crash. Are you sure?";
-        
-    if (window.confirm(msg)) {
-        localStorage.clear();
-        window.location.reload();
-    }
+    localStorage.clear();
+    window.location.reload();
+  };
+
+  handleReload = () => {
+    window.location.reload();
   };
 
   render() {
-    // Fix: state is correctly available on the instance via React.Component inheritance
     if (this.state.hasError) {
-      const { isZh } = this.state;
+      const { isZh, error } = this.state;
       
-      const title = isZh ? "应用遇到严重错误" : "Critical Application Error";
-      const subtitle = isZh 
-        ? "通常是因为本地数据损坏或不兼容导致的。请尝试重置数据。" 
-        : "Usually caused by corrupted local data or incompatibility. Please try resetting data.";
-      const refreshBtn = isZh ? "刷新页面" : "Refresh Page";
-      const resetBtn = isZh ? "重置数据并修复" : "Reset Data & Fix";
-
       return (
-        <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 dark:bg-[#0c0c0c] p-6 text-center">
-          <div className="w-20 h-20 bg-red-100 dark:bg-red-900/20 rounded-full flex items-center justify-center mb-6 text-red-500">
-            <AlertTriangle size={40} />
+        <div className="fixed inset-0 z-[9999] bg-white dark:bg-black flex flex-col items-center justify-center p-6 text-center">
+          <div className="w-24 h-24 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mb-6 text-red-600 animate-bounce">
+            <AlertTriangle size={48} />
           </div>
-          <h1 className="text-2xl font-black text-gray-900 dark:text-white mb-2">
-            {title}
+          <h1 className="text-3xl font-black text-gray-900 dark:text-white mb-4">
+            {isZh ? "程序发生严重错误" : "System Critical Error"}
           </h1>
-          <p className="text-gray-500 dark:text-gray-400 mb-8 max-w-md">
-            {subtitle}
+          <p className="text-gray-500 dark:text-gray-400 max-w-md mb-8 font-mono text-sm bg-gray-100 dark:bg-gray-800 p-4 rounded-xl break-all">
+            {error?.message || "Unknown Error"}
           </p>
           
-          <div className="bg-red-50 dark:bg-red-900/10 p-4 rounded-xl border border-red-100 dark:border-red-900/30 mb-8 text-left w-full max-w-lg overflow-auto">
-            <code className="text-xs text-red-600 dark:text-red-400 font-mono">
-                {this.state.error?.toString()}
-            </code>
-          </div>
-
-          <div className="flex gap-4">
+          <div className="flex flex-col gap-4 w-full max-w-xs">
             <button 
-                onClick={() => window.location.reload()}
-                className="px-6 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
+              onClick={this.handleReload}
+              className="w-full py-4 bg-brand text-white rounded-2xl font-bold shadow-lg hover:bg-brand-light flex items-center justify-center gap-2"
             >
-                <RefreshCw size={18} /> {refreshBtn}
+              <RefreshCw size={20} />
+              {isZh ? "刷新页面" : "Reload Page"}
             </button>
+            
             <button 
-                onClick={this.handleReset}
-                className="px-6 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold flex items-center gap-2 shadow-lg"
+              onClick={this.handleReset}
+              className="w-full py-4 bg-red-50 dark:bg-red-900/10 text-red-600 dark:text-red-400 rounded-2xl font-bold hover:bg-red-100 dark:hover:bg-red-900/30 flex items-center justify-center gap-2 border-2 border-transparent hover:border-red-200 dark:hover:border-red-800 transition-all"
             >
-                <Trash2 size={18} /> {resetBtn}
+              <Trash2 size={20} />
+              {isZh ? "重置应用数据 (修复崩溃)" : "Factory Reset (Fix Crash)"}
             </button>
           </div>
         </div>
       );
     }
 
-    // Fix: props.children is available on the instance via React.Component inheritance
     return this.props.children;
   }
 }

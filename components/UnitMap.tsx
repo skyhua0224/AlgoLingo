@@ -20,6 +20,7 @@ interface UnitMapProps {
   failedSkips?: Record<string, boolean>; 
   problemContext: LeetCodeContext | null;
   onEnsureContext: (problemName: string) => Promise<void>;
+  onDataChange?: (highPriority: boolean) => void;
 }
 
 const LOCALE = {
@@ -87,7 +88,7 @@ const LOCALE = {
 
 export const UnitMap: React.FC<UnitMapProps> = ({ 
     problemName, currentLevel, savedLessons, onStartLevel, onLoadSaved, onBack, language, failedSkips, preferences,
-    problemContext, onEnsureContext
+    problemContext, onEnsureContext, onDataChange
 }) => {
   const [showSkipModal, setShowSkipModal] = useState(false);
   const [showSolutionSetup, setShowSolutionSetup] = useState(false);
@@ -238,6 +239,7 @@ export const UnitMap: React.FC<UnitMapProps> = ({
               language={language}
               onConfirm={handleStrategyConfirm}
               onCancel={() => setShowSolutionSetup(false)}
+              onDataChange={onDataChange}
           />
       )}
 
