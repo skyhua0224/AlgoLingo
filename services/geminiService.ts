@@ -23,7 +23,7 @@ import { getSyntaxTrainerPrompt } from "./ai/prompts/engineering/syntax_trainer"
 import { getMistakeRepairSystemInstruction } from "./ai/prompts/stages/workout";
 
 // Import Schemas
-import { lessonPlanSchema, leetCodeContextSchema, judgeResultSchema } from "./ai/schemas";
+import { lessonPlanSchema, leetCodeContextSchema, judgeResultSchema, disputeSchema } from "./ai/schemas";
 import { PROBLEM_MAP } from "../constants";
 
 export class AIGenerationError extends Error {
@@ -361,7 +361,9 @@ export const generateMistakeRepairPlan = async (drillContext: string, problemTit
 
 export const verifyAnswerDispute = async (widget: Widget, userAnswer: string, context: string, preferences: UserPreferences) => {
     const prompt = getDisputeJudgePrompt(JSON.stringify(widget), userAnswer, context, preferences.spokenLanguage);
-    const text = await callAI(preferences, "You are an impartial judge.", "Evaluate appeal.", undefined, true, 'gemini-3-flash-preview');
+    // Use the detailed prompt as the user content to ensure context is passed.
+    // Use disputeSchema to enforce explanation field.
+    const text = await callAI(preferences, "You are an impartial judge. Evaluate the appeal.", prompt, disputeSchema, true, 'gemini-3-flash-preview');
     return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
 };
 

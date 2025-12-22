@@ -11,9 +11,26 @@ interface LessonFooterProps {
   isExamMode?: boolean;
   isLastQuestion?: boolean;
   onRegenerate?: (instruction: string) => Promise<void>;
-  onReport?: () => void; // New prop for reporting bad questions/answers
+  onReport?: () => void; 
   isRegenerating?: boolean;
 }
+
+const REGEN_PRESETS = {
+    Chinese: [
+        "😓 太难了，简单点",
+        "🥱 太简单了，加难度",
+        "🐛 修复逻辑/Bug",
+        "📖 解释更清晰点",
+        "🎲 换个例子"
+    ],
+    English: [
+        "😓 Too hard, simplify",
+        "🥱 Too easy, harder",
+        "🐛 Fix Logic/Bug",
+        "📖 Clearer Explain",
+        "🎲 New Example"
+    ]
+};
 
 export const LessonFooter: React.FC<LessonFooterProps> = ({ 
     status, onCheck, onNext, language, isExamMode, isLastQuestion, 
@@ -32,7 +49,7 @@ export const LessonFooter: React.FC<LessonFooterProps> = ({
     next: isZh ? "下一题" : "Next Question",
     submit: isZh ? "交卷" : "Submit Exam",
     regen: isZh ? "重新生成本页" : "Regenerate Screen",
-    regenHint: isZh ? "输入修改要求 (例如：太难了，简单点)..." : "Instructions (e.g. 'Too hard, simplify')...",
+    regenHint: isZh ? "输入修改要求 (例如：增加更多代码注释)..." : "Instructions (e.g. 'Add more comments')...",
     regenBtn: isZh ? "确认生成" : "Confirm"
   };
 
@@ -57,13 +74,18 @@ export const LessonFooter: React.FC<LessonFooterProps> = ({
       return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showRegenPopover]);
 
-  const handleRegenSubmit = async () => {
+  const handleRegenSubmit = async (customInstruction?: string) => {
       if (onRegenerate) {
-          await onRegenerate(instruction);
+          const finalInstruction = customInstruction || instruction;
+          if (!finalInstruction.trim()) return;
+          
           setShowRegenPopover(false);
+          await onRegenerate(finalInstruction);
           setInstruction('');
       }
   };
+
+  const presets = isZh ? REGEN_PRESETS.Chinese : REGEN_PRESETS.English;
 
   return (
     <div className={`absolute bottom-0 left-0 right-0 p-4 md:p-6 z-[50] border-t transition-all duration-300 ease-out ${getBgColor()}`}>
@@ -87,10 +109,14 @@ export const LessonFooter: React.FC<LessonFooterProps> = ({
             {status === 'wrong' && onReport && (
                 <button
                     onClick={onReport}
-                    className="p-3.5 rounded-xl border-2 border-red-200 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-colors bg-white dark:bg-dark-card shadow-sm"
-                    title={isZh ? "报错 / 申诉" : "Report / Appeal"}
+                    className="p-3.5 rounded-xl border-2 border-red-200 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-colors bg-white dark:bg-dark-card shadow-sm group relative"
+                    title={isZh ? "AI 申诉 / 报错" : "AI Appeal / Report"}
                 >
                     <AlertTriangle size={24} />
+                    <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                    </span>
                 </button>
             )}
 
@@ -98,20 +124,34 @@ export const LessonFooter: React.FC<LessonFooterProps> = ({
             {status === 'idle' && onRegenerate && (
                 <div className="relative" ref={popoverRef}>
                     {showRegenPopover && (
-                        <div className="absolute bottom-full right-0 mb-4 w-72 bg-white dark:bg-[#1e1e1e] rounded-2xl shadow-2xl border-2 border-brand/20 p-4 animate-scale-in origin-bottom-right z-[60]">
+                        <div className="absolute bottom-full right-0 mb-4 w-80 bg-white dark:bg-[#1e1e1e] rounded-2xl shadow-2xl border-2 border-brand/20 p-4 animate-scale-in origin-bottom-right z-[60]">
                             <div className="flex items-center gap-2 text-brand-dark dark:text-brand-light font-bold mb-3 text-xs uppercase tracking-wider border-b border-gray-100 dark:border-gray-700 pb-2">
                                 <Sparkles size={14} />
                                 {t.regen}
                             </div>
+                            
+                            {/* Presets Grid */}
+                            <div className="grid grid-cols-2 gap-2 mb-3">
+                                {presets.map((preset, idx) => (
+                                    <button
+                                        key={idx}
+                                        onClick={() => handleRegenSubmit(preset)}
+                                        className="px-2 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-brand/10 hover:text-brand dark:hover:text-brand text-gray-600 dark:text-gray-300 rounded-lg text-[10px] font-bold transition-colors text-left truncate border border-transparent hover:border-brand/20"
+                                    >
+                                        {preset}
+                                    </button>
+                                ))}
+                            </div>
+
                             <textarea
-                                className="w-full h-24 p-3 bg-gray-50 dark:bg-black/40 border border-gray-200 dark:border-gray-600 rounded-xl text-sm mb-3 focus:border-brand outline-none resize-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500"
+                                className="w-full h-20 p-3 bg-gray-50 dark:bg-black/40 border border-gray-200 dark:border-gray-600 rounded-xl text-sm mb-3 focus:border-brand outline-none resize-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500"
                                 placeholder={t.regenHint}
                                 value={instruction}
                                 onChange={(e) => setInstruction(e.target.value)}
                                 autoFocus
                             />
                             <button 
-                                onClick={handleRegenSubmit}
+                                onClick={() => handleRegenSubmit()}
                                 disabled={isRegenerating}
                                 className="w-full py-2.5 bg-brand text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-brand-dark transition-colors shadow-md"
                             >

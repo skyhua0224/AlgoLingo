@@ -1,6 +1,11 @@
 
 export const PARSONS_RULES = `
 - **PARSONS PUZZLE CONSTRAINTS (CRITICAL)**:
+    - **SEQUENCING RULE (MANDATORY)**: 
+      - You **MUST NOT** generate a 'parsons' widget UNLESS an 'interactive-code' widget containing the *complete* source code has appeared in a **PREVIOUS** screen or **EARLIER** on the **CURRENT** screen.
+      - **Logic**: The user cannot reorder code they haven't seen yet. Show the code first (Concept/Demo), THEN test it (Parsons).
+      - If this is the first screen of the lesson, do NOT use 'parsons'. Use 'interactive-code' instead.
+
     - **MINIMUM LINES**: You MUST generate **AT LEAST 5 LINES** of code items.
       - **STRICT PROHIBITION**: NEVER generate a puzzle with fewer than 5 lines. It is too easy.
       - **NO FILLER**: Do NOT use comments (lines starting with # or //) as standalone draggable items to pad the count.

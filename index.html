@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -143,10 +142,11 @@
     <script>
         // Dark Mode Initialization
         const getTheme = () => {
-            const prefs = localStorage.getItem('algolingo_prefs');
+            const prefs = localStorage.getItem('algolingo_preferences');
             if (prefs) {
                 try {
                     const p = JSON.parse(prefs);
+                    // Legacy check or structure check
                     if (p.theme) return p.theme;
                 } catch(e) {}
             }

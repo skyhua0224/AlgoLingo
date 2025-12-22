@@ -3,6 +3,16 @@ import { Schema, Type } from "@google/genai";
 import { parsonsSchema } from "./definitions/parsons";
 import { fillInSchema } from "./definitions/fillIn";
 
+export const disputeSchema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+        verdict: { type: Type.STRING, enum: ["correct", "incorrect"] },
+        explanation: { type: Type.STRING, description: "Detailed reason for the verdict. If incorrect, explain why the user's logic is flawed." },
+        memoryTip: { type: Type.STRING }
+    },
+    required: ["verdict", "explanation"]
+};
+
 export const dialogueSchema: Schema = {
     type: Type.OBJECT,
     properties: {

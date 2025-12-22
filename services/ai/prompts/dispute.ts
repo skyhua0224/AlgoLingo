@@ -10,7 +10,7 @@ export const getDisputeJudgePrompt = (
     return `
     ${BASE_SYSTEM_INSTRUCTION}
 
-    **ROLE**: Impartial Senior Engineer Judge.
+    **ROLE**: Impartial Senior Engineer Judge & Mentor.
     **TASK**: Evaluate a user's claim that their answer is correct, despite the system marking it wrong.
 
     **CONTEXT**:
@@ -27,11 +27,12 @@ export const getDisputeJudgePrompt = (
     1. **FLEXIBILITY**: If the user's answer is semantically identical (e.g., different variable name but valid logic, extra whitespace, synonym), MARK AS CORRECT.
     2. **STRICTNESS**: If the user is objectively wrong (logic error, syntax error in strict mode), MARK AS INCORRECT.
     3. **BAD QUESTION**: If the question itself is flawed/ambiguous and the user's interpretation is valid, MARK AS CORRECT.
+    4. **ITERATIVE APPEAL**: The context might contain "Previous Rejections". Read the user's *new* argument. If they have addressed the previous rejection point or provided new evidence, re-evaluate. Do not just repeat the old rejection.
 
     **OUTPUT FORMAT (JSON ONLY)**:
     {
         "verdict": "correct" | "incorrect",
-        "explanation": "Brief explanation of why you accepted or rejected the appeal (in ${lang}).",
+        "explanation": "REQUIRED: If rejected, explain EXACTLY why. Address the user's specific argument. If they are wrong, correct their misconception. If accepted, briefly validate them. (Language: ${lang})",
         "memoryTip": "If incorrect, provide a short 1-sentence memory aid. If correct, provide a reinforcement tip."
     }
     `;

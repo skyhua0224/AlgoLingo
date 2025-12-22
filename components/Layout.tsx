@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserPreferences, AppView, SyncStatus } from '../types';
 import { Sidebar } from './layout/Sidebar';
 import { MobileNav } from './layout/MobileNav';
@@ -36,6 +35,30 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
   const t = TRANSLATIONS[preferences.spokenLanguage];
   const isZh = preferences.spokenLanguage === 'Chinese';
   const mainMarginClass = hideSidebar ? 'ml-0' : (isSidebarCollapsed ? 'md:ml-20' : 'md:ml-72');
+
+  // --- Theme Management ---
+  useEffect(() => {
+    const applyTheme = () => {
+      const theme = preferences.theme;
+      const root = document.documentElement;
+      const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      
+      root.classList.toggle('dark', isDark);
+    };
+
+    applyTheme();
+
+    // Listen for system changes if mode is 'system'
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleSystemChange = () => {
+        if (preferences.theme === 'system') {
+            applyTheme();
+        }
+    };
+
+    mediaQuery.addEventListener('change', handleSystemChange);
+    return () => mediaQuery.removeEventListener('change', handleSystemChange);
+  }, [preferences.theme]);
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-dark-bg flex text-gray-900 dark:text-dark-text font-sans transition-colors">

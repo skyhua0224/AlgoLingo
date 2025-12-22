@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Bot, Send, X, Maximize2, Minimize2, Sparkles, Loader2, Lightbulb, MessageSquare, FileJson, Copy, Check } from 'lucide-react';
 import { UserPreferences, LessonPlan } from '../types';
 import { generateAiAssistance } from '../services/geminiService';
+import { MarkdownText } from './common/MarkdownText';
 
 interface GlobalAiAssistantProps {
     problemName?: string;
@@ -19,34 +20,6 @@ const safeStringify = (obj: any) => {
         }
         return value;
     }, 2);
-};
-
-// Simple Markdown Formatter (Bold, Code, Newline)
-const formatMessage = (text: string) => {
-    if (!text) return null;
-    
-    // Split by lines
-    return text.split('\n').map((line, i) => {
-        // Check for code block markers (simple implementation)
-        if (line.startsWith('```')) return null; // Skip block markers for simplicity in this view
-        
-        // Bold: **text**
-        const parts = line.split(/(\*\*.*?\*\*|`.*?`)/g);
-        
-        return (
-            <div key={i} className="min-h-[20px]">
-                {parts.map((part, j) => {
-                    if (part.startsWith('**') && part.endsWith('**')) {
-                        return <strong key={j} className="text-brand-dark dark:text-brand-light">{part.slice(2, -2)}</strong>;
-                    }
-                    if (part.startsWith('`') && part.endsWith('`')) {
-                        return <code key={j} className="bg-gray-100 dark:bg-gray-700 px-1 rounded text-red-500 dark:text-red-400 font-mono text-xs">{part.slice(1, -1)}</code>;
-                    }
-                    return <span key={j}>{part}</span>;
-                })}
-            </div>
-        );
-    });
 };
 
 export const GlobalAiAssistant: React.FC<GlobalAiAssistantProps> = ({ problemName, preferences, language, currentPlan }) => {
@@ -206,7 +179,10 @@ export const GlobalAiAssistant: React.FC<GlobalAiAssistantProps> = ({ problemNam
                             ? 'bg-brand text-white rounded-tr-none' 
                             : 'bg-white dark:bg-dark-card text-gray-800 dark:text-gray-200 rounded-tl-none border border-gray-200 dark:border-gray-700'
                         }`}>
-                            {formatMessage(msg.text)}
+                            <MarkdownText 
+                                content={msg.text} 
+                                className={msg.role === 'user' ? 'text-white' : ''} 
+                            />
                         </div>
                     </div>
                 ))}

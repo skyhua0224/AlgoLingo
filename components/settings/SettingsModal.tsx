@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { X, Check } from 'lucide-react';
 import { UserPreferences } from '../../types';
@@ -48,10 +47,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         }
     }, [isOpen, preferences]);
 
+    // Live Preview for Theme: Apply immediately when tempPrefs changes
+    useEffect(() => {
+        if (!isOpen) return;
+        const theme = tempPrefs.theme;
+        const root = document.documentElement;
+        const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        root.classList.toggle('dark', isDark);
+    }, [tempPrefs.theme, isOpen]);
+
     if (!isOpen) return null;
 
     const handleSave = () => {
         onUpdatePreferences(tempPrefs);
+        onClose();
+    };
+
+    const handleClose = () => {
+        // Revert theme visual to the actual persisted preference if we cancel
+        const theme = preferences.theme;
+        const root = document.documentElement;
+        const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        root.classList.toggle('dark', isDark);
+        
         onClose();
     };
 
@@ -196,7 +214,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
             <div className="bg-white dark:bg-dark-card w-full max-w-4xl h-[85vh] md:h-[700px] rounded-3xl overflow-hidden shadow-2xl flex flex-col md:flex-row relative">
                 <button 
-                    onClick={onClose} 
+                    onClick={handleClose} 
                     className="md:hidden absolute top-4 right-4 p-2 bg-gray-100 dark:bg-gray-700 rounded-full text-gray-500 z-10"
                 >
                     <X size={20}/>
@@ -214,7 +232,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     
                     <div className="p-4 md:p-6 bg-gray-50 dark:bg-gray-800/50 border-t border-gray-100 dark:border-gray-700 flex justify-end gap-4 shrink-0">
                         <button 
-                            onClick={onClose}
+                            onClick={handleClose}
                             className="px-6 py-3 font-bold text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl transition-colors"
                         >
                             {safeT.done} (Cancel)

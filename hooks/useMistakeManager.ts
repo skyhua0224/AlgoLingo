@@ -24,10 +24,13 @@ export const useMistakeManager = () => {
             'terminal', 'mini-editor', 'visual-quiz', 'code-walkthrough'
         ];
         
-        let targetWidget: Widget | undefined = screen.widgets.find(w => 
-            interactiveTypes.includes(w.type) || 
-            (w.type === 'flipcard' && w.flipcard?.mode === 'assessment')
-        );
+        let targetWidget: Widget | undefined = screen.widgets.find(w => {
+            // Normalize type to kebab-case (e.g. "fillIn" -> "fill-in") to handle AI inconsistencies
+            const normalizedType = w.type.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+            
+            return interactiveTypes.includes(normalizedType) || 
+            (normalizedType === 'flipcard' && w.flipcard?.mode === 'assessment');
+        });
 
         if (!targetWidget) {
             return;

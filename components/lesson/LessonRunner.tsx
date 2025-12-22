@@ -12,6 +12,7 @@ import { LessonSummary, SummaryAction } from './LessonSummary';
 import { ExamSummary } from './ExamSummary'; 
 import { StreakCelebration } from './StreakCelebration';
 import { GlobalAiAssistant } from '../GlobalAiAssistant';
+import { DisputeModal } from './DisputeModal'; // NEW
 import { Button } from '../Button';
 import { LogOut, X, HeartCrack, AlertTriangle, ArrowRight, RefreshCw, AlertCircle, Wand2, ShieldCheck, HelpCircle, Loader2, CheckCircle2, FileText, ChevronRight, MessageSquare, RotateCcw, Bug } from 'lucide-react';
 import { MarkdownText } from '../common/MarkdownText'; 
@@ -200,6 +201,10 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [qualityIssue, setQualityIssue] = useState<QualityIssue | null>(null);
 
+  // Dispute State
+  const [showDispute, setShowDispute] = useState(false);
+  const [disputeWidget, setDisputeWidget] = useState<Widget | null>(null);
+
   useEffect(() => {
     setQuizSelection(null);
     setFillInAnswers([]);
@@ -207,6 +212,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
     setStepsOrder([]);
     setMiniEditorValid(false);
     setQualityIssue(null);
+    setShowDispute(false);
     
     if (currentScreen && currentScreen.widgets.length === 1 && currentScreen.widgets[0].type === 'dialogue') {
         setQualityIssue({ 
@@ -244,6 +250,41 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
     } else {
         checkAnswer(isCorrect);
     }
+  };
+
+  // --- DISPUTE LOGIC ---
+  const handleReport = () => {
+      // Find the primary interactive widget to dispute
+      const targetWidget = currentScreen.widgets.find(w => 
+          ['quiz', 'parsons', 'fill-in', 'mini-editor', 'steps-list'].includes(w.type.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase())
+      );
+      
+      if (targetWidget) {
+          setDisputeWidget(targetWidget);
+          setShowDispute(true);
+      } else {
+          // If purely visual or no logic widget found, fallback to first widget
+          setDisputeWidget(currentScreen.widgets[0]);
+          setShowDispute(true);
+      }
+  };
+
+  const handleDisputeResolve = (success: boolean) => {
+      if (success) {
+          // Manually trigger correct state
+          if (props.plan.context?.type === 'career_exam') {
+              // Can't retroactively fix exam history easily without complex state surgery, 
+              // but for lesson runner we can fix current screen status.
+              // For exam, it's mostly "post-mortem" so we assume this feature is disabled or shows "Noted".
+          } else {
+              // Override lesson engine to correct
+              // We need a way to force "Correct" status without advancing streak if we don't want to?
+              // Actually, if AI says it's correct, user deserves the streak.
+              // useLessonEngine exposes 'rectifyMistake'
+              rectifyMistake();
+          }
+      }
+      setShowDispute(false);
   };
 
   const handleRegenerateScreen = async (instruction: string) => {
@@ -363,6 +404,22 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
 
   return (
     <div className="flex flex-col h-full bg-gray-50 dark:bg-[#050505] relative overflow-hidden transition-colors">
+        {/* Dispute Modal Overlay */}
+        {showDispute && disputeWidget && (
+            <DisputeModal
+                isOpen={showDispute}
+                onClose={() => setShowDispute(false)}
+                onResolve={handleDisputeResolve}
+                widget={disputeWidget}
+                userState={{ 
+                    quizSelection, fillInAnswers, parsonsOrder, stepsOrder, miniEditorValid 
+                }}
+                context={`${props.plan.title} - ${currentScreen.header}`}
+                preferences={props.preferences}
+                language={props.language}
+            />
+        )}
+
         <LessonHeader 
             currentScreenIndex={currentIndex} 
             totalScreens={totalScreens} 
@@ -443,6 +500,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
                         isExamMode={props.plan.context?.type === 'career_exam'}
                         isLastQuestion={currentIndex === totalScreens - 1}
                         onRegenerate={handleRegenerateScreen}
+                        onReport={handleReport}
                         isRegenerating={isRegenerating}
                     />
                 </div>
