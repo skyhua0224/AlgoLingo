@@ -180,7 +180,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
 
   const { 
     currentScreen, currentIndex, totalScreens, status, streak, xpGained, timerSeconds, 
-    checkAnswer, nextScreen, isMistakeLoop, mistakeCount, isFailed, isLimitDisabled, examHistory, submitExamAnswer, replaceCurrentScreen, rectifyMistake, startMistakeRepair
+    checkAnswer, nextScreen, isMistakeLoop, mistakeCount, sessionMistakes, isFailed, isLimitDisabled, examHistory, submitExamAnswer, replaceCurrentScreen, rectifyMistake, startMistakeRepair
   } = useLessonEngine({
       plan: props.plan,
       nodeIndex: props.nodeIndex,
@@ -271,16 +271,9 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
 
   const handleDisputeResolve = (success: boolean) => {
       if (success) {
-          // Manually trigger correct state
           if (props.plan.context?.type === 'career_exam') {
-              // Can't retroactively fix exam history easily without complex state surgery, 
-              // but for lesson runner we can fix current screen status.
-              // For exam, it's mostly "post-mortem" so we assume this feature is disabled or shows "Noted".
+              // Exam logic handled separately if needed
           } else {
-              // Override lesson engine to correct
-              // We need a way to force "Correct" status without advancing streak if we don't want to?
-              // Actually, if AI says it's correct, user deserves the streak.
-              // useLessonEngine exposes 'rectifyMistake'
               rectifyMistake();
           }
       }
@@ -313,7 +306,8 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
 
   const handleFinish = (satisfied: boolean) => {
       if (satisfied) {
-          props.onComplete({ xp: xpGained, streak }, true, []);
+          // FIX: Pass the real sessionMistakes instead of empty array
+          props.onComplete({ xp: xpGained, streak }, true, sessionMistakes);
           props.onExit();
       } else {
           if (props.onRegenerate) props.onRegenerate();

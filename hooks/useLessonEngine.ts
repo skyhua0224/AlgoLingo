@@ -176,6 +176,7 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
         timerSeconds: timer.seconds,
         isMistakeLoop: mistakeManager.isInMistakeLoop,
         mistakeCount: mistakeManager.sessionMistakes.length,
+        sessionMistakes: mistakeManager.sessionMistakes, // EXPORTED HERE
         isFailed,
         isLimitDisabled,
         examHistory,
