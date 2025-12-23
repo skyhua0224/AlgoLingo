@@ -37,6 +37,42 @@ const generateFingerprint = (m: MistakeRecord) => {
     return `${pId}|${type}|${ctx}`;
 };
 
+// Helper: Get today's date string (UTC) to match history keys
+const getTodayKey = () => new Date().toISOString().split('T')[0];
+
+// Helper: Calculate streak from history
+const calculateStreak = (history: Record<string, number>): number => {
+    const today = getTodayKey();
+    
+    // Check if played today
+    const playedToday = (history[today] || 0) > 0;
+    
+    // Check if played yesterday
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    const yesterday = d.toISOString().split('T')[0];
+    const playedYesterday = (history[yesterday] || 0) > 0;
+
+    // If neither, streak is broken (0)
+    if (!playedToday && !playedYesterday) return 0;
+
+    let streak = 0;
+    // Start counting backwards
+    // If played today, start from today. If not, start from yesterday (streak is still valid/frozen).
+    let current = new Date(playedToday ? new Date() : d); 
+    
+    while (true) {
+        const key = current.toISOString().split('T')[0];
+        if ((history[key] || 0) > 0) {
+            streak++;
+            current.setDate(current.getDate() - 1); // Go back one day
+        } else {
+            break;
+        }
+    }
+    return streak;
+};
+
 export const useAppManager = () => {
     const [view, setView] = useState<AppView>('algorithms');
     const [activeTab, setActiveTab] = useState<AppView>('algorithms');
@@ -97,6 +133,16 @@ export const useAppManager = () => {
         localStorage.setItem('algolingo_saved_lessons', JSON.stringify(savedLessons));
         localStorage.setItem('algolingo_career_sessions', JSON.stringify(careerSessions));
     }, [stats, progressMap, mistakes, savedLessons, careerSessions, preferences]);
+
+    // --- AUTO-CORRECT STREAK ---
+    // Whenever stats history changes, verify streak matches history.
+    // This fixes the bug where streak is 1 but history has 5 days.
+    useEffect(() => {
+        const correctStreak = calculateStreak(stats.history);
+        if (stats.streak !== correctStreak) {
+            setStats(prev => ({ ...prev, streak: correctStreak }));
+        }
+    }, [stats.history]);
 
     // --- DATA COLLECTION ---
     const collectFullState = useCallback(() => {
@@ -237,12 +283,25 @@ export const useAppManager = () => {
     };
 
     const handleLessonComplete = (resultStats: { xp: number; streak: number }, shouldSave: boolean, sessionMistakes: MistakeRecord[]) => {
-        setStats(prev => ({
-            ...prev,
-            xp: prev.xp + resultStats.xp,
-            streak: resultStats.streak > 0 ? resultStats.streak : prev.streak,
-            history: { ...prev.history, [new Date().toISOString().split('T')[0]]: (prev.history[new Date().toISOString().split('T')[0]] || 0) + resultStats.xp }
-        }));
+        setStats(prev => {
+            const today = getTodayKey();
+            
+            // Just update XP and History here. 
+            // The useEffect will handle streak recalculation automatically based on the new history.
+            const newHistory = { 
+                ...prev.history, 
+                [today]: (prev.history[today] || 0) + resultStats.xp 
+            };
+
+            return {
+                ...prev,
+                xp: prev.xp + resultStats.xp,
+                // Streak is auto-calculated by effect, but we can optimistically update if we want.
+                // We'll let the effect do it to ensure consistency.
+                lastPlayed: today,
+                history: newHistory
+            };
+        });
 
         setMistakes(prev => {
             const updated = [...prev];
@@ -294,7 +353,6 @@ export const useAppManager = () => {
             }
         }
         
-        // Critical: High priority sync after lesson complete
         notifyDataChange(true);
     };
 
@@ -315,7 +373,6 @@ export const useAppManager = () => {
         }
         
         setRefreshKey(k => k + 1);
-        // Force a sync to align timestamps after import
         requestSync({ force: true });
     };
 
@@ -377,7 +434,6 @@ export const useAppManager = () => {
             return [session, ...prev];
         });
         setView('career-runner');
-        // Career sessions are valuable, sync on start
         notifyDataChange(false);
     };
 

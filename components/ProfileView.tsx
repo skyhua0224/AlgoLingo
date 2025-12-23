@@ -5,7 +5,7 @@ import { PROBLEM_CATEGORIES, PROBLEM_MAP } from '../constants';
 import { 
     Flame, Trophy, Zap, Edit2, Check, 
     Hexagon, Activity, Share2, MapPin,
-    Sprout, BookOpen, Crown, Lock, ArrowRight
+    Sprout, BookOpen, Crown, Lock, ArrowRight, X
 } from 'lucide-react';
 
 interface ProfileViewProps {
@@ -94,6 +94,7 @@ const getContributionData = (history: Record<string, number> = {}) => {
     const today = new Date();
     const safeHistory = history || {}; 
     
+    // Generate last ~16 weeks (112 days)
     for (let i = 111; i >= 0; i--) {
         const d = new Date();
         d.setDate(today.getDate() - i);
@@ -152,6 +153,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ stats, progressMap, mi
     const langKey = isZh ? 'zh' : 'en';
     const [isEditing, setIsEditing] = useState(false);
     const [tempName, setTempName] = useState(preferences.userName);
+    const [hoveredDay, setHoveredDay] = useState<{ date: string, xp: number, x: number, y: number } | null>(null);
 
     const langProgress = (progressMap && progressMap[preferences.targetLanguage]) || {};
     const radarData = useMemo(() => getRadarData(langProgress, isZh), [langProgress, isZh]);
@@ -189,9 +191,35 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ stats, progressMap, mi
     const xpForNext = nextRank.threshold - currentXP;
     const progressToNext = Math.min(100, ((currentXP - currentRank.threshold) / (nextRank.threshold - currentRank.threshold)) * 100);
 
+    const handleMouseEnterDay = (day: any, e: React.MouseEvent) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        // Calculate relative position to container if needed, but fixed/absolute is easier
+        // Just store data, we'll render a fixed tooltip overlay
+        setHoveredDay({ 
+            date: day.date, 
+            xp: day.xp,
+            x: rect.left + rect.width / 2, 
+            y: rect.top 
+        });
+    };
+
     return (
-        <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6 min-h-screen pb-24">
+        <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6 min-h-screen pb-24 relative">
             
+            {/* Heatmap Tooltip Overlay */}
+            {hoveredDay && (
+                <div 
+                    className="fixed z-50 bg-gray-900 text-white text-xs rounded-lg py-2 px-3 shadow-xl pointer-events-none transform -translate-x-1/2 -translate-y-full mb-2 animate-fade-in"
+                    style={{ left: hoveredDay.x, top: hoveredDay.y - 8 }}
+                >
+                    <div className="font-bold mb-1">{new Date(hoveredDay.date).toLocaleDateString()}</div>
+                    <div className="flex items-center gap-1 text-brand-light font-mono">
+                        <Zap size={12} fill="currentColor"/> {hoveredDay.xp} XP
+                    </div>
+                    <div className="absolute bottom-[-6px] left-1/2 -translate-x-1/2 w-3 h-3 bg-gray-900 rotate-45"></div>
+                </div>
+            )}
+
             {/* Top Grid: Identity & Quick Stats */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Identity Card */}
@@ -282,13 +310,22 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ stats, progressMap, mi
                     </div>
                 </div>
 
-                <div className="lg:col-span-2 bg-white dark:bg-dark-card rounded-3xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm h-full flex flex-col">
+                <div className="lg:col-span-2 bg-white dark:bg-dark-card rounded-3xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm h-full flex flex-col relative overflow-visible">
                     <SectionHeader icon={<Activity size={16} className="text-green-500" />} title={isZh ? "贡献热力图" : "Contribution Graph"} action={<button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-400 transition-colors"><Share2 size={16} /></button>} />
                     <div className="flex flex-col justify-center flex-1">
-                        <div className="flex justify-center overflow-hidden">
+                        <div className="flex justify-center overflow-hidden" onMouseLeave={() => setHoveredDay(null)}>
                             <div className="grid grid-rows-7 grid-flow-col gap-1">
                                 {heatmapData.map((day, i) => (
-                                    <div key={day.date} title={`${day.date}: ${day.xp} XP`} className={`w-3 h-3 md:w-4 md:h-4 rounded-[2px] transition-all ${day.level === 0 ? 'bg-gray-100 dark:bg-gray-800' : ''} ${day.level === 1 ? 'bg-emerald-200 dark:bg-emerald-900/60' : ''} ${day.level === 2 ? 'bg-emerald-300 dark:bg-emerald-700' : ''} ${day.level === 3 ? 'bg-emerald-400 dark:bg-emerald-600' : ''} ${day.level === 4 ? 'bg-emerald-500 dark:bg-emerald-500' : ''}`} />
+                                    <div 
+                                        key={day.date} 
+                                        onMouseEnter={(e) => handleMouseEnterDay(day, e)}
+                                        className={`w-3 h-3 md:w-4 md:h-4 rounded-[2px] transition-all cursor-pointer hover:scale-125 hover:z-10 relative hover:ring-2 hover:ring-black/20 dark:hover:ring-white/20
+                                            ${day.level === 0 ? 'bg-gray-100 dark:bg-gray-800' : ''} 
+                                            ${day.level === 1 ? 'bg-emerald-200 dark:bg-emerald-900/60' : ''} 
+                                            ${day.level === 2 ? 'bg-emerald-300 dark:bg-emerald-700' : ''} 
+                                            ${day.level === 3 ? 'bg-emerald-400 dark:bg-emerald-600' : ''} 
+                                            ${day.level === 4 ? 'bg-emerald-500 dark:bg-emerald-500' : ''}`} 
+                                    />
                                 ))}
                             </div>
                         </div>
