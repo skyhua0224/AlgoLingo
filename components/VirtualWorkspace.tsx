@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { LeetCodeContext, UserPreferences, SolutionStrategy } from '../types';
 import { GripVertical, GripHorizontal, FileText, Lightbulb, Zap, Tag, ArrowRight, BookOpen, Key, CheckCircle2, History, Stethoscope, Copy, Eye, ArrowLeft, RotateCcw, X, Terminal } from 'lucide-react';
-import { validateUserCode, generateAiAssistance, analyzeUserStrategy } from '../services/geminiService';
+import { validateUserCode, analyzeUserStrategy } from '../services/geminiService';
 import { InteractiveCodeWidget } from './widgets/InteractiveCode';
 import { MermaidVisualWidget } from './widgets/MermaidVisual';
 import { MarkdownText } from './common/MarkdownText';
@@ -15,7 +15,7 @@ import { useMistakeManager } from '../hooks/useMistakeManager';
 interface VirtualWorkspaceProps {
     context: LeetCodeContext;
     preferences: UserPreferences;
-    onSuccess: () => void;
+    onSuccess: (code: string, attempts: number, time: number) => void; // UPDATED SIGNATURE
     strategies?: SolutionStrategy[];
     activeStrategyId?: string | null;
     onSelectStrategy?: (id: string | null) => void;
@@ -41,6 +41,9 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
     const [leftPanelWidth, setLeftPanelWidth] = useState(40); 
     const [consoleHeight, setConsoleHeight] = useState(30); 
     const [isDragging, setIsDragging] = useState<'horizontal' | 'vertical' | null>(null);
+
+    // Timing State
+    const [sessionStartTime] = useState(Date.now());
 
     // Safe Context
     const safeContext = useMemo(() => {
@@ -77,9 +80,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
     // Drag Handlers
     const containerRef = useRef<HTMLDivElement>(null);
     const rightPaneRef = useRef<HTMLDivElement>(null);
-
-    // Mistake Manager for Syntax Errors
-    const { recordMistake } = useMistakeManager();
 
     // Auto-switch tabs based on props or state
     useEffect(() => {
@@ -133,14 +133,12 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
     const handleRun = async () => {
         setIsRunning(true);
         setResult(null);
-        setViewingSubmission(null); // Clear history view when running new
+        setViewingSubmission(null); 
         
         try {
-            // Validate code with specific language context
             const res = await validateUserCode(code, safeContext.problem.description, preferences, currentLanguage);
             setResult(res);
             
-            // Add to history with CODE SNAPSHOT & PERSIST
             const record: SubmissionRecord = {
                 id: Date.now().toString(),
                 timestamp: Date.now(),
@@ -148,20 +146,15 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
                 runtime: res.stats?.runtime,
                 memory: res.stats?.memory,
                 error_message: res.error_message,
-                code: code, // SAVE CODE
+                code: code,
                 resultData: res
             };
             
-            setHistory(prev => {
-                const updated = [...prev, record];
-                localStorage.setItem(`algolingo_history_${safeContext.meta.slug}_${currentLanguage}`, JSON.stringify(updated));
-                return updated;
-            });
+            const updatedHistory = [...history, record];
+            setHistory(updatedHistory);
+            localStorage.setItem(`algolingo_history_${safeContext.meta.slug}_${currentLanguage}`, JSON.stringify(updatedHistory));
 
-            // Auto-Switch Logic: Go to Diagnosis on ANY error (Compile, Runtime, Wrong Answer) OR Success
-            // We want to show the Analysis even on success now for Smart Save
             setActiveLeftTab('diagnosis');
-            // Expand left panel if too small
             if (leftPanelWidth < 40) setLeftPanelWidth(50);
 
         } catch (e) {
@@ -171,9 +164,21 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
         }
     };
 
+    const handleSubmit = () => {
+        // Calculate metrics for evaluator
+        const duration = Math.round((Date.now() - sessionStartTime) / 1000);
+        
+        // Filter history to count only failures from THIS specific session
+        // This prevents old history (which might be preserved) from counting as current failures
+        const sessionFailures = history.filter(h => 
+            h.timestamp >= sessionStartTime && h.status !== 'Accepted'
+        ).length;
+        
+        onSuccess(code, sessionFailures, duration);
+    };
+
     const handleHistorySelect = (rec: SubmissionRecord) => {
         setViewingSubmission(rec);
-        // Automatically switch to diagnosis to show the report for THIS record
         setActiveLeftTab('diagnosis'); 
     };
 
@@ -181,16 +186,11 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
         if (!viewingSubmission) return;
         setCode(viewingSubmission.code);
         setResult(viewingSubmission.resultData);
-        setViewingSubmission(null); // Exit view mode, return to live mode
-        
-        // Keep diagnosis tab open as it now shows the "live" (restored) result
+        setViewingSubmission(null); 
         setActiveLeftTab('diagnosis');
     };
 
-    // --- NEW SMART SAVE ---
-    // Returns status to DiagnosisPanel for inline feedback
     const handleSmartSaveStrategy = async (): Promise<{success: boolean, message: string, existingId?: string}> => {
-        // Get code context (live or historic)
         const targetResult = viewingSubmission ? viewingSubmission.resultData : result;
         const targetCode = viewingSubmission ? viewingSubmission.code : code;
         
@@ -198,23 +198,12 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
 
         try {
             const existingTitles = strategies.map(s => s.title);
-            
-            const analysis = await analyzeUserStrategy(
-                targetCode,
-                safeContext.meta.title,
-                existingTitles,
-                preferences
-            );
+            const analysis = await analyzeUserStrategy(targetCode, safeContext.meta.title, existingTitles, preferences);
 
             if (!analysis.isNew) {
-                return { 
-                    success: false, 
-                    message: isZh ? `重复：策略 "${analysis.match}" 已存在` : `Duplicate: Matches strategy "${analysis.match}"`,
-                    existingId: analysis.match 
-                };
+                return { success: false, message: isZh ? `重复：策略 "${analysis.match}" 已存在` : `Duplicate: Matches strategy "${analysis.match}"`, existingId: analysis.match };
             }
 
-            // Construct new strategy from AI data
             const aiStrat = analysis.strategy;
             const newStrategy: SolutionStrategy = {
                 id: `smart_${Date.now()}`,
@@ -229,7 +218,7 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
                 code: targetCode,
                 language: currentLanguage,
                 isCustom: true,
-                codeWidgets: [], // Will be auto-generated or rendered as raw code block
+                codeWidgets: [],
                 expandedKnowledge: []
             };
 
@@ -245,35 +234,29 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
         }
     };
 
-    // Construct specific context for Drill based on current result
     const handleDrillTrigger = () => {
         if (!onDrill) return;
         const targetResult = viewingSubmission ? viewingSubmission.resultData : result;
         const targetCode = viewingSubmission ? viewingSubmission.code : code;
-        
         if (!targetResult) return;
         
-        // Construct rich payload to pass as string
         const drillPayload = {
             source: 'snapshot',
             status: targetResult.status,
             userCode: targetCode,
             error: targetResult.error_message,
-            analysis: targetResult.analysis, // Contains bugDiagnosis, userIntent
+            analysis: targetResult.analysis, 
             problemDesc: safeContext.problem.description
         };
-        
         const drillContext = JSON.stringify(drillPayload);
         const correctCode = targetResult.analysis?.correctCode; 
-        
         onDrill(drillContext, correctCode);
     };
 
-    const handleRecordSyntaxMistake = (contextInfo: string) => {
-        // No-op for now as we rely on Diagnosis Panel
-    };
+    const handleRecordSyntaxMistake = (contextInfo: string) => { /* No-op */ };
 
-    // --- RENDERERS ---
+    // ... (Description/Solution renderers omitted for brevity, identical to previous) ...
+    // Assume renderDescriptionPanel and renderSolutionPanel are here as before
 
     const renderDescriptionPanel = () => {
         const difficultyColor = safeContext.meta.difficulty === 'Easy' ? 'text-green-600 bg-green-100 dark:bg-green-900/30' : 
@@ -294,7 +277,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
                 <div className="prose dark:prose-invert prose-sm max-w-none text-gray-700 dark:text-gray-300 leading-relaxed font-sans mb-8">
                     <MarkdownText content={safeContext.problem.description} />
                 </div>
-                {/* Examples */}
                 <div className="space-y-4">
                     {safeContext.problem.examples.map((ex, i) => (
                         <div key={i} className="bg-gray-50 dark:bg-[#1a1a1a] rounded-xl overflow-hidden border border-gray-100 dark:border-gray-800">
@@ -307,7 +289,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
                         </div>
                     ))}
                 </div>
-                {/* Constraints */}
                 <div className="mt-8">
                     <h4 className="text-sm font-bold text-gray-900 dark:text-white mb-3">Constraints:</h4>
                     <ul className="list-disc pl-5 space-y-1 text-xs md:text-sm font-mono text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-[#1a1a1a] p-4 rounded-xl border border-gray-100 dark:border-gray-800">
@@ -360,7 +341,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
                                         </div>
                                         <span className="text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-500 px-2 py-0.5 rounded uppercase font-bold tracking-wider">{strat.complexity}</span>
                                     </div>
-                                    {/* Use Summary if available, otherwise fallback to truncated derivation */}
                                     <p className="text-xs text-gray-500 dark:text-gray-400 mb-3 line-clamp-2 relative z-10 font-medium leading-relaxed">
                                         {strat.summary || strat.derivation || strat.rationale}
                                     </p>
@@ -394,7 +374,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
 
         return (
             <div className="flex-1 overflow-y-auto custom-scrollbar p-6 bg-white dark:bg-[#0c0c0c] h-full relative">
-               {/* Strategy Header */}
                <div className="mb-6">
                    <div className="flex items-start justify-between mb-3">
                        <div className="flex flex-wrap gap-2">
@@ -471,7 +450,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
         );
     };
 
-    // --- SUBMISSION SNAPSHOT VIEW ---
     const renderSubmissionSnapshot = () => {
         if (!viewingSubmission) return null;
         const rec = viewingSubmission;
@@ -479,7 +457,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
         
         return (
             <div className="absolute inset-0 bg-[#1e1e1e] z-50 flex flex-col animate-fade-in-up">
-                {/* Snapshot Header */}
                 <div className="flex items-center justify-between p-4 border-b border-gray-700 bg-[#252526]">
                     <div className="flex items-center gap-4">
                         <button onClick={() => setViewingSubmission(null)} className="p-2 hover:bg-gray-700 rounded-full text-gray-400 hover:text-white transition-colors">
@@ -509,10 +486,8 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
                     </button>
                 </div>
 
-                {/* Read-Only Code View */}
                 <div className="flex-1 overflow-auto p-4 font-mono text-sm relative">
                     <pre className="text-gray-300 whitespace-pre-wrap leading-relaxed">{rec.code}</pre>
-                    {/* Copy Button */}
                     <button 
                         onClick={() => navigator.clipboard.writeText(rec.code)}
                         className="absolute top-4 right-4 p-2 bg-gray-700 hover:bg-gray-600 rounded text-gray-300 transition-colors"
@@ -522,7 +497,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
                     </button>
                 </div>
 
-                {/* Result Mini-Panel */}
                 <div className="h-32 border-t border-gray-700 bg-[#1e1e1e] p-4 overflow-y-auto">
                     {rec.error_message ? (
                         <div className="text-red-400 font-mono text-xs whitespace-pre-wrap">{rec.error_message}</div>
@@ -543,7 +517,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
         );
     };
 
-    // Determine the active analysis object to show
     const activeAnalysis = viewingSubmission ? viewingSubmission.resultData?.analysis : result?.analysis;
     const activeStatus = viewingSubmission ? viewingSubmission.status : result?.status;
 
@@ -574,7 +547,6 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
                         <button onClick={() => setActiveLeftTab('submissions')} className={`flex-1 py-1.5 px-2 rounded-md text-xs font-bold transition-all flex items-center justify-center gap-2 whitespace-nowrap ${activeLeftTab === 'submissions' ? 'bg-white dark:bg-dark-card text-blue-500 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>
                             <History size={14}/> {isZh ? "提交记录" : "Subs"}
                         </button>
-                        {/* Diagnosis Tab */}
                         <button 
                             onClick={() => setActiveLeftTab('diagnosis')} 
                             className={`flex-1 py-1.5 px-2 rounded-md text-xs font-bold transition-all flex items-center justify-center gap-2 whitespace-nowrap ${activeLeftTab === 'diagnosis' ? 'bg-white dark:bg-dark-card text-red-500 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
@@ -646,7 +618,7 @@ export const VirtualWorkspace: React.FC<VirtualWorkspaceProps> = ({
                             result={result}
                             isRunning={isRunning}
                             onRun={handleRun}
-                            onSubmit={onSuccess}
+                            onSubmit={handleSubmit} // Trigger Evaluation
                             onDrill={handleDrillTrigger}
                             code={code}
                             language={currentLanguage}

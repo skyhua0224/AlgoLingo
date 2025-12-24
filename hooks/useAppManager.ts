@@ -1,7 +1,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-    UserStats, ProgressMap, LessonPlan, SavedLesson, MistakeRecord, UserPreferences, AppView, SolutionStrategy, Problem, LeetCodeContext, SyncStatus
+    UserStats, ProgressMap, LessonPlan, SavedLesson, MistakeRecord, UserPreferences, AppView, SolutionStrategy, Problem, LeetCodeContext, SyncStatus, RetentionRecord
 } from '../types';
 import { ForgeRoadmap } from '../types/forge';
 import { CareerSession, CareerStage } from '../types/career';
@@ -35,42 +35,6 @@ const generateFingerprint = (m: MistakeRecord) => {
     const type = m.questionType || 'unknown';
     const ctx = (m.context || '').trim().toLowerCase().substring(0, 50);
     return `${pId}|${type}|${ctx}`;
-};
-
-// Helper: Get today's date string (UTC) to match history keys
-const getTodayKey = () => new Date().toISOString().split('T')[0];
-
-// Helper: Calculate streak from history
-const calculateStreak = (history: Record<string, number>): number => {
-    const today = getTodayKey();
-    
-    // Check if played today
-    const playedToday = (history[today] || 0) > 0;
-    
-    // Check if played yesterday
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    const yesterday = d.toISOString().split('T')[0];
-    const playedYesterday = (history[yesterday] || 0) > 0;
-
-    // If neither, streak is broken (0)
-    if (!playedToday && !playedYesterday) return 0;
-
-    let streak = 0;
-    // Start counting backwards
-    // If played today, start from today. If not, start from yesterday (streak is still valid/frozen).
-    let current = new Date(playedToday ? new Date() : d); 
-    
-    while (true) {
-        const key = current.toISOString().split('T')[0];
-        if ((history[key] || 0) > 0) {
-            streak++;
-            current.setDate(current.getDate() - 1); // Go back one day
-        } else {
-            break;
-        }
-    }
-    return streak;
 };
 
 export const useAppManager = () => {
@@ -109,6 +73,9 @@ export const useAppManager = () => {
     const [generationRawError, setGenerationRawError] = useState<string | null>(null);
     const [isSkipAttempt, setIsSkipAttempt] = useState(false);
     const [reviewTargetId, setReviewTargetId] = useState<string | null>(null);
+    
+    // NEW: Review Queue State
+    const [reviewQueue, setReviewQueue] = useState<string[]>([]);
 
     const [engineeringNav, setEngineeringNav] = useState<EngineeringNavState>({
         pillarId: null,
@@ -117,15 +84,12 @@ export const useAppManager = () => {
     });
 
     // --- STATE REFS (For Sync Freshness) ---
-    // We maintain a ref that always holds the latest state, so the sync callback 
-    // (which might be delayed) can access the truly current data without closure staleness.
     const stateRef = useRef({
         stats, progressMap, mistakes, savedLessons, careerSessions, preferences
     });
 
     useEffect(() => {
         stateRef.current = { stats, progressMap, mistakes, savedLessons, careerSessions, preferences };
-        // Sync to LocalStorage immediately on change
         localStorage.setItem('algolingo_preferences', JSON.stringify(preferences));
         localStorage.setItem('algolingo_stats', JSON.stringify(stats));
         localStorage.setItem('algolingo_progress_v2', JSON.stringify(progressMap));
@@ -134,19 +98,8 @@ export const useAppManager = () => {
         localStorage.setItem('algolingo_career_sessions', JSON.stringify(careerSessions));
     }, [stats, progressMap, mistakes, savedLessons, careerSessions, preferences]);
 
-    // --- AUTO-CORRECT STREAK ---
-    // Whenever stats history changes, verify streak matches history.
-    // This fixes the bug where streak is 1 but history has 5 days.
-    useEffect(() => {
-        const correctStreak = calculateStreak(stats.history);
-        if (stats.streak !== correctStreak) {
-            setStats(prev => ({ ...prev, streak: correctStreak }));
-        }
-    }, [stats.history]);
-
     // --- DATA COLLECTION ---
     const collectFullState = useCallback(() => {
-        // 1. Gather dynamic localStorage keys (Engineering, Forge, Cache)
         const engineeringData: Record<string, any> = {};
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
@@ -165,7 +118,6 @@ export const useAppManager = () => {
             }
         }
 
-        // 2. Combine with Core State from Ref
         const current = stateRef.current;
         return {
             stats: current.stats,
@@ -177,7 +129,7 @@ export const useAppManager = () => {
             engineeringData,
             version: "3.6"
         };
-    }, []); // No deps needed as it uses ref
+    }, []);
 
     // --- SYNC ENGINE ---
     const { status: syncStatus, requestSync } = useSync({
@@ -191,7 +143,6 @@ export const useAppManager = () => {
         }
     });
 
-    // Helper Action: Component calls this when it modifies important data
     const notifyDataChange = (highPriority = false) => {
         if (!preferences.syncConfig.autoSync) return;
         requestSync({ force: highPriority, delay: highPriority ? 0 : 5000 });
@@ -199,7 +150,6 @@ export const useAppManager = () => {
 
     const updatePreferences = (p: Partial<UserPreferences>) => {
         setPreferences(prev => ({ ...prev, ...p }));
-        // Preferences changes are usually medium priority, debounce 2s
         if (preferences.syncConfig.autoSync) requestSync({ delay: 2000 });
     };
 
@@ -218,7 +168,6 @@ export const useAppManager = () => {
         const context = await generateLeetCodeContext(problemName, preferences);
         setActiveProblemContext(context);
         localStorage.setItem(cacheKey, JSON.stringify(context));
-        // Context generation is expensive, sync it casually
         notifyDataChange(false);
     };
 
@@ -230,6 +179,7 @@ export const useAppManager = () => {
         setGenerationError(null);
         setReviewTargetId(null);
 
+        // IDE Mode (Node 6)
         if (nodeIndex === 6) {
             setCurrentLessonPlan({
                 title: activeProblem.name,
@@ -251,6 +201,185 @@ export const useAppManager = () => {
             setView('runner');
         } catch (e: any) {
             setGenerationError(e.message);
+        }
+    };
+
+    // --- NEW: DIRECT IDE ACCESS (FOR REVIEW HUB) ---
+    // UPDATED: Now ensures context is loaded/generated before opening
+    const handleOpenIDE = async (problemId: string) => {
+        const problemData = PROBLEM_MAP[problemId];
+        const problemName = problemData ? problemData[preferences.spokenLanguage === 'Chinese' ? 'zh' : 'en'] : problemId;
+        
+        setActiveProblem({ id: problemId, name: problemName });
+        setActiveNodeIndex(6); // Force IDE Mode
+        setLoadingContext('review'); // Tag as review context
+        
+        const cacheKey = `algolingo_ctx_v3_${problemName}_${preferences.targetLanguage}`;
+        const cached = localStorage.getItem(cacheKey);
+        
+        let contextToUse: LeetCodeContext | null = null;
+
+        if (cached) {
+            try { 
+                contextToUse = JSON.parse(cached);
+            } catch(e) {}
+        } 
+        
+        if (!contextToUse) {
+            // Missing context! Generate it.
+            // Temporarily show loading screen for better UX
+            setView('loading');
+            try {
+                contextToUse = await generateLeetCodeContext(problemName, preferences);
+                localStorage.setItem(cacheKey, JSON.stringify(contextToUse));
+                notifyDataChange(false);
+            } catch (e: any) {
+                setGenerationError(e.message || "Failed to load problem context.");
+                return;
+            }
+        }
+
+        setActiveProblemContext(contextToUse);
+
+        setCurrentLessonPlan({
+            title: problemName,
+            description: "Review Session",
+            screens: [],
+            suggestedQuestions: [],
+            context: { type: 'algo', problemId: problemId }
+        });
+        
+        setView('runner');
+    };
+
+    const handleStartReviewSession = (problemIds: string[]) => {
+        if (problemIds.length === 0) return;
+        setReviewQueue(problemIds);
+        handleOpenIDE(problemIds[0]); // Start with first
+    };
+
+    // Updated handleLessonComplete for SRS
+    const handleLessonComplete = (resultStats: { xp: number; streak: number }, shouldSave: boolean, sessionMistakes: MistakeRecord[], evaluation?: { score: number; time: number }) => {
+        
+        const now = Date.now();
+        const pId = currentLessonPlan?.context?.problemId;
+
+        setStats(prev => ({
+            ...prev,
+            xp: prev.xp + resultStats.xp,
+            streak: resultStats.streak > 0 ? resultStats.streak : prev.streak,
+            history: { ...prev.history, [new Date().toISOString().split('T')[0]]: (prev.history[new Date().toISOString().split('T')[0]] || 0) + resultStats.xp },
+            
+            // --- SRS LOGIC UPDATE ---
+            retention: (() => {
+                if (!pId || !evaluation) return prev.retention; // Only update if problem ID and Eval exists
+                
+                const existing = prev.retention?.[pId] || { 
+                    problemId: pId, lastReview: now, nextReview: now, interval: 0, streak: 0, stability: 0, history: [] 
+                };
+
+                const score = evaluation.score; // 0-3
+                let newInterval = 1;
+                let newStreak = existing.streak;
+                const currentInterval = existing.interval;
+
+                // --- NEW STRICT TABLE LOGIC ---
+                // "1 Day" zone (Current <= 1)
+                if (currentInterval <= 1) {
+                    if (score === 3) { newInterval = 3; newStreak++; } // Perfect -> 3 Days
+                    else if (score === 2) { newInterval = 3; newStreak++; } // Good -> 3 Days
+                    else { newInterval = 1; newStreak = 0; } // Hard/Weak -> Stay (1 Day)
+                } 
+                // "3 Days" zone (Current >= 3 && < 7)
+                else if (currentInterval >= 3 && currentInterval < 7) {
+                    if (score === 3) { newInterval = 7; newStreak++; } // Perfect -> 7 Days
+                    else if (score === 2) { newInterval = 7; newStreak++; } // Good -> 7 Days
+                    else { newInterval = 1; newStreak = 0; } // Hard -> Punish to 1 Day
+                }
+                // "7 Days" zone (Current >= 7 && < 30)
+                else if (currentInterval >= 7 && currentInterval < 30) {
+                    if (score === 3) { newInterval = 30; newStreak++; } // Perfect -> 30 Days (Mastery)
+                    else if (score === 2) { newInterval = 15; newStreak++; } // Good -> 15 Days
+                    else { newInterval = 3; newStreak = 0; } // Hard -> Punish to 3 Days
+                }
+                // "30 Days+" zone (Current >= 30)
+                else {
+                    if (score === 3) { newInterval = currentInterval * 2; newStreak++; } // Perfect -> Double
+                    else if (score === 2) { newInterval = Math.round(currentInterval * 1.5); newStreak++; } // Good -> 1.5x
+                    else { newInterval = 7; newStreak = 0; } // Hard -> Punish to 7 Days
+                }
+
+                // Append History
+                const newHistory = [...(existing.history || []), {
+                    date: now,
+                    qScore: score,
+                    timeSpent: evaluation.time
+                }].slice(-10); // Keep last 10
+
+                return {
+                    ...prev.retention,
+                    [pId]: {
+                        ...existing,
+                        lastReview: now,
+                        nextReview: now + (newInterval * 24 * 60 * 60 * 1000),
+                        interval: newInterval,
+                        streak: newStreak,
+                        history: newHistory
+                    }
+                };
+            })()
+        }));
+
+        // ... (Existing Mistake Handling) ...
+        setMistakes(prev => {
+            const updated = [...prev];
+            sessionMistakes.forEach(m => {
+                const finger = generateFingerprint({ ...m, problemId: pId });
+                const existingIdx = updated.findIndex(ex => generateFingerprint(ex) === finger);
+                if (existingIdx !== -1) {
+                    updated[existingIdx] = { ...updated[existingIdx], timestamp: Date.now(), failureCount: (updated[existingIdx].failureCount || 1) + 1, isResolved: false, proficiency: 0 };
+                } else {
+                    updated.push({ ...m, problemId: pId, isResolved: false, failureCount: 1, proficiency: 0 });
+                }
+            });
+            return updated;
+        });
+
+        // ... (Saved Lessons Logic) ...
+        if (shouldSave && currentLessonPlan) {
+             setSavedLessons(prev => [{
+                id: Date.now().toString(),
+                problemId: pId || 'custom',
+                nodeIndex: activeNodeIndex,
+                timestamp: Date.now(),
+                plan: currentLessonPlan,
+                language: preferences.targetLanguage,
+                xpEarned: resultStats.xp,
+                mistakeCount: sessionMistakes.length
+            }, ...prev].slice(0, 50));
+            
+            // Progress Map Update (Only for non-IDE levels)
+            if (pId && pId !== 'custom' && activeNodeIndex !== -1 && activeNodeIndex < 6) {
+                const nextLevel = activeNodeIndex + 1;
+                const currentLevel = progressMap[preferences.targetLanguage]?.[pId] || 0;
+                if (nextLevel > currentLevel) {
+                    setProgressMap(prev => ({ ...prev, [preferences.targetLanguage]: { ...prev[preferences.targetLanguage], [pId]: nextLevel } }));
+                }
+            }
+        }
+        
+        notifyDataChange(true);
+
+        // --- QUEUE MANAGEMENT (PLAYLIST MODE) ---
+        if (reviewQueue.length > 1) {
+            // Remove current, start next
+            const nextQueue = reviewQueue.slice(1);
+            setReviewQueue(nextQueue);
+            // Small delay to allow UI to reset
+            setTimeout(() => handleOpenIDE(nextQueue[0]), 500);
+        } else {
+            setReviewQueue([]);
+            // Don't auto-close if this was the last one, wait for user to click "Finish" in LeetCodeRunner
         }
     };
 
@@ -282,80 +411,7 @@ export const useAppManager = () => {
         }
     };
 
-    const handleLessonComplete = (resultStats: { xp: number; streak: number }, shouldSave: boolean, sessionMistakes: MistakeRecord[]) => {
-        setStats(prev => {
-            const today = getTodayKey();
-            
-            // Just update XP and History here. 
-            // The useEffect will handle streak recalculation automatically based on the new history.
-            const newHistory = { 
-                ...prev.history, 
-                [today]: (prev.history[today] || 0) + resultStats.xp 
-            };
-
-            return {
-                ...prev,
-                xp: prev.xp + resultStats.xp,
-                // Streak is auto-calculated by effect, but we can optimistically update if we want.
-                // We'll let the effect do it to ensure consistency.
-                lastPlayed: today,
-                history: newHistory
-            };
-        });
-
-        setMistakes(prev => {
-            const updated = [...prev];
-            const pId = currentLessonPlan?.context?.problemId;
-
-            if (loadingContext === 'review' && sessionMistakes.length === 0) {
-                if (reviewTargetId) {
-                    const idx = updated.findIndex(m => m.id === reviewTargetId);
-                    if (idx !== -1) updated[idx] = { ...updated[idx], isResolved: true, proficiency: 2 };
-                } else {
-                    currentLessonPlan?.screens.forEach(s => {
-                        const mIdx = updated.findIndex(m => m.problemName === currentLessonPlan.title && m.context === s.header);
-                        if (mIdx !== -1) updated[mIdx].isResolved = true;
-                    });
-                }
-            }
-
-            sessionMistakes.forEach(m => {
-                const finger = generateFingerprint({ ...m, problemId: pId });
-                const existingIdx = updated.findIndex(ex => generateFingerprint(ex) === finger);
-                if (existingIdx !== -1) {
-                    updated[existingIdx] = { ...updated[existingIdx], timestamp: Date.now(), failureCount: (updated[existingIdx].failureCount || 1) + 1, isResolved: false, proficiency: 0 };
-                } else {
-                    updated.push({ ...m, problemId: pId, isResolved: false, failureCount: 1, proficiency: 0 });
-                }
-            });
-            return updated;
-        });
-
-        if (shouldSave && currentLessonPlan) {
-            const problemId = currentLessonPlan.context?.problemId || 'custom';
-            setSavedLessons(prev => [{
-                id: Date.now().toString(),
-                problemId,
-                nodeIndex: activeNodeIndex,
-                timestamp: Date.now(),
-                plan: currentLessonPlan,
-                language: preferences.targetLanguage,
-                xpEarned: resultStats.xp,
-                mistakeCount: sessionMistakes.length
-            }, ...prev].slice(0, 50));
-
-            if (problemId !== 'custom' && activeNodeIndex !== -1) {
-                const nextLevel = activeNodeIndex + 1;
-                const currentLevel = progressMap[preferences.targetLanguage]?.[problemId] || 0;
-                if (nextLevel > currentLevel) {
-                    setProgressMap(prev => ({ ...prev, [preferences.targetLanguage]: { ...prev[preferences.targetLanguage], [problemId]: nextLevel } }));
-                }
-            }
-        }
-        
-        notifyDataChange(true);
-    };
-
+    // ... (Other handlers unchanged) ...
     const handleDataLoaded = (data: any) => {
         if (data.stats) setStats(data.stats);
         if (data.progress) setProgressMap(data.progress);
@@ -363,17 +419,17 @@ export const useAppManager = () => {
         if (data.savedLessons) setSavedLessons(data.savedLessons);
         if (data.careerSessions) setCareerSessions(data.careerSessions);
         if (data.preferences) setPreferences(prev => ({ ...prev, ...data.preferences, hasOnboarded: true }));
-        
         if (data.engineeringData) {
             Object.entries(data.engineeringData).forEach(([key, value]) => {
-                if (key.startsWith('algolingo_')) {
-                    localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
-                }
+                if (key.startsWith('algolingo_')) localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
             });
         }
-        
         setRefreshKey(k => k + 1);
         requestSync({ force: true });
+    };
+
+    const handleRetryLoading = () => {
+        handleStartNode(activeNodeIndex, isSkipAttempt);
     };
 
     const handleExportData = () => {
@@ -392,9 +448,7 @@ export const useAppManager = () => {
             try {
                 const data = JSON.parse(e.target?.result as string);
                 handleDataLoaded(data);
-            } catch (err) {
-                alert("Invalid JSON file");
-            }
+            } catch (err) { alert("Invalid JSON file"); }
         };
         reader.readAsText(file);
     };
@@ -475,19 +529,15 @@ export const useAppManager = () => {
         }
     };
 
-    const handleRetryLoading = () => {
-        handleStartNode(activeNodeIndex, isSkipAttempt);
-    };
-
     return {
         state: { 
             view, activeTab, preferences, stats, progressMap, mistakes, savedLessons, syncStatus,
             activeProblem, activeNodeIndex, currentLessonPlan, activeForgeItem, activeCareerSession,
             loadingContext, generationError, generationRawError,
-            isSkipAttempt, careerSessions, activeProblemContext, refreshKey, engineeringNav
+            isSkipAttempt, careerSessions, activeProblemContext, refreshKey, engineeringNav, reviewQueue
         },
         actions: { 
-            updatePreferences, handleSelectProblem, handleStartNode, handleStartReview, 
+            updatePreferences, handleSelectProblem, handleStartNode, handleStartReview, handleOpenIDE, startReviewSession: handleStartReviewSession,
             setActiveTab, setView, handleDataLoaded, handleLessonComplete, 
             triggerSync: () => requestSync({ force: true }),
             notifyDataChange,

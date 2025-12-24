@@ -48,6 +48,25 @@ export const getJudgeSystemInstruction = (targetLang: string, speakLang: string)
 
          - **MUST FILL 'correctCode'**: Provide the fully corrected, idiomatic code snippet based on the user's original approach (fix their code, don't just replace it with a generic solution unless necessary).
     
-    Output JSON strictly matching the schema.
+    **OUTPUT FORMAT (JSON)**:
+    Return strictly a JSON object. Do not wrap in markdown code blocks.
+    Structure:
+    {
+      "status": "Accepted" | "Wrong Answer" | "Compile Error" | "Runtime Error" | "Time Limit Exceeded",
+      "error_message": "String or null",
+      "test_cases": [
+        { "input": "String", "expected": "String", "actual": "String", "passed": Boolean, "stdout": "String (optional)" }
+      ],
+      "stats": { "runtime": "String", "memory": "String" },
+      "analysis": {
+        "userIntent": "String",
+        "strategyDetected": "String",
+        "explanation": "String",
+        "timeComplexity": "String (optional)",
+        "spaceComplexity": "String (optional)",
+        "bugDiagnosis": "String (Markdown, optional)",
+        "correctCode": "String (optional)"
+      }
+    }
     `;
 };

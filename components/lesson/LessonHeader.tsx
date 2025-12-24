@@ -30,7 +30,8 @@ export const LessonHeader: React.FC<LessonHeaderProps> = ({
   headerTitle,
   language,
   totalTime,
-  onShowDescription
+  onShowDescription,
+  isReviewContext
 }) => {
   const [animateStreak, setAnimateStreak] = useState(false);
   
@@ -49,6 +50,7 @@ export const LessonHeader: React.FC<LessonHeaderProps> = ({
   
   const remainingLives = Math.max(0, 3 - mistakeCount);
   const remainingTime = totalTime ? Math.max(0, totalTime - timerSeconds) : timerSeconds;
+  
   const formatTime = (sec: number) => {
     const m = Math.floor(sec / 60);
     const s = sec % 60;
@@ -109,14 +111,14 @@ export const LessonHeader: React.FC<LessonHeaderProps> = ({
             </button>
         )}
 
-        {/* Exam Timer Mode */}
-        {totalTime ? (
-             <div className={`flex items-center gap-1.5 font-mono font-bold ${remainingTime < 60 ? 'text-red-500 animate-pulse' : 'text-gray-500'}`}>
+        {/* Timer Display (For Exams OR Review Context) */}
+        {(totalTime || isReviewContext) ? (
+             <div className={`flex items-center gap-1.5 font-mono font-bold ${totalTime && remainingTime < 60 ? 'text-red-500 animate-pulse' : 'text-gray-500'}`}>
                  <Clock size={18}/>
                  {formatTime(remainingTime)}
              </div>
         ) : isSkipMode ? (
-            /* Lives Mode (Skip/Exam) */
+            /* Lives Mode (Skip) */
             <div className="flex items-center gap-1">
                 <Heart size={24} className="text-red-500 fill-current animate-pulse-soft" />
                 <span className="font-black text-red-500 text-lg">{remainingLives}</span>

@@ -14,8 +14,9 @@ import { StreakCelebration } from './StreakCelebration';
 import { GlobalAiAssistant } from '../GlobalAiAssistant';
 import { DisputeModal } from './DisputeModal'; // NEW
 import { Button } from '../Button';
-import { LogOut, X, HeartCrack, AlertTriangle, ArrowRight, RefreshCw, AlertCircle, Wand2, ShieldCheck, HelpCircle, Loader2, CheckCircle2, FileText, ChevronRight, MessageSquare, RotateCcw, Bug } from 'lucide-react';
+import { LogOut, X, HeartCrack, AlertTriangle, ArrowRight, RefreshCw, AlertCircle, Wand2, ShieldCheck, HelpCircle, Loader2, CheckCircle2, FileText, ChevronRight, MessageSquare, RotateCcw, Bug, Clock } from 'lucide-react';
 import { MarkdownText } from '../common/MarkdownText'; 
+import { useTimer } from '../../hooks/useTimer';
 
 // Direct Widget Imports
 import { DialogueWidget } from '../widgets/Dialogue';
@@ -50,6 +51,10 @@ interface LessonRunnerProps {
   customSummaryActions?: SummaryAction[];
   allowMistakeLoop?: boolean;
   onDataChange?: (highPriority: boolean) => void;
+  // New props for LeetCode Runner stats
+  mistakes?: MistakeRecord[];
+  queueTotal?: number;
+  queueIndex?: number;
 }
 
 type RunnerPhase = 'lesson' | 'mistake_intro' | 'mistake_loop' | 'summary' | 'streak_celebration' | 'exam_summary';
@@ -121,32 +126,51 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       );
   };
 
+  // --- IDE MODE (Node 6) ---
   if (props.nodeIndex === 6) {
+    // Find retention record if it exists
+    const currentRetention = props.stats.retention?.[props.plan.context?.problemId || ''];
+    
+    // Setup independent timer for IDE mode
+    const { seconds } = useTimer(true);
+    const formatTime = (sec: number) => {
+        const m = Math.floor(sec / 60);
+        const s = sec % 60;
+        return `${m}:${s.toString().padStart(2, '0')}`;
+    };
+
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-100/90 dark:bg-black/90 backdrop-blur-md">
             <div className="flex w-full h-full relative overflow-hidden">
                 <div className={`h-full flex flex-col transition-all duration-300 ease-in-out ${showDescription ? 'w-full md:w-[calc(100%-450px)]' : 'w-full'}`}>
                     <div className="h-full bg-white dark:bg-dark-bg md:rounded-r-none shadow-2xl flex flex-col overflow-hidden border-r border-gray-200 dark:border-gray-700 relative animate-scale-in">
-                        <div className="h-10 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center px-4 bg-gray-50 dark:bg-dark-card shrink-0 select-none">
-                            <div className="flex items-center gap-2">
-                                <div className="flex gap-1.5 group">
-                                    <button onClick={props.onExit} className="w-3 h-3 rounded-full bg-red-500 hover:bg-red-600 transition-colors flex items-center justify-center">
-                                        <X size={8} className="text-red-900 opacity-0 group-hover:opacity-100"/>
-                                    </button>
-                                    <div className="w-3 h-3 rounded-full bg-yellow-500"/>
-                                    <div className="w-3 h-3 rounded-full bg-green-500"/>
-                                </div>
-                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider ml-2 border-l border-gray-300 dark:border-gray-600 pl-2">
+                        <div className="h-12 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center px-4 bg-gray-50 dark:bg-dark-card shrink-0 select-none">
+                            <div className="flex items-center gap-3">
+                                <button onClick={props.onExit} className="p-1.5 rounded-full hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-400 hover:text-red-500 transition-colors">
+                                    <X size={18}/>
+                                </button>
+                                <div className="h-6 w-px bg-gray-300 dark:bg-gray-600"></div>
+                                <span className="text-xs font-black text-gray-500 uppercase tracking-widest flex items-center gap-2">
                                     AlgoLingo IDE
                                 </span>
+                                {/* TIMER DISPLAY */}
+                                <div className="flex items-center gap-1.5 ml-4 bg-gray-200 dark:bg-gray-800 px-2.5 py-1 rounded-md text-xs font-mono font-bold text-gray-600 dark:text-gray-300">
+                                    <Clock size={12} />
+                                    {formatTime(seconds)}
+                                </div>
                             </div>
-                            <span className="text-xs font-bold text-gray-600 dark:text-gray-300 hidden md:block">{props.plan.title}</span>
+                            
+                            <span className="text-sm font-bold text-gray-800 dark:text-gray-200 hidden md:block truncate max-w-[300px]">
+                                {props.plan.title}
+                            </span>
+                            
                             <button 
                                 onClick={() => setShowDescription(!showDescription)}
-                                className={`p-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 transition-colors ${showDescription ? 'text-brand' : ''}`}
+                                className={`p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-500 transition-colors flex items-center gap-2 ${showDescription ? 'text-brand bg-brand/10' : ''}`}
                                 title="Toggle Description"
                             >
-                                <FileText size={16}/>
+                                <FileText size={18}/>
+                                <span className="hidden sm:inline text-xs font-bold">{props.language === 'Chinese' ? "描述" : "Description"}</span>
                             </button>
                         </div>
                         <div className="flex-1 overflow-hidden relative">
@@ -155,14 +179,19 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
                                 preferences={props.preferences}
                                 language={props.language}
                                 onSuccess={() => {
+                                    // Default success behavior if not handled by LeetCodeRunner's queue
                                     props.onComplete({xp: 50, streak: 1}, true, []);
                                     props.onExit();
                                 }}
-                                onSaveDrillResult={(stats, shouldSave, mistakes) => {
+                                onSaveDrillResult={(stats, shouldSave, mistakes, evalResult) => {
                                     props.onComplete(stats, shouldSave, mistakes);
                                 }}
                                 context={props.problemContext}
                                 onDataChange={props.onDataChange}
+                                currentRetention={currentRetention}
+                                allMistakes={props.mistakes}
+                                queueTotal={props.queueTotal}
+                                queueIndex={props.queueIndex}
                             />
                         </div>
                     </div>
@@ -190,6 +219,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       maxMistakes: (props.isSkipContext && !props.isReviewMode) ? 2 : undefined
   });
 
+  // ... (Rest of the component remains unchanged) ...
   const { validate } = useWidgetValidator();
   
   const [quizSelection, setQuizSelection] = useState<number | null>(null);

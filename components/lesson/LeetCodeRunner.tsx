@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
-import { LessonPlan, LeetCodeContext, UserPreferences, SolutionStrategy, MistakeRecord } from '../../types';
+import { LessonPlan, LeetCodeContext, UserPreferences, SolutionStrategy, MistakeRecord, RetentionRecord } from '../../types';
 import { VirtualWorkspace } from '../VirtualWorkspace';
-import { Loader2, Zap, ArrowRight, Layout, X, Home, RotateCcw, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Loader2, Zap, ArrowRight, Layout, X, Home, RotateCcw, AlertTriangle, RefreshCw, Star, Trophy, Clock, Target, Calendar, History, TrendingUp, AlertCircle, ArrowDown, Bot } from 'lucide-react';
 import { GlobalAiAssistant } from '../GlobalAiAssistant';
-import { generateProblemStrategies, generateSolutionDeepDive, generateMistakeRepairPlan } from '../../services/geminiService'; 
+import { generateProblemStrategies, generateSolutionDeepDive, generateMistakeRepairPlan, evaluateSubmissionQuality } from '../../services/geminiService'; 
 import { LessonRunner } from './LessonRunner'; 
 
 interface LeetCodeRunnerProps {
@@ -12,9 +12,14 @@ interface LeetCodeRunnerProps {
     preferences: UserPreferences;
     language: 'Chinese' | 'English';
     onSuccess: () => void;
-    onSaveDrillResult: (stats: { xp: number; streak: number }, shouldSave: boolean, mistakes: MistakeRecord[]) => void;
+    // Updated signature to accept data payload for SRS
+    onSaveDrillResult: (stats: { xp: number; streak: number }, shouldSave: boolean, mistakes: MistakeRecord[], evaluation?: { score: number, time: number }) => void;
     context?: LeetCodeContext | null; 
     onDataChange?: (highPriority: boolean) => void;
+    queueTotal?: number; 
+    queueIndex?: number;
+    currentRetention?: RetentionRecord; // Pass existing retention record to calculate next interval
+    allMistakes?: MistakeRecord[]; // Pass global mistakes to calculate historical stats
 }
 
 const adaptStrategy = (app: any, lang: string): SolutionStrategy => {
@@ -52,24 +57,64 @@ const adaptStrategy = (app: any, lang: string): SolutionStrategy => {
     };
 };
 
-export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preferences, language, onSuccess, onSaveDrillResult, context, onDataChange }) => {
-    // Steps: 'workspace' (IDE), 'generating' (Solution), 'drill' (Extra practice lesson)
-    const [step, setStep] = useState<'strategy-select' | 'generating' | 'workspace' | 'drill'>('workspace');
+// --- SRS LOGIC CALCULATOR (VISUAL ONLY) ---
+const calculateSRSProjection = (currentInterval: number, qScore: number, isZh: boolean) => {
+    let nextInterval = 1;
+    let zone = isZh ? "急救区" : "Emergency Zone";
+    let logic = "";
+    let color = "text-red-500";
+    let statusLabel = isZh ? "降级" : "Demoted";
+
+    if (currentInterval <= 1) {
+        if (qScore === 3) { nextInterval = 3; zone = "3-7 Days"; logic = isZh ? "表现完美，进入短周期。" : "Perfect. Enter short cycle."; color = "text-green-500"; statusLabel = isZh ? "晋级" : "Promoted"; }
+        else if (qScore === 2) { nextInterval = 3; zone = "3-7 Days"; logic = isZh ? "表现良好，晋级。" : "Good. Promoted."; color = "text-green-500"; statusLabel = isZh ? "晋级" : "Promoted"; }
+        else { nextInterval = 1; zone = "1 Day"; logic = isZh ? "表现挣扎，保持急救。" : "Struggled. Stay in Emergency."; color = "text-yellow-500"; statusLabel = isZh ? "保持" : "Stagnant"; }
+    } else if (currentInterval >= 3 && currentInterval < 7) {
+        if (qScore === 3) { nextInterval = 7; zone = "3-7 Days"; logic = isZh ? "完美记忆，延长周期。" : "Perfect. Extend cycle."; color = "text-green-500"; statusLabel = isZh ? "晋级" : "Promoted"; }
+        else if (qScore === 2) { nextInterval = 7; zone = "3-7 Days"; logic = isZh ? "正常晋级。" : "Normal Promotion."; color = "text-green-500"; statusLabel = isZh ? "晋级" : "Promoted"; }
+        else { nextInterval = 1; zone = "1 Day"; logic = isZh ? "表现不好，打回急救。" : "Failed. Back to Emergency."; color = "text-red-500"; statusLabel = isZh ? "降级" : "Demoted"; }
+    } else if (currentInterval >= 7 && currentInterval < 30) {
+        if (qScore === 3) { nextInterval = 30; zone = "30 Days"; logic = isZh ? "晋升大师：进入长周期。" : "Mastery. Enter long cycle."; color = "text-purple-500"; statusLabel = isZh ? "大师" : "Master"; }
+        else if (qScore === 2) { nextInterval = 15; zone = "30 Days"; logic = isZh ? "晋升，周期稍短。" : "Promoted, shorter cycle."; color = "text-green-500"; statusLabel = isZh ? "晋级" : "Promoted"; }
+        else { nextInterval = 3; zone = "3-7 Days"; logic = isZh ? "降级惩罚：退回上一级。" : "Demoted. Return to previous."; color = "text-red-500"; statusLabel = isZh ? "降级" : "Demoted"; }
+    } else {
+        if (qScore === 3) { nextInterval = currentInterval * 2; zone = "30 Days+"; logic = isZh ? "指数增长。" : "Exponential Growth."; color = "text-purple-500"; statusLabel = isZh ? "神话" : "Legend"; }
+        else if (qScore === 2) { nextInterval = Math.round(currentInterval * 1.5); zone = "30 Days+"; logic = isZh ? "稳步增长。" : "Steady Growth."; color = "text-blue-500"; statusLabel = isZh ? "稳固" : "Stable"; }
+        else { nextInterval = 7; zone = "3-7 Days"; logic = isZh ? "长期记忆模糊，大幅惩罚。" : "Fuzzy memory. Heavy penalty."; color = "text-red-600"; statusLabel = isZh ? "重修" : "Retrain"; }
+    }
+
+    return { nextInterval, zone, logic, color, statusLabel };
+};
+
+export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ 
+    plan, preferences, language, onSuccess, onSaveDrillResult, context, onDataChange,
+    queueTotal = 1, queueIndex = 0, currentRetention, allMistakes = []
+}) => {
+    // Steps: 'workspace' (IDE), 'generating' (Solution), 'drill' (Extra practice), 'evaluating' (New AI Judge)
+    const [step, setStep] = useState<'strategy-select' | 'generating' | 'workspace' | 'drill' | 'evaluating'>('workspace');
     const [loadingMsg, setLoadingMsg] = useState("");
     const [strategies, setStrategies] = useState<SolutionStrategy[]>([]);
     const [activeStrategyId, setActiveStrategyId] = useState<string | null>(null);
     const [drillPlan, setDrillPlan] = useState<LessonPlan | null>(null);
-    const [generationError, setGenerationError] = useState<string | null>(null); // New Error State
+    const [generationError, setGenerationError] = useState<string | null>(null); 
     const isZh = language === 'Chinese';
+
+    // Evaluation Data
+    const [evalResult, setEvalResult] = useState<{ score: number, reason: string, nextIntervalRecommendation: string, time: number, attempts: number } | null>(null);
 
     // Timeout State
     const [loadingTime, setLoadingTime] = useState(0);
     const [targetStrategyId, setTargetStrategyId] = useState<string | null>(null);
 
-    // Timer Logic for Generating State
+    // Calculate historical stats
+    const problemId = plan.context?.problemId;
+    const historicalFailures = allMistakes.filter(m => m.problemId === problemId || m.problemName === plan.title).length;
+    const recentFailures = allMistakes.filter(m => m.problemId === problemId || m.problemName === plan.title).slice(-7).length; // Rough avg
+    
+    // Timer Logic for Generating/Evaluating State
     useEffect(() => {
         let interval: any;
-        if (step === 'generating') {
+        if (step === 'generating' || step === 'evaluating') {
             setLoadingTime(0);
             interval = setInterval(() => setLoadingTime(t => t + 1), 1000);
         }
@@ -111,11 +156,10 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
 
         setLoadingMsg(isZh ? "正在生成深度题解..." : "Generating deep dive...");
         setStep('generating');
-        setGenerationError(null); // Clear previous errors
+        setGenerationError(null); 
         setTargetStrategyId(strategyId);
         
         try {
-            // NEW API CALL
             const officialData = await generateSolutionDeepDive(
                 plan.title, 
                 strategy.title, 
@@ -166,14 +210,13 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
                     return app;
                 });
                 localStorage.setItem(cacheKey, JSON.stringify(parsed));
-                onDataChange?.(true); // Critical update
+                onDataChange?.(true); 
             }
 
             setStep('workspace');
         } catch (e: any) {
             console.error("Strategy Gen Failed", e);
             setGenerationError(e.message || "Unknown generation error. The AI might be busy.");
-            // Do NOT automatically close. Let user read error.
         }
     };
 
@@ -221,6 +264,48 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
         setDrillPlan(null);
     };
 
+    // --- EVALUATION HANDLER ---
+    const handleWorkspaceSuccess = async (code: string, attempts: number, time: number) => {
+        setStep('evaluating');
+        setLoadingMsg(isZh ? "AI 正在评估代码质量 (快速通道)..." : "AI evaluating (Fast Lane)...");
+        
+        try {
+            // Call AI Evaluator (Layer 2)
+            const result = await evaluateSubmissionQuality(
+                code, 
+                time, 
+                attempts, 
+                context?.problem.description || plan.title,
+                preferences
+            );
+            
+            setEvalResult({
+                ...result,
+                time,
+                attempts
+            });
+            // Don't auto-close, let user see modal
+        } catch(e) {
+            // Fallback if AI fails: Assume Good
+            setEvalResult({ score: 2, reason: "Manual pass.", nextIntervalRecommendation: "3 days", time, attempts });
+        }
+    };
+
+    const confirmEvaluation = () => {
+        if (!evalResult) return;
+        
+        // Pass score back to AppManager
+        onSaveDrillResult(
+            { xp: 50 + (evalResult.score * 10), streak: 1 }, 
+            true, 
+            [], // No mistakes on success
+            { score: evalResult.score, time: evalResult.time || 60 }
+        );
+        
+        // Return to Hub or Next Problem
+        onSuccess();
+    };
+
     if (!context) {
         return (
             <div className="flex flex-col items-center justify-center h-full text-gray-400 bg-gray-50 dark:bg-dark-bg">
@@ -247,9 +332,27 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
         }
     ];
 
+    const formatTime = (seconds: number) => {
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return `${m}m ${s}s`;
+    };
+
+    // Calculate SRS Visuals
+    const currentInterval = currentRetention?.interval || 1;
+    const srsData = evalResult ? calculateSRSProjection(currentInterval, evalResult.score, isZh) : null;
+
     return (
         <div className="flex h-full relative bg-gray-50 dark:bg-dark-bg overflow-hidden">
             <GlobalAiAssistant problemName={plan.title} preferences={preferences} language={language} />
+
+            {/* Session Info Overlay (Queue Position) */}
+            {step === 'workspace' && queueTotal > 1 && (
+                <div className="absolute top-16 right-6 z-40 bg-black/80 text-white px-3 py-1 rounded-full text-xs font-bold border border-white/10 shadow-lg pointer-events-none flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                    Queue: {queueIndex + 1} / {queueTotal}
+                </div>
+            )}
 
             <div className="w-full h-full flex flex-col transition-all duration-300 ease-in-out relative">
                 
@@ -257,7 +360,7 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
                     <VirtualWorkspace 
                         context={context} 
                         preferences={preferences} 
-                        onSuccess={onSuccess}
+                        onSuccess={handleWorkspaceSuccess}
                         strategies={strategies}
                         activeStrategyId={activeStrategyId}
                         onSelectStrategy={handleStrategySelect}
@@ -267,6 +370,135 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({ plan, preference
                     />
                 </div>
 
+                {/* Evaluation Modal (Report Card) */}
+                {step === 'evaluating' && (
+                    <div className="absolute inset-0 z-50 flex flex-col items-center justify-center text-gray-800 dark:text-white bg-white/95 dark:bg-dark-bg/95 backdrop-blur-md animate-fade-in-up overflow-y-auto p-4">
+                        {!evalResult ? (
+                            <div className="flex flex-col items-center gap-4">
+                                <Loader2 size={48} className="animate-spin text-brand"/>
+                                <p className="font-bold text-sm uppercase tracking-wider animate-pulse">
+                                    {loadingMsg}
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="bg-white dark:bg-[#111] w-full max-w-2xl rounded-3xl shadow-2xl border border-gray-200 dark:border-gray-800 relative overflow-hidden flex flex-col">
+                                {/* Top Banner */}
+                                <div className={`h-24 bg-gradient-to-r ${srsData?.color === 'text-red-500' ? 'from-red-500/20 to-red-900/20' : 'from-brand/20 to-emerald-500/20'} flex items-center justify-center relative overflow-hidden`}>
+                                    <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
+                                    <div className={`text-4xl font-black ${srsData?.color} drop-shadow-sm flex items-center gap-3`}>
+                                        {evalResult.score === 3 ? "PERFECT" : (evalResult.score === 2 ? "GOOD" : "PASSED")}
+                                        <div className="bg-white dark:bg-black rounded-full p-2 text-xl shadow-lg border-2 border-current">
+                                            {evalResult.score}/3
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="p-8 space-y-8">
+                                    {/* 1. Stats Grid */}
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                        <div className="bg-gray-50 dark:bg-gray-800/50 p-3 rounded-2xl border border-gray-100 dark:border-gray-700 flex flex-col items-center justify-center">
+                                            <span className="text-xs font-bold text-gray-400 uppercase">{isZh ? "本次用时" : "Time"}</span>
+                                            <div className="flex items-center gap-1 text-lg font-black text-gray-800 dark:text-white">
+                                                <Clock size={16} className="text-blue-500"/>
+                                                {formatTime(evalResult.time)}
+                                            </div>
+                                        </div>
+                                        <div className="bg-gray-50 dark:bg-gray-800/50 p-3 rounded-2xl border border-gray-100 dark:border-gray-700 flex flex-col items-center justify-center">
+                                            <span className="text-xs font-bold text-gray-400 uppercase">{isZh ? "失败尝试" : "Retries"}</span>
+                                            <div className="flex items-center gap-1 text-lg font-black text-gray-800 dark:text-white">
+                                                <RefreshCw size={16} className={evalResult.attempts === 0 ? "text-green-500" : "text-yellow-500"}/>
+                                                {evalResult.attempts}
+                                            </div>
+                                        </div>
+                                        <div className="bg-gray-50 dark:bg-gray-800/50 p-3 rounded-2xl border border-gray-100 dark:border-gray-700 flex flex-col items-center justify-center">
+                                            <span className="text-xs font-bold text-gray-400 uppercase">{isZh ? "历史错误" : "Hist. Fails"}</span>
+                                            <div className="flex items-center gap-1 text-lg font-black text-gray-800 dark:text-white">
+                                                <History size={16} className="text-orange-500"/>
+                                                {historicalFailures}
+                                            </div>
+                                        </div>
+                                        <div className="bg-gray-50 dark:bg-gray-800/50 p-3 rounded-2xl border border-gray-100 dark:border-gray-700 flex flex-col items-center justify-center">
+                                            <span className="text-xs font-bold text-gray-400 uppercase">{isZh ? "近期错误" : "Recent Avg"}</span>
+                                            <div className="flex items-center gap-1 text-lg font-black text-gray-800 dark:text-white">
+                                                <AlertCircle size={16} className="text-red-500"/>
+                                                {(recentFailures / 7).toFixed(1)}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* 2. SRS Progression Visual */}
+                                    <div className="bg-white dark:bg-black/30 rounded-2xl border-2 border-gray-100 dark:border-gray-800 overflow-hidden relative">
+                                        <div className="bg-gray-50 dark:bg-gray-800/80 px-4 py-2 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">
+                                            <span className="text-xs font-black uppercase text-gray-500 flex items-center gap-2">
+                                                <TrendingUp size={14}/> {isZh ? "记忆曲线演变" : "Memory Curve Evolution"}
+                                            </span>
+                                            <span className={`text-xs font-bold px-2 py-0.5 rounded uppercase ${srsData?.color} bg-white dark:bg-black border border-current`}>
+                                                {srsData?.statusLabel}
+                                            </span>
+                                        </div>
+                                        
+                                        <div className="p-6 flex items-center justify-between relative">
+                                            {/* From */}
+                                            <div className="text-center z-10">
+                                                <div className="text-xs font-bold text-gray-400 uppercase mb-1">{isZh ? "当前间隔" : "Current"}</div>
+                                                <div className="text-2xl font-black text-gray-700 dark:text-gray-300">{currentInterval} <span className="text-xs">Days</span></div>
+                                            </div>
+
+                                            {/* Arrow */}
+                                            <div className="flex-1 flex flex-col items-center px-4 relative z-0">
+                                                <div className="h-0.5 w-full bg-gray-200 dark:bg-gray-700 absolute top-1/2 -translate-y-1/2"></div>
+                                                <div className={`relative z-10 bg-white dark:bg-[#111] px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm text-xs font-bold ${srsData?.color}`}>
+                                                    Q-Score: {evalResult.score}
+                                                </div>
+                                                <ArrowRight size={16} className={`mt-1 ${srsData?.color}`} />
+                                            </div>
+
+                                            {/* To */}
+                                            <div className="text-center z-10">
+                                                <div className="text-xs font-bold text-gray-400 uppercase mb-1">{isZh ? "下次复习" : "Next Review"}</div>
+                                                <div className={`text-3xl font-black ${srsData?.color}`}>{srsData?.nextInterval} <span className="text-sm">Days</span></div>
+                                                <div className="text-[10px] font-bold text-gray-400 mt-1 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">
+                                                    {srsData?.zone}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Logic Explanation Footer */}
+                                        <div className="bg-gray-50/50 dark:bg-gray-800/30 px-4 py-2 text-center border-t border-gray-100 dark:border-gray-800">
+                                            <p className="text-xs text-gray-500 font-medium flex items-center justify-center gap-1">
+                                                <Target size={12}/>
+                                                {srsData?.logic}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {/* 3. AI Feedback Text */}
+                                    <div className="text-left bg-blue-50 dark:bg-blue-900/10 p-5 rounded-2xl border border-blue-100 dark:border-blue-900/30">
+                                        <h4 className="text-xs font-bold text-blue-500 uppercase mb-2 flex items-center gap-1">
+                                            <Bot size={14}/> {isZh ? "AI 评语" : "AI Feedback"}
+                                        </h4>
+                                        <p className="text-sm text-gray-700 dark:text-gray-300 font-medium leading-relaxed">
+                                            {evalResult.reason}
+                                        </p>
+                                    </div>
+
+                                    <button 
+                                        onClick={confirmEvaluation}
+                                        className="w-full py-4 bg-gray-900 dark:bg-white text-white dark:text-black rounded-2xl font-bold text-lg shadow-xl hover:scale-[1.01] transition-all flex items-center justify-center gap-2"
+                                    >
+                                        {queueIndex < queueTotal - 1 
+                                            ? (isZh ? "继续下一题 (队列中)" : "Next Problem in Queue") 
+                                            : (isZh ? "完成复习" : "Finish Session")
+                                        }
+                                        <ArrowRight size={20}/>
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Generating/Error Screen */}
                 {step === 'generating' && (
                     <div className="absolute inset-0 z-50 flex flex-col items-center justify-center text-gray-400 bg-white/95 dark:bg-dark-bg/95 backdrop-blur-sm animate-fade-in-up">
                         {generationError ? (

@@ -1,4 +1,5 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+
+import React, { ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, Trash2, RefreshCw } from 'lucide-react';
 
 interface ErrorBoundaryProps {
@@ -11,8 +12,8 @@ interface ErrorBoundaryState {
   isZh: boolean;
 }
 
-export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  state: ErrorBoundaryState = {
+export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  public state: ErrorBoundaryState = {
     hasError: false,
     error: null,
     isZh: true,

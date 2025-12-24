@@ -26,11 +26,19 @@ export interface Achievement {
     unlockedAt?: number;
 }
 
+// Updated for SRS Algorithm
 export interface RetentionRecord {
+    problemId: string; // Explicit ID link
     lastReview: number; // Timestamp
-    interval: number;   // Days until next review
-    stability: number;  // 0-100 score
+    interval: number;   // Days until next review (1, 3, 7, 30...)
+    stability: number;  // 0-100 score (Legacy compat, can use for visual health)
     nextReview: number; // Timestamp
+    streak: number;     // Consecutive correct reviews
+    history: {          // Audit trail for AI analysis
+        date: number;
+        qScore: number; // 0-3 Quality Score
+        timeSpent: number;
+    }[];
 }
 
 export interface UserStats {
@@ -44,7 +52,7 @@ export interface UserStats {
   quests?: DailyQuest[];
   achievements?: Achievement[];
   
-  // Spaced Repetition Data
+  // Spaced Repetition Data (Key: problemId)
   retention?: Record<string, RetentionRecord>;
 }
 

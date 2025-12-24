@@ -72,8 +72,22 @@ export const useLessonEngine = ({ plan, nodeIndex, onComplete, isReviewMode = fa
         setStatus('correct');
         setStreak(s => s === 0 ? 1 : s + 1);
         setXpGained(x => x + 10);
-        mistakeManager.removeLastMistake();
-    }, [mistakeManager]);
+        
+        if (mistakeManager.isInMistakeLoop) {
+             // In loop: We didn't record a new mistake, we just queued a retry in handleCheck.
+             // We need to un-queue that retry to stop the infinite loop for this item.
+             setScreens(prev => {
+                 // Safety check: ensure we are actually removing an added screen (length > current + 1)
+                 if (prev.length > currentIndex + 1) {
+                     return prev.slice(0, -1);
+                 }
+                 return prev;
+             });
+        } else {
+             // Normal mode: The mistake was just recorded in sessionMistakes. Remove it.
+             mistakeManager.removeLastMistake();
+        }
+    }, [mistakeManager, currentIndex]);
 
     const handleCheck = useCallback((isCorrect: boolean) => {
         if (isCorrect) {

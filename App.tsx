@@ -24,7 +24,7 @@ export default function App() {
       preferences, stats, progressMap, mistakes, savedLessons,
       activeProblem, activeNodeIndex, currentLessonPlan, activeForgeItem,
       generationError, generationRawError, isSkipAttempt, activeCareerSession, careerSessions,
-      activeProblemContext, refreshKey, syncStatus
+      activeProblemContext, refreshKey, syncStatus, reviewQueue
   } = state;
 
   const [showDailyStandup, setShowDailyStandup] = useState(false);
@@ -69,12 +69,38 @@ export default function App() {
 
   const renderContent = () => {
     if (view === 'loading') return <LoadingScreen problemName={activeProblem?.name} phase={activeNodeIndex} language={preferences.spokenLanguage} onRetry={actions.handleRetryLoading} error={generationError} rawErrorOutput={generationRawError} onCancel={() => actions.setView('dashboard')} />;
-    if (view === 'runner' && currentLessonPlan) return <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur flex items-center justify-center p-0 md:p-4"><div className="w-full h-full md:w-[95vw] md:h-[95vh] bg-white dark:bg-dark-bg rounded-none md:rounded-3xl overflow-hidden shadow-2xl border border-gray-200 dark:border-gray-800"><LessonRunner plan={currentLessonPlan} nodeIndex={activeNodeIndex} onComplete={actions.handleLessonComplete} onExit={() => actions.setView(activeForgeItem ? 'forge-detail' : 'dashboard')} language={preferences.spokenLanguage} preferences={preferences} isReviewMode={state.loadingContext === 'review'} isSkipContext={isSkipAttempt} stats={stats} problemContext={activeProblemContext} onDataChange={actions.notifyDataChange} /></div></div>;
+    if (view === 'runner' && currentLessonPlan) return (
+        <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur flex items-center justify-center p-0 md:p-4">
+            <div className="w-full h-full md:w-[95vw] md:h-[95vh] bg-white dark:bg-dark-bg rounded-none md:rounded-3xl overflow-hidden shadow-2xl border border-gray-200 dark:border-gray-800">
+                <LessonRunner 
+                    plan={currentLessonPlan} 
+                    nodeIndex={activeNodeIndex} 
+                    onComplete={actions.handleLessonComplete} 
+                    onExit={() => actions.setView(activeForgeItem ? 'forge-detail' : 'dashboard')} 
+                    language={preferences.spokenLanguage} 
+                    preferences={preferences} 
+                    isReviewMode={state.loadingContext === 'review'} 
+                    isSkipContext={isSkipAttempt} 
+                    stats={stats} 
+                    problemContext={activeProblemContext} 
+                    onDataChange={actions.notifyDataChange}
+                    // Pass Queue Stats for Playlist UI in LeetCodeRunner
+                    queueTotal={reviewQueue.length > 0 ? reviewQueue.length + 1 : 1} // +1 for current active one if not in queue
+                    queueIndex={0} // Always 0 because we shift queue. Or we can track total original length.
+                    // Actually handleLessonComplete manages shifting. The UI just needs to know "Are there more?"
+                    // A simple check is: reviewQueue.length > 0 means there is a "Next".
+                    // But for "X/Total" display we need persistent total.
+                    // For simplicity now, just pass current queue length as "remaining" indicator.
+                    mistakes={mistakes} // Pass global mistakes to calc history stats
+                />
+            </div>
+        </div>
+    );
     if (view === 'unit-map' && activeProblem) return <UnitMap problemName={activeProblem.name} currentLevel={progressMap[preferences.targetLanguage]?.[activeProblem.id] || 0} savedLessons={savedLessons.filter(l => l.problemId === activeProblem?.id && l.language === preferences.targetLanguage)} onStartLevel={actions.handleStartNode} onLoadSaved={(l) => actions.handleStartCustomLesson(l.plan)} onBack={() => actions.setView('dashboard')} language={preferences.spokenLanguage} failedSkips={preferences.failedSkips} preferences={preferences} problemContext={activeProblemContext} onEnsureContext={actions.handleEnsureProblemContext} onDataChange={actions.notifyDataChange} />;
     if (view === 'forge-detail' && activeForgeItem) return <ForgeDetailView roadmap={activeForgeItem} onBack={() => actions.setView('dashboard')} onStartStage={(plan) => actions.handleStartCustomLesson(plan)} preferences={preferences} language={preferences.spokenLanguage} />;
 
     switch (activeTab) {
-        case 'review': return <ReviewHub mistakeCount={mistakes.length} mistakes={mistakes} onStartReview={() => actions.handleStartReview('ai')} onStartMistakePractice={actions.handleStartReview} onStartSyntaxClinic={actions.handleStartClinic} onGenerateVariant={actions.handleGenerateVariant} onBack={() => actions.setActiveTab('algorithms')} targetLanguage={preferences.targetLanguage} retentionStats={stats.retention} language={preferences.spokenLanguage} />;
+        case 'review': return <ReviewHub mistakeCount={mistakes.length} mistakes={mistakes} onStartReview={() => actions.handleStartReview('ai')} onStartMistakePractice={actions.handleStartReview} onStartSyntaxClinic={actions.handleStartClinic} onGenerateVariant={actions.handleGenerateVariant} onBack={() => actions.setActiveTab('algorithms')} targetLanguage={preferences.targetLanguage} retentionStats={stats.retention} language={preferences.spokenLanguage} progressMap={progressMap[preferences.targetLanguage] || {}} onOpenIDE={actions.handleOpenIDE} onStartSession={actions.startReviewSession} />;
         case 'engineering': return <EngineeringHub preferences={preferences} onUpdatePreferences={actions.updatePreferences} language={preferences.spokenLanguage} onStartLesson={(p) => actions.handleStartCustomLesson(p)} onDataChange={actions.notifyDataChange} />;
         case 'forge': return <Forge language={preferences.spokenLanguage} onViewItem={actions.handleViewForgeItem} preferences={preferences} onDataChange={actions.notifyDataChange} />;
         case 'career': return <CareerLobby language={preferences.spokenLanguage} onStartSession={actions.handleStartCareerSession} onStartLesson={(p) => actions.handleStartCustomLesson(p)} onStartExam={actions.handleStartCareerExam} onViewRoadmap={actions.handleViewForgeItem} preferences={preferences} savedLessons={savedLessons} careerSessions={careerSessions} />;
