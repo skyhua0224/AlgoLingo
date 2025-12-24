@@ -166,11 +166,34 @@ export const pushToGist = async (token: string, data: any, gistId?: string): Pro
     }
 };
 
-// 4. Pull Cloud -> Local
-export const pullFromGist = async (token: string, gistId: string): Promise<{ success: boolean; data?: SyncPayload; error?: string }> => {
-    const status = await checkCloudStatus(token, gistId);
-    if (status.exists && status.cloudData) {
-        return { success: true, data: status.cloudData };
+// 4. Pull Cloud -> Local (Supports specific version SHA)
+export const pullFromGist = async (token: string, gistId: string, versionSha?: string): Promise<{ success: boolean; data?: SyncPayload; error?: string }> => {
+    // If versionSha provided, construct URL to that specific commit
+    const cleanToken = sanitize(token);
+    
+    try {
+        let gistData;
+        
+        if (versionSha) {
+            // Fetch specific revision
+            const res = await fetch(`https://api.github.com/gists/${gistId}/${versionSha}`, { headers: getHeaders(cleanToken) });
+            if (!res.ok) throw new Error("Commit not found");
+            gistData = await res.json();
+        } else {
+            // Fetch HEAD
+            const status = await checkCloudStatus(token, gistId);
+            if (!status.exists || !status.cloudData) throw new Error(status.error || "Gist not found");
+            return { success: true, data: status.cloudData };
+        }
+
+        if (gistData && gistData.files[GIST_FILENAME]) {
+            const contentStr = gistData.files[GIST_FILENAME].content;
+            return { success: true, data: JSON.parse(contentStr) };
+        }
+        
+        throw new Error("File missing in Gist");
+
+    } catch (e: any) {
+        return { success: false, error: e.message || "Data not found" };
     }
-    return { success: false, error: status.error || "Data not found" };
 };

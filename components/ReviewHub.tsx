@@ -1,9 +1,9 @@
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { 
     Activity, Calendar, AlertTriangle, Sparkles, 
     RotateCcw, CheckCircle2, RefreshCw,
-    Zap, Layers, Box, Hash, Clock, ArrowRight
+    Zap, Layers, Box, Hash, Clock, ArrowRight, X
 } from 'lucide-react';
 import { MistakeRecord, RetentionRecord } from '../types';
 import { PROBLEM_CATEGORIES, PROBLEM_MAP } from '../constants';
@@ -39,7 +39,7 @@ const LOCALE = {
     Chinese: {
         retentionTitle: "当前全站记忆留存率",
         statusGood: "状态良好",
-        pressureTitle: "未来 7 天复习压力",
+        pressureTitle: "未来 7 天复习压力 (已精通)",
         normal: "正常",
         heavy: "繁重",
         reviewList: "记忆循环看板 (Memory Loops)",
@@ -59,12 +59,16 @@ const LOCALE = {
             monthly: "💎 30 天循环区 (Deep Memory)",
             monthlyDesc: "长期封存 / 肌肉记忆",
             empty: "暂无条目"
-        }
+        },
+        forecastPopup: "复习详情",
+        startPractice: "立即复习",
+        startEarly: "提前抢跑 (Early Review)",
+        close: "关闭"
     },
     English: {
         retentionTitle: "Current Retention Rate",
         statusGood: "Status Good",
-        pressureTitle: "7-Day Review Pressure",
+        pressureTitle: "7-Day Review Pressure (Mastered)",
         normal: "Normal",
         heavy: "Heavy",
         reviewList: "Memory Loops (Golden Track)",
@@ -84,12 +88,15 @@ const LOCALE = {
             monthly: "💎 30 Days Loop (Deep Memory)",
             monthlyDesc: "Long-term Mastery",
             empty: "Empty"
-        }
+        },
+        forecastPopup: "Review Details",
+        startPractice: "Review Now",
+        startEarly: "Start Early (Practice)",
+        close: "Close"
     }
 };
 
 const getDifficulty = (id: string): 'Easy' | 'Medium' | 'Hard' => {
-    // Deterministic pseudo-random difficulty based on ID char codes
     const n = id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
     if (n % 3 === 0) return 'Easy';
     if (n % 3 === 1) return 'Medium';
@@ -102,7 +109,6 @@ const formatDueTime = (nextReview: number, isZh: boolean) => {
     const days = Math.floor(hours / 24);
 
     if (diff < 0) {
-        // Overdue
         const overdueDays = Math.abs(days);
         if (overdueDays === 0) return isZh ? "刚刚到期" : "Just now";
         return isZh ? `逾期 ${overdueDays} 天` : `Overdue ${overdueDays}d`;
@@ -124,11 +130,25 @@ export const ReviewHub: React.FC<ReviewHubProps> = ({
     const t = LOCALE[language];
     const isZh = language === 'Chinese';
     const langKey = isZh ? 'zh' : 'en';
+    
+    const [selectedDayIndex, setSelectedDayIndex] = useState<number | null>(null);
+    const popoverRef = useRef<HTMLDivElement>(null);
 
-    // --- 1. Data Processing: Retention + Progress Fallback ---
+    // Click outside handler
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (popoverRef.current && !popoverRef.current.contains(event.target as Node)) {
+                setSelectedDayIndex(null);
+            }
+        };
+        if (selectedDayIndex !== null) {
+            document.addEventListener("mousedown", handleClickOutside);
+        }
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [selectedDayIndex]);
+
     const now = Date.now();
     
-    // Calculate Retention Rate safely
     const retentionRate = useMemo(() => {
         const records = Object.values(retentionStats) as RetentionRecord[];
         if (records.length === 0) return 0;
@@ -144,25 +164,20 @@ export const ReviewHub: React.FC<ReviewHubProps> = ({
         };
 
         const currentLangProgress = progressMap || {};
-
-        // 1. Identify ALL problems that should be in the system (Retention OR Mastered)
         const allProblemIds = new Set<string>([
             ...Object.keys(retentionStats),
-            ...Object.keys(currentLangProgress).filter(pid => currentLangProgress[pid] >= 6) // Level 6 = Mastered
+            ...Object.keys(currentLangProgress).filter(pid => currentLangProgress[pid] >= 6) 
         ]);
 
         allProblemIds.forEach(id => {
             const meta = PROBLEM_MAP[id];
             if (!meta) return;
 
-            const rec = retentionStats[id] as RetentionRecord | undefined; // Might be undefined if it's a fresh master
+            const rec = retentionStats[id] as RetentionRecord | undefined;
             const cat = PROBLEM_CATEGORIES.find(c => c.problems.includes(id));
             
-            // If record exists, use its data. If not, default to "Fresh/Daily" settings.
             const interval = rec ? rec.interval : 0;
             const stability = rec ? rec.stability : 0;
-            
-            // FIX: If nextReview is 0 (missing record), default to NOW (Due Immediately), NOT 1970
             const nextReview = rec ? rec.nextReview : now; 
 
             const item: KanbanItem = {
@@ -176,21 +191,15 @@ export const ReviewHub: React.FC<ReviewHubProps> = ({
                 stability
             };
 
-            // STRICT INTERVAL BUCKETING
-            if (interval <= 1.5) {
-                columns.daily.push(item);
-            } else if (interval <= 7.5) {
-                columns.weekly.push(item);
-            } else {
-                columns.monthly.push(item);
-            }
+            if (interval <= 1.5) columns.daily.push(item);
+            else if (interval <= 7.5) columns.weekly.push(item);
+            else columns.monthly.push(item);
         });
 
-        // Sort: Due items first (Overdue by largest margin), then by stability
         const sorter = (a: KanbanItem, b: KanbanItem) => {
             if (a.isDue !== b.isDue) return a.isDue ? -1 : 1;
-            if (a.isDue) return a.nextReview - b.nextReview; // Most overdue first (smallest timestamp)
-            return a.nextReview - b.nextReview; // Soonest next
+            if (a.isDue) return a.nextReview - b.nextReview; 
+            return a.nextReview - b.nextReview; 
         };
         
         columns.daily.sort(sorter);
@@ -212,40 +221,41 @@ export const ReviewHub: React.FC<ReviewHubProps> = ({
             const startOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
             const endOfDay = startOfDay + oneDay;
             
-            // Count items due on this specific day
-            const count = Object.values(retentionStats).filter((r: RetentionRecord) => 
-                r.nextReview >= startOfDay && r.nextReview < endOfDay
-            ).length;
+            // Explicitly cast to RetentionRecord array
+            const allRecords = Object.values(retentionStats) as RetentionRecord[];
 
-            // For today (i=0), include everything overdue + missing records (treated as due now)
-            let finalCount = count;
+            // Find items due on this day
+            const items = allRecords.filter(r => 
+                r.nextReview >= startOfDay && r.nextReview < endOfDay
+            ).map(r => r.problemId);
+
+            // Special handling for today (include overdue)
             if (i === 0) {
-                 const overdueCount = Object.values(retentionStats).filter((r: any) => (r as RetentionRecord).nextReview < startOfDay).length;
-                 const freshCount = kanbanData.daily.filter(k => k.isDue && !retentionStats[k.id]).length;
-                 finalCount = count + overdueCount + freshCount;
+                 const overdueItems = allRecords.filter(r => r.nextReview < startOfDay).map(r => r.problemId);
+                 // Also find "Fresh" items without retention records but mastered
+                 const freshItems = kanbanData.daily.filter(k => k.isDue && !retentionStats[k.id]).map(k => k.id);
+                 items.push(...overdueItems, ...freshItems);
             }
 
             days.push({
                 label: i === 0 ? (isZh ? "今天" : "Today") : `${date.getMonth() + 1}/${date.getDate()}`,
-                count: finalCount,
-                isToday: i === 0
+                count: items.length,
+                isToday: i === 0,
+                itemIds: Array.from(new Set(items)) // Dedupe
             });
         }
         return days;
     }, [retentionStats, kanbanData, isZh, now]);
 
-    // --- 3. Data Processing: Mistakes (Real Data) ---
     const activeMistakes = useMemo(() => {
         return mistakes.filter(m => !m.isResolved).slice(0, 10);
     }, [mistakes]);
 
-    // --- ACTIONS ---
     const handleStartSession = () => {
         const priorityQueue = [
             ...kanbanData.daily.filter(i => i.isDue),
             ...kanbanData.weekly.filter(i => i.isDue),
             ...kanbanData.monthly.filter(i => i.isDue),
-            // Buffer: if queue is small, add non-due items from daily
             ...kanbanData.daily.filter(i => !i.isDue) 
         ].map(i => i.id);
         
@@ -255,6 +265,16 @@ export const ReviewHub: React.FC<ReviewHubProps> = ({
             onStartSession(uniqueQueue);
         } else {
             alert(isZh ? "太棒了！所有复习任务已完成。" : "Great job! No reviews due.");
+        }
+    };
+
+    const handleReviewDay = (dayIndex: number) => {
+        if (dayIndex !== null) {
+            const day = calendarDays[dayIndex];
+            if (day.itemIds.length > 0) {
+                onStartSession(day.itemIds);
+                setSelectedDayIndex(null);
+            }
         }
     };
 
@@ -330,7 +350,53 @@ export const ReviewHub: React.FC<ReviewHubProps> = ({
     return (
         <div className="p-4 md:p-8 max-w-[1600px] mx-auto min-h-screen bg-gray-50 dark:bg-[#050505] space-y-6 pb-24">
             
-            {/* --- TOP DASHBOARD --- */}
+            {/* Popover for Forecast */}
+            {selectedDayIndex !== null && (
+                <div className="fixed inset-0 z-[150] bg-black/20 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in-up">
+                    <div ref={popoverRef} className="bg-white dark:bg-[#111] w-full max-w-sm rounded-3xl shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden relative">
+                        <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50 dark:bg-[#161b22]">
+                            <div className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
+                                <Calendar size={16} />
+                                {calendarDays[selectedDayIndex].label}
+                            </div>
+                            <button onClick={() => setSelectedDayIndex(null)} className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors">
+                                <X size={16}/>
+                            </button>
+                        </div>
+                        <div className="max-h-[300px] overflow-y-auto p-4 space-y-2">
+                            {calendarDays[selectedDayIndex].itemIds.map(id => {
+                                const meta = PROBLEM_MAP[id];
+                                return (
+                                    <div key={id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-black/20 rounded-xl border border-gray-100 dark:border-gray-800">
+                                        <div className="text-sm font-bold text-gray-700 dark:text-gray-300 truncate max-w-[180px]">
+                                            {meta ? meta[langKey] : id}
+                                        </div>
+                                        <div className="text-[10px] text-gray-400 bg-gray-200 dark:bg-gray-800 px-2 py-0.5 rounded">
+                                            Lv.6
+                                        </div>
+                                    </div>
+                                )
+                            })}
+                            {calendarDays[selectedDayIndex].itemIds.length === 0 && (
+                                <div className="text-center py-8 text-gray-400 text-xs italic">
+                                    {isZh ? "当天暂无安排" : "Nothing scheduled"}
+                                </div>
+                            )}
+                        </div>
+                        <div className="p-4 border-t border-gray-100 dark:border-gray-800 flex gap-3">
+                            <button 
+                                onClick={() => handleReviewDay(selectedDayIndex)}
+                                disabled={calendarDays[selectedDayIndex].itemIds.length === 0}
+                                className="w-full py-3 bg-brand text-white rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 hover:bg-brand-dark transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                <Zap size={16} fill="currentColor"/>
+                                {selectedDayIndex === 0 ? t.startPractice : t.startEarly}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div className="flex flex-col lg:flex-row gap-6">
                 {/* 1. Retention Graph */}
                 <div className="flex-1 bg-white dark:bg-dark-card rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-gray-800 relative overflow-hidden h-40 group hover:border-blue-200 transition-colors">
@@ -377,14 +443,17 @@ export const ReviewHub: React.FC<ReviewHubProps> = ({
                     </div>
                     <div className="flex gap-2 h-full items-end pb-1">
                         {calendarDays.map((day, idx) => (
-                            <div key={idx} className={`flex-1 flex flex-col items-center justify-end rounded-xl py-2 border transition-all ${
+                            <button 
+                                key={idx} 
+                                onClick={() => setSelectedDayIndex(idx)}
+                                className={`flex-1 flex flex-col items-center justify-end rounded-xl py-2 border transition-all cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 active:scale-95 ${
                                 day.isToday 
                                 ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-500/30 h-full justify-between scale-105 origin-bottom' 
                                 : 'bg-gray-50 dark:bg-[#151515] border-transparent text-gray-400 h-[80%]'
                             }`}>
                                 <span className={`text-[10px] font-bold ${day.isToday ? 'opacity-90' : ''}`}>{day.label}</span>
                                 <span className={`text-xl font-black ${day.isToday ? 'text-white' : 'text-gray-300 dark:text-gray-600'}`}>{day.count}</span>
-                            </div>
+                            </button>
                         ))}
                     </div>
                 </div>

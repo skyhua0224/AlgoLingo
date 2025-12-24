@@ -12,9 +12,9 @@ import { LessonSummary, SummaryAction } from './LessonSummary';
 import { ExamSummary } from './ExamSummary'; 
 import { StreakCelebration } from './StreakCelebration';
 import { GlobalAiAssistant } from '../GlobalAiAssistant';
-import { DisputeModal } from './DisputeModal'; // NEW
+import { DisputeModal } from './DisputeModal'; 
 import { Button } from '../Button';
-import { LogOut, X, HeartCrack, AlertTriangle, ArrowRight, RefreshCw, AlertCircle, Wand2, ShieldCheck, HelpCircle, Loader2, CheckCircle2, FileText, ChevronRight, MessageSquare, RotateCcw, Bug, Clock } from 'lucide-react';
+import { LogOut, X, HeartCrack, AlertTriangle, ArrowRight, RefreshCw, AlertCircle, Wand2, ShieldCheck, HelpCircle, Loader2, CheckCircle2, FileText, ChevronRight, MessageSquare, RotateCcw, Bug, Clock, ListOrdered } from 'lucide-react';
 import { MarkdownText } from '../common/MarkdownText'; 
 import { useTimer } from '../../hooks/useTimer';
 
@@ -51,7 +51,6 @@ interface LessonRunnerProps {
   customSummaryActions?: SummaryAction[];
   allowMistakeLoop?: boolean;
   onDataChange?: (highPriority: boolean) => void;
-  // New props for LeetCode Runner stats
   mistakes?: MistakeRecord[];
   queueTotal?: number;
   queueIndex?: number;
@@ -128,10 +127,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
 
   // --- IDE MODE (Node 6) ---
   if (props.nodeIndex === 6) {
-    // Find retention record if it exists
     const currentRetention = props.stats.retention?.[props.plan.context?.problemId || ''];
-    
-    // Setup independent timer for IDE mode
     const { seconds } = useTimer(true);
     const formatTime = (sec: number) => {
         const m = Math.floor(sec / 60);
@@ -153,10 +149,20 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
                                 <span className="text-xs font-black text-gray-500 uppercase tracking-widest flex items-center gap-2">
                                     AlgoLingo IDE
                                 </span>
-                                {/* TIMER DISPLAY */}
-                                <div className="flex items-center gap-1.5 ml-4 bg-gray-200 dark:bg-gray-800 px-2.5 py-1 rounded-md text-xs font-mono font-bold text-gray-600 dark:text-gray-300">
-                                    <Clock size={12} />
-                                    {formatTime(seconds)}
+                                
+                                {/* TIMER & QUEUE DISPLAY */}
+                                <div className="flex items-center gap-2 ml-4">
+                                    <div className="flex items-center gap-1.5 bg-gray-200 dark:bg-gray-800 px-2.5 py-1 rounded-md text-xs font-mono font-bold text-gray-600 dark:text-gray-300">
+                                        <Clock size={12} />
+                                        {formatTime(seconds)}
+                                    </div>
+                                    
+                                    {props.queueTotal && props.queueTotal > 1 && (
+                                        <div className="flex items-center gap-1.5 bg-purple-100 dark:bg-purple-900/30 px-2.5 py-1 rounded-md text-xs font-bold text-purple-600 dark:text-purple-300">
+                                            <ListOrdered size={12} />
+                                            <span>{(props.queueIndex || 0) + 1}/{props.queueTotal}</span>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                             
@@ -179,7 +185,6 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
                                 preferences={props.preferences}
                                 language={props.language}
                                 onSuccess={() => {
-                                    // Default success behavior if not handled by LeetCodeRunner's queue
                                     props.onComplete({xp: 50, streak: 1}, true, []);
                                     props.onExit();
                                 }}
@@ -219,7 +224,6 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
       maxMistakes: (props.isSkipContext && !props.isReviewMode) ? 2 : undefined
   });
 
-  // ... (Rest of the component remains unchanged) ...
   const { validate } = useWidgetValidator();
   
   const [quizSelection, setQuizSelection] = useState<number | null>(null);
@@ -231,7 +235,6 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [qualityIssue, setQualityIssue] = useState<QualityIssue | null>(null);
 
-  // Dispute State
   const [showDispute, setShowDispute] = useState(false);
   const [disputeWidget, setDisputeWidget] = useState<Widget | null>(null);
 
@@ -282,9 +285,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
     }
   };
 
-  // --- DISPUTE LOGIC ---
   const handleReport = () => {
-      // Find the primary interactive widget to dispute
       const targetWidget = currentScreen.widgets.find(w => 
           ['quiz', 'parsons', 'fill-in', 'mini-editor', 'steps-list'].includes(w.type.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase())
       );
@@ -293,7 +294,6 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
           setDisputeWidget(targetWidget);
           setShowDispute(true);
       } else {
-          // If purely visual or no logic widget found, fallback to first widget
           setDisputeWidget(currentScreen.widgets[0]);
           setShowDispute(true);
       }
@@ -336,7 +336,6 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
 
   const handleFinish = (satisfied: boolean) => {
       if (satisfied) {
-          // FIX: Pass the real sessionMistakes instead of empty array
           props.onComplete({ xp: xpGained, streak }, true, sessionMistakes);
           props.onExit();
       } else {
@@ -386,12 +385,9 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
               </p>
               
               <div className="flex flex-col gap-3 w-full max-w-xs">
-                  <Button onClick={() => startMistakeRepair(props.plan.screens)} variant="primary" className="w-full">
-                      {props.language === 'Chinese' ? "进入复习模式" : "Start Review Mode"}
+                  <Button onClick={() => props.onComplete({xp: 0, streak: 0}, false, [])} variant="primary" className="w-full">
+                      {props.language === 'Chinese' ? "返回" : "Return"}
                   </Button>
-                  <button onClick={props.onExit} className="text-gray-400 font-bold text-sm hover:text-gray-600 p-2">
-                      {props.language === 'Chinese' ? "退出" : "Exit"}
-                  </button>
               </div>
           </div>
       );
@@ -428,7 +424,6 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
 
   return (
     <div className="flex flex-col h-full bg-gray-50 dark:bg-[#050505] relative overflow-hidden transition-colors">
-        {/* Dispute Modal Overlay */}
         {showDispute && disputeWidget && (
             <DisputeModal
                 isOpen={showDispute}
@@ -458,6 +453,8 @@ export const LessonRunner: React.FC<LessonRunnerProps> = (props) => {
             language={props.language}
             totalTime={props.plan.context?.timeLimit}
             onShowDescription={props.problemContext ? () => setShowDescription(!showDescription) : undefined}
+            queueTotal={props.queueTotal}
+            queueIndex={props.queueIndex}
         />
 
         <div className="flex-1 flex overflow-hidden relative z-0">

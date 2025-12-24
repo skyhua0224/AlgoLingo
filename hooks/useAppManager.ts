@@ -74,7 +74,7 @@ export const useAppManager = () => {
     const [isSkipAttempt, setIsSkipAttempt] = useState(false);
     const [reviewTargetId, setReviewTargetId] = useState<string | null>(null);
     
-    // NEW: Review Queue State
+    // Review Queue State
     const [reviewQueue, setReviewQueue] = useState<string[]>([]);
 
     const [engineeringNav, setEngineeringNav] = useState<EngineeringNavState>({
@@ -83,7 +83,6 @@ export const useAppManager = () => {
         trackData: null
     });
 
-    // --- STATE REFS (For Sync Freshness) ---
     const stateRef = useRef({
         stats, progressMap, mistakes, savedLessons, careerSessions, preferences
     });
@@ -98,7 +97,6 @@ export const useAppManager = () => {
         localStorage.setItem('algolingo_career_sessions', JSON.stringify(careerSessions));
     }, [stats, progressMap, mistakes, savedLessons, careerSessions, preferences]);
 
-    // --- DATA COLLECTION ---
     const collectFullState = useCallback(() => {
         const engineeringData: Record<string, any> = {};
         for (let i = 0; i < localStorage.length; i++) {
@@ -131,7 +129,6 @@ export const useAppManager = () => {
         };
     }, []);
 
-    // --- SYNC ENGINE ---
     const { status: syncStatus, requestSync } = useSync({
         config: preferences.syncConfig,
         onGetFreshData: collectFullState,
@@ -179,7 +176,6 @@ export const useAppManager = () => {
         setGenerationError(null);
         setReviewTargetId(null);
 
-        // IDE Mode (Node 6)
         if (nodeIndex === 6) {
             setCurrentLessonPlan({
                 title: activeProblem.name,
@@ -204,8 +200,6 @@ export const useAppManager = () => {
         }
     };
 
-    // --- NEW: DIRECT IDE ACCESS (FOR REVIEW HUB) ---
-    // UPDATED: Now ensures context is loaded/generated before opening
     const handleOpenIDE = async (problemId: string) => {
         const problemData = PROBLEM_MAP[problemId];
         const problemName = problemData ? problemData[preferences.spokenLanguage === 'Chinese' ? 'zh' : 'en'] : problemId;
@@ -226,8 +220,6 @@ export const useAppManager = () => {
         } 
         
         if (!contextToUse) {
-            // Missing context! Generate it.
-            // Temporarily show loading screen for better UX
             setView('loading');
             try {
                 contextToUse = await generateLeetCodeContext(problemName, preferences);
@@ -255,10 +247,10 @@ export const useAppManager = () => {
     const handleStartReviewSession = (problemIds: string[]) => {
         if (problemIds.length === 0) return;
         setReviewQueue(problemIds);
-        handleOpenIDE(problemIds[0]); // Start with first
+        handleOpenIDE(problemIds[0]); 
     };
 
-    // Updated handleLessonComplete for SRS
+    // --- UPDATED SRS LOGIC (Problem 4) ---
     const handleLessonComplete = (resultStats: { xp: number; streak: number }, shouldSave: boolean, sessionMistakes: MistakeRecord[], evaluation?: { score: number; time: number }) => {
         
         const now = Date.now();
@@ -270,43 +262,58 @@ export const useAppManager = () => {
             streak: resultStats.streak > 0 ? resultStats.streak : prev.streak,
             history: { ...prev.history, [new Date().toISOString().split('T')[0]]: (prev.history[new Date().toISOString().split('T')[0]] || 0) + resultStats.xp },
             
-            // --- SRS LOGIC UPDATE ---
+            // --- SRS V2 ALGORITHM ---
             retention: (() => {
-                if (!pId || !evaluation) return prev.retention; // Only update if problem ID and Eval exists
+                if (!pId || !evaluation) return prev.retention; 
                 
                 const existing = prev.retention?.[pId] || { 
-                    problemId: pId, lastReview: now, nextReview: now, interval: 0, streak: 0, stability: 0, history: [] 
+                    problemId: pId, lastReview: 0, nextReview: 0, interval: 0, streak: 0, stability: 0, history: [] 
                 };
 
                 const score = evaluation.score; // 0-3
-                let newInterval = 1;
+                let newInterval = existing.interval; // Default to current
                 let newStreak = existing.streak;
-                const currentInterval = existing.interval;
+                let nextReviewDate = existing.nextReview;
 
-                // --- NEW STRICT TABLE LOGIC ---
-                // "1 Day" zone (Current <= 1)
-                if (currentInterval <= 1) {
-                    if (score === 3) { newInterval = 3; newStreak++; } // Perfect -> 3 Days
-                    else if (score === 2) { newInterval = 3; newStreak++; } // Good -> 3 Days
-                    else { newInterval = 1; newStreak = 0; } // Hard/Weak -> Stay (1 Day)
-                } 
-                // "3 Days" zone (Current >= 3 && < 7)
-                else if (currentInterval >= 3 && currentInterval < 7) {
-                    if (score === 3) { newInterval = 7; newStreak++; } // Perfect -> 7 Days
-                    else if (score === 2) { newInterval = 7; newStreak++; } // Good -> 7 Days
-                    else { newInterval = 1; newStreak = 0; } // Hard -> Punish to 1 Day
-                }
-                // "7 Days" zone (Current >= 7 && < 30)
-                else if (currentInterval >= 7 && currentInterval < 30) {
-                    if (score === 3) { newInterval = 30; newStreak++; } // Perfect -> 30 Days (Mastery)
-                    else if (score === 2) { newInterval = 15; newStreak++; } // Good -> 15 Days
-                    else { newInterval = 3; newStreak = 0; } // Hard -> Punish to 3 Days
-                }
-                // "30 Days+" zone (Current >= 30)
-                else {
-                    if (score === 3) { newInterval = currentInterval * 2; newStreak++; } // Perfect -> Double
-                    else if (score === 2) { newInterval = Math.round(currentInterval * 1.5); newStreak++; } // Good -> 1.5x
-                    else { newInterval = 7; newStreak = 0; } // Hard -> Punish to 7 Days
+                // --- CHECK: EARLY REVIEW GUARD ---
+                // Only update interval logic if the item is actually DUE (or if it's a new item)
+                const isDue = existing.nextReview <= now;
+                const isNew = existing.interval === 0;
+
+                if (isDue || isNew) {
+                    // Standard SRS Logic
+                    const currentInterval = existing.interval;
+
+                    // "1 Day" zone (Current <= 1)
+                    if (currentInterval <= 1) {
+                        if (score >= 2) { newInterval = 3; newStreak++; } 
+                        else { newInterval = 1; newStreak = 0; } 
+                    } 
+                    // "3 Days" zone (Current >= 3 && < 7)
+                    else if (currentInterval >= 3 && currentInterval < 7) {
+                        if (score >= 2) { newInterval = 7; newStreak++; } 
+                        else { newInterval = 1; newStreak = 0; } 
+                    }
+                    // "7 Days" zone (Current >= 7 && < 30)
+                    else if (currentInterval >= 7 && currentInterval < 30) {
+                        if (score >= 2) { newInterval = 15; newStreak++; } 
+                        else { newInterval = 3; newStreak = 0; } 
+                    }
+                    // "30 Days+" zone (Current >= 30)
+                    else {
+                        if (score >= 2) { newInterval = 30; newStreak++; } // Cap at 30
+                        else { newInterval = 7; newStreak = 0; } 
+                    }
+
+                    // HARD CAP: Max 30 days
+                    if (newInterval > 30) newInterval = 30;
+
+                    nextReviewDate = now + (newInterval * 24 * 60 * 60 * 1000);
+                } else {
+                    // EARLY REVIEW: Keep interval/nextReview same. Just record history.
+                    // Effectively "Practice Mode"
+                    newInterval = existing.interval;
+                    nextReviewDate = existing.nextReview; // Keep original due date
                 }
 
                 // Append History
@@ -321,7 +328,7 @@ export const useAppManager = () => {
                     [pId]: {
                         ...existing,
                         lastReview: now,
-                        nextReview: now + (newInterval * 24 * 60 * 60 * 1000),
+                        nextReview: nextReviewDate,
                         interval: newInterval,
                         streak: newStreak,
                         history: newHistory
@@ -330,7 +337,6 @@ export const useAppManager = () => {
             })()
         }));
 
-        // ... (Existing Mistake Handling) ...
         setMistakes(prev => {
             const updated = [...prev];
             sessionMistakes.forEach(m => {
@@ -345,7 +351,6 @@ export const useAppManager = () => {
             return updated;
         });
 
-        // ... (Saved Lessons Logic) ...
         if (shouldSave && currentLessonPlan) {
              setSavedLessons(prev => [{
                 id: Date.now().toString(),
@@ -358,7 +363,6 @@ export const useAppManager = () => {
                 mistakeCount: sessionMistakes.length
             }, ...prev].slice(0, 50));
             
-            // Progress Map Update (Only for non-IDE levels)
             if (pId && pId !== 'custom' && activeNodeIndex !== -1 && activeNodeIndex < 6) {
                 const nextLevel = activeNodeIndex + 1;
                 const currentLevel = progressMap[preferences.targetLanguage]?.[pId] || 0;
@@ -370,16 +374,12 @@ export const useAppManager = () => {
         
         notifyDataChange(true);
 
-        // --- QUEUE MANAGEMENT (PLAYLIST MODE) ---
         if (reviewQueue.length > 1) {
-            // Remove current, start next
             const nextQueue = reviewQueue.slice(1);
             setReviewQueue(nextQueue);
-            // Small delay to allow UI to reset
             setTimeout(() => handleOpenIDE(nextQueue[0]), 500);
         } else {
             setReviewQueue([]);
-            // Don't auto-close if this was the last one, wait for user to click "Finish" in LeetCodeRunner
         }
     };
 
@@ -411,7 +411,6 @@ export const useAppManager = () => {
         }
     };
 
-    // ... (Other handlers unchanged) ...
     const handleDataLoaded = (data: any) => {
         if (data.stats) setStats(data.stats);
         if (data.progress) setProgressMap(data.progress);

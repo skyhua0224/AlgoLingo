@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { LessonPlan, LeetCodeContext, UserPreferences, SolutionStrategy, MistakeRecord, RetentionRecord } from '../../types';
 import { VirtualWorkspace } from '../VirtualWorkspace';
-import { Loader2, Zap, ArrowRight, Layout, X, Home, RotateCcw, AlertTriangle, RefreshCw, Star, Trophy, Clock, Target, Calendar, History, TrendingUp, AlertCircle, ArrowDown, Bot } from 'lucide-react';
+import { Loader2, Zap, ArrowRight, Layout, X, Home, RotateCcw, AlertTriangle, RefreshCw, Star, Trophy, Clock, Target, Calendar, History, TrendingUp, AlertCircle, ArrowDown, Bot, ListOrdered } from 'lucide-react';
 import { GlobalAiAssistant } from '../GlobalAiAssistant';
 import { generateProblemStrategies, generateSolutionDeepDive, generateMistakeRepairPlan, evaluateSubmissionQuality } from '../../services/geminiService'; 
 import { LessonRunner } from './LessonRunner'; 
@@ -12,14 +12,13 @@ interface LeetCodeRunnerProps {
     preferences: UserPreferences;
     language: 'Chinese' | 'English';
     onSuccess: () => void;
-    // Updated signature to accept data payload for SRS
     onSaveDrillResult: (stats: { xp: number; streak: number }, shouldSave: boolean, mistakes: MistakeRecord[], evaluation?: { score: number, time: number }) => void;
     context?: LeetCodeContext | null; 
     onDataChange?: (highPriority: boolean) => void;
     queueTotal?: number; 
     queueIndex?: number;
-    currentRetention?: RetentionRecord; // Pass existing retention record to calculate next interval
-    allMistakes?: MistakeRecord[]; // Pass global mistakes to calculate historical stats
+    currentRetention?: RetentionRecord; 
+    allMistakes?: MistakeRecord[];
 }
 
 const adaptStrategy = (app: any, lang: string): SolutionStrategy => {
@@ -50,14 +49,13 @@ const adaptStrategy = (app: any, lang: string): SolutionStrategy => {
         logicSteps: app.logicSteps, 
         keywords: safeKeywords,
         code: app.code || "// Code logic missing", 
-        codeWidgets: app.widgets || app.codeWidgets || [],
+        codeWidgets: app.widgets || [],
         language: lang,
         isCustom: app.isCustom || false,
         sections: app.sections 
     };
 };
 
-// --- SRS LOGIC CALCULATOR (VISUAL ONLY) ---
 const calculateSRSProjection = (currentInterval: number, qScore: number, isZh: boolean) => {
     let nextInterval = 1;
     let zone = isZh ? "急救区" : "Emergency Zone";
@@ -78,9 +76,8 @@ const calculateSRSProjection = (currentInterval: number, qScore: number, isZh: b
         else if (qScore === 2) { nextInterval = 15; zone = "30 Days"; logic = isZh ? "晋升，周期稍短。" : "Promoted, shorter cycle."; color = "text-green-500"; statusLabel = isZh ? "晋级" : "Promoted"; }
         else { nextInterval = 3; zone = "3-7 Days"; logic = isZh ? "降级惩罚：退回上一级。" : "Demoted. Return to previous."; color = "text-red-500"; statusLabel = isZh ? "降级" : "Demoted"; }
     } else {
-        if (qScore === 3) { nextInterval = currentInterval * 2; zone = "30 Days+"; logic = isZh ? "指数增长。" : "Exponential Growth."; color = "text-purple-500"; statusLabel = isZh ? "神话" : "Legend"; }
-        else if (qScore === 2) { nextInterval = Math.round(currentInterval * 1.5); zone = "30 Days+"; logic = isZh ? "稳步增长。" : "Steady Growth."; color = "text-blue-500"; statusLabel = isZh ? "稳固" : "Stable"; }
-        else { nextInterval = 7; zone = "3-7 Days"; logic = isZh ? "长期记忆模糊，大幅惩罚。" : "Fuzzy memory. Heavy penalty."; color = "text-red-600"; statusLabel = isZh ? "重修" : "Retrain"; }
+        if (qScore >= 2) { nextInterval = 30; zone = "30 Days (Cap)"; logic = isZh ? "保持大师手感。" : "Maintenance Mode."; color = "text-blue-500"; statusLabel = isZh ? "保持" : "Stable"; }
+        else { nextInterval = 7; zone = "3-7 Days"; logic = isZh ? "记忆模糊，惩罚。" : "Fuzzy. Penalty."; color = "text-red-600"; statusLabel = isZh ? "重修" : "Retrain"; }
     }
 
     return { nextInterval, zone, logic, color, statusLabel };
@@ -90,7 +87,6 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({
     plan, preferences, language, onSuccess, onSaveDrillResult, context, onDataChange,
     queueTotal = 1, queueIndex = 0, currentRetention, allMistakes = []
 }) => {
-    // Steps: 'workspace' (IDE), 'generating' (Solution), 'drill' (Extra practice), 'evaluating' (New AI Judge)
     const [step, setStep] = useState<'strategy-select' | 'generating' | 'workspace' | 'drill' | 'evaluating'>('workspace');
     const [loadingMsg, setLoadingMsg] = useState("");
     const [strategies, setStrategies] = useState<SolutionStrategy[]>([]);
@@ -99,19 +95,12 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({
     const [generationError, setGenerationError] = useState<string | null>(null); 
     const isZh = language === 'Chinese';
 
-    // Evaluation Data
     const [evalResult, setEvalResult] = useState<{ score: number, reason: string, nextIntervalRecommendation: string, time: number, attempts: number } | null>(null);
-
-    // Timeout State
     const [loadingTime, setLoadingTime] = useState(0);
     const [targetStrategyId, setTargetStrategyId] = useState<string | null>(null);
 
-    // Calculate historical stats
     const problemId = plan.context?.problemId;
-    const historicalFailures = allMistakes.filter(m => m.problemId === problemId || m.problemName === plan.title).length;
-    const recentFailures = allMistakes.filter(m => m.problemId === problemId || m.problemName === plan.title).slice(-7).length; // Rough avg
     
-    // Timer Logic for Generating/Evaluating State
     useEffect(() => {
         let interval: any;
         if (step === 'generating' || step === 'evaluating') {
@@ -121,7 +110,6 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({
         return () => clearInterval(interval);
     }, [step]);
 
-    // 1. Load Strategy List (Lightweight metadata)
     useEffect(() => {
         const loadList = async () => {
             if (!plan.title) return;
@@ -136,7 +124,6 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({
                 } catch(e) { console.error("Cache Parse Error", e); }
             } else if (context) {
                 try {
-                    // NEW API CALL
                     const data = await generateProblemStrategies(plan.title, context.problem.description, preferences);
                     const adapted = (data.approaches || []).map((app: any) => adaptStrategy(app, preferences.targetLanguage));
                     setStrategies(adapted);
@@ -264,13 +251,11 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({
         setDrillPlan(null);
     };
 
-    // --- EVALUATION HANDLER ---
     const handleWorkspaceSuccess = async (code: string, attempts: number, time: number) => {
         setStep('evaluating');
         setLoadingMsg(isZh ? "AI 正在评估代码质量 (快速通道)..." : "AI evaluating (Fast Lane)...");
         
         try {
-            // Call AI Evaluator (Layer 2)
             const result = await evaluateSubmissionQuality(
                 code, 
                 time, 
@@ -284,9 +269,7 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({
                 time,
                 attempts
             });
-            // Don't auto-close, let user see modal
         } catch(e) {
-            // Fallback if AI fails: Assume Good
             setEvalResult({ score: 2, reason: "Manual pass.", nextIntervalRecommendation: "3 days", time, attempts });
         }
     };
@@ -294,15 +277,13 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({
     const confirmEvaluation = () => {
         if (!evalResult) return;
         
-        // Pass score back to AppManager
         onSaveDrillResult(
             { xp: 50 + (evalResult.score * 10), streak: 1 }, 
             true, 
-            [], // No mistakes on success
+            [], 
             { score: evalResult.score, time: evalResult.time || 60 }
         );
         
-        // Return to Hub or Next Problem
         onSuccess();
     };
 
@@ -338,21 +319,12 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({
         return `${m}m ${s}s`;
     };
 
-    // Calculate SRS Visuals
     const currentInterval = currentRetention?.interval || 1;
     const srsData = evalResult ? calculateSRSProjection(currentInterval, evalResult.score, isZh) : null;
 
     return (
         <div className="flex h-full relative bg-gray-50 dark:bg-dark-bg overflow-hidden">
             <GlobalAiAssistant problemName={plan.title} preferences={preferences} language={language} />
-
-            {/* Session Info Overlay (Queue Position) */}
-            {step === 'workspace' && queueTotal > 1 && (
-                <div className="absolute top-16 right-6 z-40 bg-black/80 text-white px-3 py-1 rounded-full text-xs font-bold border border-white/10 shadow-lg pointer-events-none flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                    Queue: {queueIndex + 1} / {queueTotal}
-                </div>
-            )}
 
             <div className="w-full h-full flex flex-col transition-all duration-300 ease-in-out relative">
                 
@@ -370,7 +342,6 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({
                     />
                 </div>
 
-                {/* Evaluation Modal (Report Card) */}
                 {step === 'evaluating' && (
                     <div className="absolute inset-0 z-50 flex flex-col items-center justify-center text-gray-800 dark:text-white bg-white/95 dark:bg-dark-bg/95 backdrop-blur-md animate-fade-in-up overflow-y-auto p-4">
                         {!evalResult ? (
@@ -382,7 +353,6 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({
                             </div>
                         ) : (
                             <div className="bg-white dark:bg-[#111] w-full max-w-2xl rounded-3xl shadow-2xl border border-gray-200 dark:border-gray-800 relative overflow-hidden flex flex-col">
-                                {/* Top Banner */}
                                 <div className={`h-24 bg-gradient-to-r ${srsData?.color === 'text-red-500' ? 'from-red-500/20 to-red-900/20' : 'from-brand/20 to-emerald-500/20'} flex items-center justify-center relative overflow-hidden`}>
                                     <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
                                     <div className={`text-4xl font-black ${srsData?.color} drop-shadow-sm flex items-center gap-3`}>
@@ -394,39 +364,6 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({
                                 </div>
 
                                 <div className="p-8 space-y-8">
-                                    {/* 1. Stats Grid */}
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                        <div className="bg-gray-50 dark:bg-gray-800/50 p-3 rounded-2xl border border-gray-100 dark:border-gray-700 flex flex-col items-center justify-center">
-                                            <span className="text-xs font-bold text-gray-400 uppercase">{isZh ? "本次用时" : "Time"}</span>
-                                            <div className="flex items-center gap-1 text-lg font-black text-gray-800 dark:text-white">
-                                                <Clock size={16} className="text-blue-500"/>
-                                                {formatTime(evalResult.time)}
-                                            </div>
-                                        </div>
-                                        <div className="bg-gray-50 dark:bg-gray-800/50 p-3 rounded-2xl border border-gray-100 dark:border-gray-700 flex flex-col items-center justify-center">
-                                            <span className="text-xs font-bold text-gray-400 uppercase">{isZh ? "失败尝试" : "Retries"}</span>
-                                            <div className="flex items-center gap-1 text-lg font-black text-gray-800 dark:text-white">
-                                                <RefreshCw size={16} className={evalResult.attempts === 0 ? "text-green-500" : "text-yellow-500"}/>
-                                                {evalResult.attempts}
-                                            </div>
-                                        </div>
-                                        <div className="bg-gray-50 dark:bg-gray-800/50 p-3 rounded-2xl border border-gray-100 dark:border-gray-700 flex flex-col items-center justify-center">
-                                            <span className="text-xs font-bold text-gray-400 uppercase">{isZh ? "历史错误" : "Hist. Fails"}</span>
-                                            <div className="flex items-center gap-1 text-lg font-black text-gray-800 dark:text-white">
-                                                <History size={16} className="text-orange-500"/>
-                                                {historicalFailures}
-                                            </div>
-                                        </div>
-                                        <div className="bg-gray-50 dark:bg-gray-800/50 p-3 rounded-2xl border border-gray-100 dark:border-gray-700 flex flex-col items-center justify-center">
-                                            <span className="text-xs font-bold text-gray-400 uppercase">{isZh ? "近期错误" : "Recent Avg"}</span>
-                                            <div className="flex items-center gap-1 text-lg font-black text-gray-800 dark:text-white">
-                                                <AlertCircle size={16} className="text-red-500"/>
-                                                {(recentFailures / 7).toFixed(1)}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* 2. SRS Progression Visual */}
                                     <div className="bg-white dark:bg-black/30 rounded-2xl border-2 border-gray-100 dark:border-gray-800 overflow-hidden relative">
                                         <div className="bg-gray-50 dark:bg-gray-800/80 px-4 py-2 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">
                                             <span className="text-xs font-black uppercase text-gray-500 flex items-center gap-2">
@@ -438,13 +375,11 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({
                                         </div>
                                         
                                         <div className="p-6 flex items-center justify-between relative">
-                                            {/* From */}
                                             <div className="text-center z-10">
                                                 <div className="text-xs font-bold text-gray-400 uppercase mb-1">{isZh ? "当前间隔" : "Current"}</div>
                                                 <div className="text-2xl font-black text-gray-700 dark:text-gray-300">{currentInterval} <span className="text-xs">Days</span></div>
                                             </div>
 
-                                            {/* Arrow */}
                                             <div className="flex-1 flex flex-col items-center px-4 relative z-0">
                                                 <div className="h-0.5 w-full bg-gray-200 dark:bg-gray-700 absolute top-1/2 -translate-y-1/2"></div>
                                                 <div className={`relative z-10 bg-white dark:bg-[#111] px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm text-xs font-bold ${srsData?.color}`}>
@@ -453,7 +388,6 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({
                                                 <ArrowRight size={16} className={`mt-1 ${srsData?.color}`} />
                                             </div>
 
-                                            {/* To */}
                                             <div className="text-center z-10">
                                                 <div className="text-xs font-bold text-gray-400 uppercase mb-1">{isZh ? "下次复习" : "Next Review"}</div>
                                                 <div className={`text-3xl font-black ${srsData?.color}`}>{srsData?.nextInterval} <span className="text-sm">Days</span></div>
@@ -463,7 +397,6 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({
                                             </div>
                                         </div>
 
-                                        {/* Logic Explanation Footer */}
                                         <div className="bg-gray-50/50 dark:bg-gray-800/30 px-4 py-2 text-center border-t border-gray-100 dark:border-gray-800">
                                             <p className="text-xs text-gray-500 font-medium flex items-center justify-center gap-1">
                                                 <Target size={12}/>
@@ -472,7 +405,6 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({
                                         </div>
                                     </div>
 
-                                    {/* 3. AI Feedback Text */}
                                     <div className="text-left bg-blue-50 dark:bg-blue-900/10 p-5 rounded-2xl border border-blue-100 dark:border-blue-900/30">
                                         <h4 className="text-xs font-bold text-blue-500 uppercase mb-2 flex items-center gap-1">
                                             <Bot size={14}/> {isZh ? "AI 评语" : "AI Feedback"}
@@ -498,7 +430,6 @@ export const LeetCodeRunner: React.FC<LeetCodeRunnerProps> = ({
                     </div>
                 )}
 
-                {/* Generating/Error Screen */}
                 {step === 'generating' && (
                     <div className="absolute inset-0 z-50 flex flex-col items-center justify-center text-gray-400 bg-white/95 dark:bg-dark-bg/95 backdrop-blur-sm animate-fade-in-up">
                         {generationError ? (

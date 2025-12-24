@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
-import { X, Flame, Heart, RotateCcw, Clock, FileText } from 'lucide-react';
+import { X, Flame, Heart, RotateCcw, Clock, FileText, ListOrdered } from 'lucide-react';
 
 interface LessonHeaderProps {
   currentScreenIndex: number;
@@ -15,7 +15,9 @@ interface LessonHeaderProps {
   language: 'Chinese' | 'English';
   totalTime?: number; 
   onShowDescription?: () => void; 
-  isReviewContext?: boolean; 
+  isReviewContext?: boolean;
+  queueTotal?: number; // Add Prop
+  queueIndex?: number; // Add Prop
 }
 
 export const LessonHeader: React.FC<LessonHeaderProps> = ({
@@ -31,11 +33,12 @@ export const LessonHeader: React.FC<LessonHeaderProps> = ({
   language,
   totalTime,
   onShowDescription,
-  isReviewContext
+  isReviewContext,
+  queueTotal,
+  queueIndex
 }) => {
   const [animateStreak, setAnimateStreak] = useState(false);
   
-  // Trigger bounce animation on streak change
   useEffect(() => {
       if (streak > 0) {
           setAnimateStreak(true);
@@ -44,8 +47,6 @@ export const LessonHeader: React.FC<LessonHeaderProps> = ({
       }
   }, [streak]);
 
-  // Calculate Progress
-  // We use currentScreenIndex + 1 visually, but clamp it to totalScreens
   const progressPercent = Math.min(100, Math.round(((currentScreenIndex + 1) / totalScreens) * 100));
   
   const remainingLives = Math.max(0, 3 - mistakeCount);
@@ -57,7 +58,6 @@ export const LessonHeader: React.FC<LessonHeaderProps> = ({
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  // Status Colors
   const progressColor = isMistakeMode 
     ? 'bg-red-500' 
     : (isSkipMode ? 'bg-orange-500' : 'bg-brand');
@@ -83,14 +83,11 @@ export const LessonHeader: React.FC<LessonHeaderProps> = ({
              </div>
         ) : (
             <div className={`w-full h-full ${trackColor} rounded-full overflow-hidden relative`}>
-                {/* Highlight/Glow (Optional visual polish) */}
                 <div className="absolute top-1 left-2 right-2 h-1 bg-white/20 rounded-full z-10 pointer-events-none"></div>
-                
                 <div 
                     className={`h-full ${progressColor} transition-all duration-500 ease-out rounded-full relative`}
                     style={{ width: `${progressPercent}%` }}
                 >
-                    {/* Inner highlight for "3D" effect */}
                     <div className="absolute top-1 left-2 right-2 h-1 bg-white/30 rounded-full"></div>
                 </div>
             </div>
@@ -100,7 +97,6 @@ export const LessonHeader: React.FC<LessonHeaderProps> = ({
       {/* 3. Right: Stats (Hearts or Streak) & Description Toggle */}
       <div className="flex items-center justify-end gap-4 min-w-[60px]">
         
-        {/* Description Toggle (Only if context available) */}
         {onShowDescription && (
             <button 
                 onClick={onShowDescription}
@@ -111,20 +107,28 @@ export const LessonHeader: React.FC<LessonHeaderProps> = ({
             </button>
         )}
 
-        {/* Timer Display (For Exams OR Review Context) */}
+        {/* Timer Display */}
         {(totalTime || isReviewContext) ? (
-             <div className={`flex items-center gap-1.5 font-mono font-bold ${totalTime && remainingTime < 60 ? 'text-red-500 animate-pulse' : 'text-gray-500'}`}>
-                 <Clock size={18}/>
-                 {formatTime(remainingTime)}
+             <div className="flex items-center gap-2">
+                 <div className={`flex items-center gap-1.5 font-mono font-bold ${totalTime && remainingTime < 60 ? 'text-red-500 animate-pulse' : 'text-gray-500'}`}>
+                     <Clock size={18}/>
+                     {formatTime(remainingTime)}
+                 </div>
+                 
+                 {/* Queue Badge (Moved here) */}
+                 {queueTotal && queueTotal > 1 && (
+                     <div className="flex items-center gap-1 bg-purple-100 dark:bg-purple-900/30 px-2 py-1 rounded-md text-xs font-bold text-purple-600 dark:text-purple-300">
+                         <ListOrdered size={12} />
+                         <span>{(queueIndex || 0) + 1}/{queueTotal}</span>
+                     </div>
+                 )}
              </div>
         ) : isSkipMode ? (
-            /* Lives Mode (Skip) */
             <div className="flex items-center gap-1">
                 <Heart size={24} className="text-red-500 fill-current animate-pulse-soft" />
                 <span className="font-black text-red-500 text-lg">{remainingLives}</span>
             </div>
         ) : (
-            /* Standard Streak Mode */
             <div className={`flex items-center gap-1.5 transition-transform ${animateStreak ? 'scale-125' : 'scale-100'}`}>
                 <div className="relative">
                     <Flame 

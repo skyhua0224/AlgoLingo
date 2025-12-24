@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { X, Check } from 'lucide-react';
 import { UserPreferences } from '../../types';
@@ -38,12 +39,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const [syncMessage, setSyncMessage] = useState('');
     const [showGistIdModal, setShowGistIdModal] = useState<string | null>(null);
     const [conflictData, setConflictData] = useState<{local: any, cloud: any} | null>(null);
+    const [restoreVersion, setRestoreVersion] = useState<string | null>(null);
 
     useEffect(() => {
         setTempPrefs(preferences);
         if (isOpen) {
             setSyncState('idle');
             setSyncMessage('');
+            setRestoreVersion(null);
         }
     }, [isOpen, preferences]);
 
@@ -64,16 +67,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     };
 
     const handleClose = () => {
-        // Revert theme visual to the actual persisted preference if we cancel
         const theme = preferences.theme;
         const root = document.documentElement;
         const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
         root.classList.toggle('dark', isDark);
-        
         onClose();
     };
 
-    const handleSyncTrigger = async () => {
+    const handleSyncTrigger = async (mode: 'create' | 'sync', version?: string) => {
+        if (version) {
+            // Instead of direct execute, show confirmation overlay
+            setRestoreVersion(version);
+            return;
+        }
+
         const token = tempPrefs.syncConfig?.githubToken;
         const gistId = tempPrefs.syncConfig?.gistId;
 
@@ -110,7 +117,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         }
     };
 
-    const executeSync = async (direction: 'push' | 'pull', token: string, gistId?: string) => {
+    const executeRestore = async () => {
+        if (!restoreVersion) return;
+        setRestoreVersion(null); // Close modal
+        const token = tempPrefs.syncConfig?.githubToken!;
+        const gistId = tempPrefs.syncConfig?.gistId!; // Assumed valid if listing versions
+        await executeSync('pull', token, gistId, restoreVersion);
+    };
+
+    const executeSync = async (direction: 'push' | 'pull', token: string, gistId?: string, version?: string) => {
         setConflictData(null); 
         setSyncState('loading');
 
@@ -138,8 +153,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     throw new Error(res.error);
                 }
             } else {
-                setSyncMessage(isZh ? "正在还原全量数据..." : "Restoring full state...");
-                const res = await pullFromGist(token, gistId!);
+                setSyncMessage(isZh ? (version ? "正在回档..." : "正在还原...") : (version ? "Restoring version..." : "Restoring state..."));
+                const res = await pullFromGist(token, gistId!, version);
+                
                 if (res.success && res.data) {
                     onDataLoaded(res.data);
                     
@@ -209,6 +225,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     isZh={isZh}
                     onCancel={() => { setConflictData(null); setSyncState('idle'); setSyncMessage(isZh ? "已取消" : "Cancelled"); }}
                     onResolve={(action) => executeSync(action, tempPrefs.syncConfig!.githubToken, tempPrefs.syncConfig!.gistId || conflictData.cloud.gistId)}
+                />
+            )}
+
+            {restoreVersion && (
+                <SyncConflictModal 
+                    localData={{ updatedAt: Date.now(), stats: collectFullState().stats, userName: "Current State" }}
+                    cloudData={{ updatedAt: 0, stats: { xp: 0, streak: 0, gems: 0, lastPlayed: "", history: {} }, userName: `Version: ${restoreVersion.substring(0,7)}` }} 
+                    // Reuse conflict modal UI but customized for restore confirmation
+                    isZh={isZh}
+                    isNewUserFlow={true} // Using new user flow styling for overwrite warning
+                    onCancel={() => setRestoreVersion(null)}
+                    onResolve={() => executeRestore()}
                 />
             )}
 

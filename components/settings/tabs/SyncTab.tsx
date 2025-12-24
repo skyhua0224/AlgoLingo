@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { UserPreferences } from '../../../types';
-import { Github, HelpCircle, RefreshCw, Check, Copy, Loader2, Cloud, AlertCircle, History, Clock, ArrowDown } from 'lucide-react';
+import { Github, HelpCircle, RefreshCw, Check, Copy, Loader2, Cloud, AlertCircle, History, Clock, ArrowDown, RotateCcw } from 'lucide-react';
 import { getGistCommits, GistCommit } from '../../../services/githubService';
 
 interface SyncTabProps {
     preferences: UserPreferences;
     onChange: (p: Partial<UserPreferences>) => void;
-    onSync: (mode: 'create' | 'sync') => void;
+    onSync: (mode: 'create' | 'sync', version?: string) => void; 
     syncStatus: string; 
     syncMessage?: string;
     isZh: boolean;
@@ -25,6 +25,11 @@ export const SyncTab: React.FC<SyncTabProps> = ({ preferences, onChange, onSync,
             getGistCommits(config.githubToken, config.gistId).then(setCommits).finally(() => setLoadingCommits(false));
         }
     }, [config.gistId]);
+
+    const handleRestoreClick = (sha: string) => {
+        // Delegate confirmation to parent (SettingsModal) which shows a proper UI
+        onSync('sync', sha);
+    };
 
     return (
         <div className="space-y-6 animate-fade-in-up">
@@ -59,16 +64,27 @@ export const SyncTab: React.FC<SyncTabProps> = ({ preferences, onChange, onSync,
                 {/* Recovery Slots */}
                 {config.gistId && (
                     <div className="pt-6 border-t border-gray-100 dark:border-gray-800">
-                        <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2"><History size={14}/> {isZh ? "恢复存档 (Recovery Slots)" : "Recovery Slots"}</h4>
-                        <div className="space-y-2">
+                        <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2"><History size={14}/> {isZh ? "时光机 (Time Machine)" : "Time Machine"}</h4>
+                        <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
                             {loadingCommits ? <div className="py-4 text-center animate-pulse text-gray-400"><RefreshCw size={16} className="animate-spin mx-auto mb-1"/>Loading history...</div> :
                             commits.map((c, idx) => (
-                                <div key={c.version} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-xl group hover:bg-brand/5 transition-all">
+                                <div key={c.version} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-xl group hover:bg-brand/5 transition-all border border-transparent hover:border-brand/20">
                                     <div className="flex items-center gap-3">
                                         <div className="p-2 bg-white dark:bg-gray-900 rounded-lg text-gray-400"><Clock size={14}/></div>
-                                        <div><div className="text-xs font-bold text-gray-800 dark:text-gray-200">{new Date(c.committedAt).toLocaleString()}</div><div className="text-[10px] text-gray-500 font-mono">{c.version.substring(0, 7)}</div></div>
+                                        <div>
+                                            <div className="text-xs font-bold text-gray-800 dark:text-gray-200">{new Date(c.committedAt).toLocaleString()}</div>
+                                            <div className="text-[10px] text-gray-500 font-mono flex items-center gap-2">
+                                                {c.version.substring(0, 7)}
+                                                {idx === 0 && <span className="bg-green-100 text-green-600 px-1 rounded text-[9px] font-bold">LATEST</span>}
+                                            </div>
+                                        </div>
                                     </div>
-                                    <button className="text-[10px] font-black text-brand uppercase opacity-0 group-hover:opacity-100 flex items-center gap-1">{isZh ? "回档" : "Restore"} <ArrowDown size={10}/></button>
+                                    <button 
+                                        onClick={() => handleRestoreClick(c.version)}
+                                        className="text-[10px] font-bold bg-white dark:bg-gray-900 text-gray-500 hover:text-brand hover:bg-brand/10 border border-gray-200 dark:border-gray-700 px-3 py-1.5 rounded-lg transition-all flex items-center gap-1"
+                                    >
+                                        <RotateCcw size={12}/> {isZh ? "回档" : "Restore"}
+                                    </button>
                                 </div>
                             ))}
                         </div>
